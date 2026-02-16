@@ -1734,13 +1734,18 @@ function handleReplaceSubmit(text) {
   }
 }
 
-function handleModalSubmit(text) {
+function handleModalSubmit(text, includeAnnotations = true) {
   insertModalVisible.value = false
   if (!text) {
     // Clear pending overlay if modal submitted with no text
     pendingOverlayAnnotations.value = null
     svgRef.value?.focus()
     return
+  }
+
+  // Clear overlay annotations if user unchecked the toggle
+  if (!includeAnnotations) {
+    pendingOverlayAnnotations.value = null
   }
 
   if (insertModalIsReplace.value) {
@@ -2346,6 +2351,7 @@ defineExpose({
       :initial-text="insertModalText"
       :is-replace="insertModalIsReplace"
       :position="insertModalPosition"
+      :overlay-annotation-count="pendingOverlayAnnotations?.length || 0"
       @submit="handleModalSubmit"
       @cancel="handleInsertCancel"
     />
