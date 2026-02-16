@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import SequenceEditor from '../src/components/SequenceEditor.vue'
 import Sidebar from './Sidebar.vue'
-import { ArrowDownTrayIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+import { ArrowDownTrayIcon, MagnifyingGlassIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
 import { pUC19 } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
@@ -36,24 +36,64 @@ onMounted(async () => {
     }
   }
   await refreshList()
+
+  // Check for hash and load that sequence
+  const hash = window.location.hash.slice(1)  // Remove the #
+  if (hash) {
+    const seq = await getSequence(hash)
+    if (seq) {
+      selectedId.value = hash
+      currentSequence.value = seq
+    }
+  }
 })
 
 async function refreshList() {
   sequences.value = await listSequences()
 }
 
-async function selectSequence(id) {
-  selectedId.value = id
-  currentSequence.value = await getSequence(id)
+function selectSequence(id) {
+  // Use hash navigation and refresh to ensure clean state
+  window.location.hash = id
+  window.location.reload()
 }
 
 function handleEdit(data) {
-  console.log('Edit event:', data)
-  // Future: persist to IndexedDB
+  // Edits are not auto-saved; use "Save As" to persist
+}
+
+async function saveAs() {
+  if (!currentSequence.value || !editorRef.value) {
+    console.error('saveAs: no current sequence or editor ref')
+    return
+  }
+
+  const name = prompt('Save as:', `${currentSequence.value.name || 'Untitled'} (copy)`)
+  if (!name) return
+
+  // Create new sequence entry with current editor state
+  // Use JSON parse/stringify to strip Vue reactive proxies
+  const newSequence = JSON.parse(JSON.stringify({
+    id: crypto.randomUUID(),
+    name,
+    sequence: editorRef.value.getSequence(),
+    annotations: currentSequence.value.annotations || [],
+    metadata: currentSequence.value.metadata || {},
+    createdAt: new Date().toISOString()
+  }))
+
+  try {
+    await saveSequence(newSequence)
+    // Navigate to new sequence with page reload
+    window.location.hash = newSequence.id
+    window.location.reload()
+  } catch (err) {
+    console.error('saveAs failed:', err)
+  }
 }
 
 function handleSelect(data) {
-  console.log('Selection:', data)
+  // Selection changed
 }
 
 async function handleAnnotationsUpdate(updatedAnnotations) {
@@ -278,6 +318,9 @@ async function handleUpload(file) {
         <template #toolbar>
           <button class="toolbar-icon-btn" @click="openSearch" title="Search sequence">
             <MagnifyingGlassIcon class="toolbar-icon" />
+          </button>
+          <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
+            <DocumentDuplicateIcon class="toolbar-icon" />
           </button>
           <button class="toolbar-icon-btn" @click="downloadSequence" title="Download as GenBank">
             <ArrowDownTrayIcon class="toolbar-icon" />
