@@ -4081,5 +4081,51 @@ describe('SequenceEditor', () => {
       const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
       expect(overlay.annotations[0].relativeRanges[0].orientation).toBe(-1)
     })
+
+    it('reverses annotation positions when copying minus strand selection', async () => {
+      // When copying a minus strand selection, the sequence is reverse-complemented.
+      // Annotations within that selection need their positions reversed accordingly.
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            // Annotation at positions 5..10 within a 20-base region
+            { id: 'ann-1', span: '5..10', caption: 'Test Gene', type: 'gene' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG') // 20 bases
+      await wrapper.vm.$nextTick()
+
+      // Select the entire sequence as MINUS strand
+      wrapper.vm.setSelection('(0..20)')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay.annotations).toHaveLength(1)
+
+      // Original annotation at 5..10 in a 20-base minus strand selection
+      // should be reversed to 10..15 (since bases at 5-9 become 14-10 when reversed)
+      // Formula: newStart = selectionLength - oldEnd = 20 - 10 = 10
+      //          newEnd = selectionLength - oldStart = 20 - 5 = 15
+      expect(overlay.annotations[0].relativeRanges[0].start).toBe(10)
+      expect(overlay.annotations[0].relativeRanges[0].end).toBe(15)
+
+      // Orientation should also flip (plus -> minus since we're in a minus strand selection)
+      expect(overlay.annotations[0].relativeRanges[0].orientation).toBe(-1)
+    })
   })
 })

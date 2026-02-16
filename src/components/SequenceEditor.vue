@@ -357,6 +357,7 @@ function clearOverlay() {
 /**
  * Find annotations that overlap with selection ranges and convert to relative positions.
  * For multi-range selections, positions are relative to the concatenated copied sequence.
+ * For minus strand selections, positions are reversed and orientations are flipped.
  *
  * @param {Array<Range>} selectionRanges - The selection ranges (ordered)
  * @returns {Array} Annotations with relative positions
@@ -390,8 +391,22 @@ function getOverlappingAnnotations(selectionRanges) {
         const overlapEnd = Math.min(annRange.end, selRange.end)
 
         // Convert to relative position within the copied sequence
-        const relStart = relativeStart + (overlapStart - selRange.start)
-        const relEnd = relativeStart + (overlapEnd - selRange.start)
+        // For minus strand selections, the sequence is reverse-complemented,
+        // so we need to reverse the annotation positions within the range
+        const isMinus = selRange.orientation === Orientation.MINUS
+        let relStart, relEnd, resultOrientation
+
+        if (isMinus) {
+          // Reverse positions: position X in original becomes (rangeLength - X) in reversed
+          relStart = relativeStart + (selRange.end - overlapEnd)
+          relEnd = relativeStart + (selRange.end - overlapStart)
+          // Flip orientation when in minus strand selection
+          resultOrientation = annRange.orientation * -1
+        } else {
+          relStart = relativeStart + (overlapStart - selRange.start)
+          relEnd = relativeStart + (overlapEnd - selRange.start)
+          resultOrientation = annRange.orientation
+        }
 
         // Check if we already have this annotation in results
         let existing = result.find(r => r.id === ann.id)
@@ -400,7 +415,7 @@ function getOverlappingAnnotations(selectionRanges) {
             id: ann.id,  // Store original ID for reference, but new ID will be generated on paste
             caption: ann.caption,
             type: ann.type,
-            orientation: annRange.orientation,
+            orientation: resultOrientation,
             attributes: ann.attributes ? { ...ann.attributes } : {},
             relativeRanges: []
           }
@@ -410,7 +425,7 @@ function getOverlappingAnnotations(selectionRanges) {
         existing.relativeRanges.push({
           start: relStart,
           end: relEnd,
-          orientation: annRange.orientation
+          orientation: resultOrientation
         })
       }
     }
