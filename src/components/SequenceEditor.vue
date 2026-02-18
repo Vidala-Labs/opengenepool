@@ -96,6 +96,9 @@ const insertModalIsReplace = ref(false)
 const insertModalPosition = ref(0)
 const insertModalSelectionEnd = ref(0)  // End of selection for replace mode
 
+// Rich paste state - holds overlay annotations to create after paste
+const pendingOverlayAnnotations = ref(null)
+
 // Annotation modal state
 const annotationModalOpen = ref(false)
 const annotationModalSpan = ref('0..0')
@@ -325,6 +328,111 @@ watch(() => props.annotations, (newAnnotations) => {
 // Annotation filtering state with localStorage persistence
 const HIDDEN_TYPES_KEY = 'opengenepool-hidden-annotation-types'
 const DEFAULT_HIDDEN_TYPES = ['source']  // Hide source annotations by default
+
+// Rich copy/paste overlay storage
+const OVERLAY_STORAGE_KEY = 'opengenepool-copy-overlay'
+
+/**
+ * Save overlay data for rich paste (annotations with relative positions)
+ */
+function saveOverlay(sequence, annotations) {
+  localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify({ sequence, annotations }))
+}
+
+/**
+ * Load overlay data from localStorage
+ */
+function loadOverlay() {
+  const data = localStorage.getItem(OVERLAY_STORAGE_KEY)
+  return data ? JSON.parse(data) : null
+}
+
+/**
+ * Clear overlay from localStorage
+ */
+function clearOverlay() {
+  localStorage.removeItem(OVERLAY_STORAGE_KEY)
+}
+
+/**
+ * Find annotations that overlap with selection ranges and convert to relative positions.
+ * For multi-range selections, positions are relative to the concatenated copied sequence.
+ * For minus strand selections, positions are reversed and orientations are flipped.
+ *
+ * @param {Array<Range>} selectionRanges - The selection ranges (ordered)
+ * @returns {Array} Annotations with relative positions
+ */
+function getOverlappingAnnotations(selectionRanges) {
+  const result = []
+
+  // Build a mapping from absolute positions to relative positions in the copied sequence
+  // For multi-range: ranges are concatenated in order
+  let relativeOffset = 0
+  const rangeOffsets = selectionRanges.map(range => {
+    const offset = relativeOffset
+    relativeOffset += range.end - range.start
+    return { range, relativeStart: offset }
+  })
+
+  for (const ann of localAnnotations.value) {
+    const annSpan = typeof ann.span === 'string' ? Span.parse(ann.span) : ann.span
+    if (!annSpan || !annSpan.ranges) continue
+
+    // Check each annotation range against each selection range
+    for (const annRange of annSpan.ranges) {
+      for (const { range: selRange, relativeStart } of rangeOffsets) {
+        // Check if annotation range overlaps with selection range
+        if (annRange.end <= selRange.start || annRange.start >= selRange.end) {
+          continue // No overlap
+        }
+
+        // Calculate the overlapping portion (clip to selection bounds)
+        const overlapStart = Math.max(annRange.start, selRange.start)
+        const overlapEnd = Math.min(annRange.end, selRange.end)
+
+        // Convert to relative position within the copied sequence
+        // For minus strand selections, the sequence is reverse-complemented,
+        // so we need to reverse the annotation positions within the range
+        const isMinus = selRange.orientation === Orientation.MINUS
+        let relStart, relEnd, resultOrientation
+
+        if (isMinus) {
+          // Reverse positions: position X in original becomes (rangeLength - X) in reversed
+          relStart = relativeStart + (selRange.end - overlapEnd)
+          relEnd = relativeStart + (selRange.end - overlapStart)
+          // Flip orientation when in minus strand selection
+          resultOrientation = annRange.orientation * -1
+        } else {
+          relStart = relativeStart + (overlapStart - selRange.start)
+          relEnd = relativeStart + (overlapEnd - selRange.start)
+          resultOrientation = annRange.orientation
+        }
+
+        // Check if we already have this annotation in results
+        let existing = result.find(r => r.id === ann.id)
+        if (!existing) {
+          existing = {
+            id: ann.id,  // Store original ID for reference, but new ID will be generated on paste
+            caption: ann.caption,
+            type: ann.type,
+            orientation: resultOrientation,
+            attributes: ann.attributes ? { ...ann.attributes } : {},
+            relativeRanges: []
+          }
+          result.push(existing)
+        }
+
+        existing.relativeRanges.push({
+          start: relStart,
+          end: relEnd,
+          orientation: resultOrientation
+        })
+      }
+    }
+  }
+
+  return result
+}
 
 // Annotation colors with localStorage persistence
 // These default colors match annotation.js ANNOTATION_COLORS.
@@ -1311,6 +1419,16 @@ async function handleCopy() {
   const selectedSeq = getSelectedSequenceText()
   if (!selectedSeq) return
 
+  // Get selection ranges for overlay calculation
+  const domain = selection.domain.value
+  const selectionRanges = domain?.ranges?.filter(r => r.start !== r.end) || []
+
+  // Find overlapping annotations and save overlay for rich paste
+  if (selectionRanges.length > 0) {
+    const overlappingAnnotations = getOverlappingAnnotations(selectionRanges)
+    saveOverlay(selectedSeq, overlappingAnnotations)
+  }
+
   if (effectiveBackend.value?.copy) {
     // Backend handles copy (may do additional processing)
     await effectiveBackend.value.copy({
@@ -1349,6 +1467,20 @@ async function handlePaste() {
     }
 
     if (clipboardText) {
+      // Check for overlay (rich paste with annotations)
+      const overlay = loadOverlay()
+
+      if (overlay && overlay.sequence === clipboardText && overlay.annotations?.length > 0) {
+        // Rich paste - store pending annotations to create after paste
+        pendingOverlayAnnotations.value = overlay.annotations
+      } else if (overlay && overlay.sequence !== clipboardText) {
+        // Clipboard text changed externally - clear stale overlay
+        clearOverlay()
+        pendingOverlayAnnotations.value = null
+      } else {
+        pendingOverlayAnnotations.value = null
+      }
+
       showInsertModal(clipboardText)
     }
   } catch (err) {
@@ -1539,6 +1671,46 @@ function handleInsertSubmit(text) {
 
   // 3. Emit for standalone mode / parent components
   emit('edit', { type: 'insert', position: insertionSite, text })
+
+  // 4. Create overlay annotations (rich paste)
+  if (pendingOverlayAnnotations.value) {
+    createOverlayAnnotations(insertionSite, pendingOverlayAnnotations.value)
+    pendingOverlayAnnotations.value = null
+  }
+}
+
+/**
+ * Create annotations from overlay data at the paste position.
+ * Each overlay annotation has relative positions that need to be converted
+ * to absolute positions based on where the paste occurred.
+ *
+ * @param {number} pastePosition - The position where the sequence was pasted
+ * @param {Array} overlayAnnotations - Annotations with relative positions
+ */
+function createOverlayAnnotations(pastePosition, overlayAnnotations) {
+  for (const overlay of overlayAnnotations) {
+    // Build span string from relative ranges converted to absolute positions
+    const absoluteRanges = overlay.relativeRanges.map(relRange => {
+      const absStart = pastePosition + relRange.start
+      const absEnd = pastePosition + relRange.end
+      return new Range(absStart, absEnd, relRange.orientation)
+    })
+
+    // Create span string
+    const spanStr = absoluteRanges.map(r => r.toString()).join(' + ')
+
+    // Remove translation attribute if present - it will be recalculated
+    const attributes = { ...overlay.attributes }
+    delete attributes.translation
+
+    // Create the annotation (generates new UUID)
+    handleAnnotationCreate({
+      caption: overlay.caption,
+      type: overlay.type,
+      span: spanStr,
+      attributes
+    })
+  }
 }
 
 function handleReplaceSubmit(text) {
@@ -1554,13 +1726,26 @@ function handleReplaceSubmit(text) {
   selection.select(`${selStart}..${selStart + text.length}`)
 
   emit('edit', { type: 'replace', text })
+
+  // Create overlay annotations (rich paste)
+  if (pendingOverlayAnnotations.value) {
+    createOverlayAnnotations(selStart, pendingOverlayAnnotations.value)
+    pendingOverlayAnnotations.value = null
+  }
 }
 
-function handleModalSubmit(text) {
+function handleModalSubmit(text, includeAnnotations = true) {
   insertModalVisible.value = false
   if (!text) {
+    // Clear pending overlay if modal submitted with no text
+    pendingOverlayAnnotations.value = null
     svgRef.value?.focus()
     return
+  }
+
+  // Clear overlay annotations if user unchecked the toggle
+  if (!includeAnnotations) {
+    pendingOverlayAnnotations.value = null
   }
 
   if (insertModalIsReplace.value) {
@@ -1574,6 +1759,8 @@ function handleModalSubmit(text) {
 
 function handleInsertCancel() {
   insertModalVisible.value = false
+  // Clear pending overlay on cancel
+  pendingOverlayAnnotations.value = null
   // Return focus to editor
   svgRef.value?.focus()
 }
@@ -2164,6 +2351,7 @@ defineExpose({
       :initial-text="insertModalText"
       :is-replace="insertModalIsReplace"
       :position="insertModalPosition"
+      :overlay-annotation-count="pendingOverlayAnnotations?.length || 0"
       @submit="handleModalSubmit"
       @cancel="handleInsertCancel"
     />

@@ -17,6 +17,10 @@ const props = defineProps({
   position: {
     type: Number,
     default: 0
+  },
+  overlayAnnotationCount: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -24,10 +28,18 @@ const emit = defineEmits(['submit', 'cancel'])
 
 const inputRef = ref(null)
 const text = ref('')
+const includeAnnotations = ref(true)
 
 // Update text when initialText changes
 watch(() => props.initialText, (val) => {
   text.value = val
+})
+
+// Reset includeAnnotations when modal opens
+watch(() => props.visible, (visible) => {
+  if (visible) {
+    includeAnnotations.value = true
+  }
 })
 
 // Focus input when modal becomes visible
@@ -46,7 +58,7 @@ function handleSubmit() {
   // Remove whitespace/newlines and invalid characters, uppercase
   const value = text.value.toUpperCase().replace(/[^ATCGNRYSWKMBDHV]/g, '')
   if (value) {
-    emit('submit', value)
+    emit('submit', value, includeAnnotations.value)
   }
   text.value = ''
 }
@@ -84,6 +96,10 @@ function handleKeyDown(event) {
       <div class="modal-hint">
         Valid characters: A, T, C, G, N, R, Y, S, W, K, M, B, D, H, V
       </div>
+      <label v-if="overlayAnnotationCount > 0" class="annotation-toggle">
+        <input type="checkbox" v-model="includeAnnotations" />
+        <span>Include {{ overlayAnnotationCount }} annotation{{ overlayAnnotationCount === 1 ? '' : 's' }}</span>
+      </label>
       <div class="modal-buttons">
         <button class="btn btn-cancel" @click="handleCancel">Cancel</button>
         <button class="btn btn-submit" @click="handleSubmit">
@@ -181,5 +197,21 @@ function handleKeyDown(event) {
 
 .btn-submit:hover {
   background: #357abd;
+}
+
+.annotation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+}
+
+.annotation-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 </style>

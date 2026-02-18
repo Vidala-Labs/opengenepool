@@ -3848,4 +3848,284 @@ describe('SequenceEditor', () => {
       expect(sel).toEqual({ start: 7, end: 7 })
     })
   })
+
+  describe('rich copy/paste', () => {
+    const OVERLAY_STORAGE_KEY = 'opengenepool-copy-overlay'
+
+    beforeEach(() => {
+      localStorage.removeItem(OVERLAY_STORAGE_KEY)
+    })
+
+    it('saves overlay to localStorage when copying sequence with annotations', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            { id: 'ann-1', span: '5..15', caption: 'Test Gene', type: 'gene' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Select range that includes the annotation
+      wrapper.vm.setSelection('3..18')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy via keyboard shortcut simulation
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay was saved
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay).toBeTruthy()
+      expect(overlay.sequence).toBe('GATCGATCGATCGAT') // 15 bases from 3..18
+      expect(overlay.annotations).toHaveLength(1)
+      expect(overlay.annotations[0].caption).toBe('Test Gene')
+      expect(overlay.annotations[0].type).toBe('gene')
+      // Annotation 5..15 overlaps with selection 3..18
+      // Overlap is 5..15, relative to selection start (3): 2..12
+      expect(overlay.annotations[0].relativeRanges[0].start).toBe(2)
+      expect(overlay.annotations[0].relativeRanges[0].end).toBe(12)
+    })
+
+    it('clears overlay when copying sequence with no annotations', async () => {
+      // Pre-set an overlay
+      localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify({
+        sequence: 'OLD',
+        annotations: [{ caption: 'Old' }]
+      }))
+
+      const wrapper = mount(SequenceEditor, {
+        props: { initialZoom: 100, annotations: [] }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Select range
+      wrapper.vm.setSelection('0..5')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay was saved (empty annotations)
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay).toBeTruthy()
+      expect(overlay.sequence).toBe('ATCGA')
+      expect(overlay.annotations).toHaveLength(0)
+    })
+
+    it('handles partial annotation overlap correctly', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            { id: 'ann-1', span: '0..20', caption: 'Long Gene', type: 'gene' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Select only part of the annotation (5..10)
+      wrapper.vm.setSelection('5..10')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay - annotation should be clipped to selection bounds
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay.annotations).toHaveLength(1)
+      // Original span 0..20 clipped to selection 5..10 = overlap 5..10
+      // Relative to selection start (5): 0..5
+      expect(overlay.annotations[0].relativeRanges[0].start).toBe(0)
+      expect(overlay.annotations[0].relativeRanges[0].end).toBe(5)
+    })
+
+    it('handles multi-range selection with annotations', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            { id: 'ann-1', span: '2..8', caption: 'Gene1', type: 'gene' },
+            { id: 'ann-2', span: '12..18', caption: 'Gene2', type: 'CDS' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Create multi-range selection: 0..10 + 10..20
+      wrapper.vm.setSelection('0..10 + 10..20')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay.annotations).toHaveLength(2)
+
+      // Gene1 at 2..8, in first range (0..10), relative: 2..8
+      const gene1 = overlay.annotations.find(a => a.caption === 'Gene1')
+      expect(gene1.relativeRanges[0].start).toBe(2)
+      expect(gene1.relativeRanges[0].end).toBe(8)
+
+      // Gene2 at 12..18, in second range (10..20), relative offset is 10 (first range length)
+      // Position 12 in second range: 10 + (12-10) = 12, 18: 10 + (18-10) = 18
+      const gene2 = overlay.annotations.find(a => a.caption === 'Gene2')
+      expect(gene2.relativeRanges[0].start).toBe(12) // 10 + (12-10)
+      expect(gene2.relativeRanges[0].end).toBe(18)   // 10 + (18-10)
+    })
+
+    it('does not include annotations outside selection', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            { id: 'ann-1', span: '0..5', caption: 'Before', type: 'gene' },
+            { id: 'ann-2', span: '15..20', caption: 'After', type: 'gene' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Select range that excludes both annotations
+      wrapper.vm.setSelection('6..14')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay - should have no annotations
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay.annotations).toHaveLength(0)
+    })
+
+    it('preserves annotation orientation in overlay', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            { id: 'ann-1', span: '(5..15)', caption: 'Minus Gene', type: 'gene' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Select range that includes the annotation
+      wrapper.vm.setSelection('0..20')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay - should preserve minus strand orientation (-1)
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay.annotations[0].relativeRanges[0].orientation).toBe(-1)
+    })
+
+    it('reverses annotation positions when copying minus strand selection', async () => {
+      // When copying a minus strand selection, the sequence is reverse-complemented.
+      // Annotations within that selection need their positions reversed accordingly.
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          annotations: [
+            // Annotation at positions 5..10 within a 20-base region
+            { id: 'ann-1', span: '5..10', caption: 'Test Gene', type: 'gene' }
+          ]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG') // 20 bases
+      await wrapper.vm.$nextTick()
+
+      // Select the entire sequence as MINUS strand
+      wrapper.vm.setSelection('(0..20)')
+      await wrapper.vm.$nextTick()
+
+      // Mock clipboard
+      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      Object.defineProperty(navigator, 'clipboard', {
+        value: mockClipboard,
+        writable: true,
+        configurable: true
+      })
+
+      // Trigger copy
+      const svg = wrapper.find('.editor-svg')
+      await svg.trigger('keydown', { key: 'c', ctrlKey: true })
+
+      // Check overlay
+      const overlay = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY))
+      expect(overlay.annotations).toHaveLength(1)
+
+      // Original annotation at 5..10 in a 20-base minus strand selection
+      // should be reversed to 10..15 (since bases at 5-9 become 14-10 when reversed)
+      // Formula: newStart = selectionLength - oldEnd = 20 - 10 = 10
+      //          newEnd = selectionLength - oldStart = 20 - 5 = 15
+      expect(overlay.annotations[0].relativeRanges[0].start).toBe(10)
+      expect(overlay.annotations[0].relativeRanges[0].end).toBe(15)
+
+      // Orientation should also flip (plus -> minus since we're in a minus strand selection)
+      expect(overlay.annotations[0].relativeRanges[0].orientation).toBe(-1)
+    })
+  })
 })

@@ -59,7 +59,7 @@ describe('InsertModal', () => {
   })
 
   describe('submit', () => {
-    it('emits submit with uppercase text on button click', async () => {
+    it('emits submit with uppercase text and includeAnnotations on button click', async () => {
       const wrapper = mount(InsertModal, {
         props: { visible: true, initialText: 'atg' }
       })
@@ -67,7 +67,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
       expect(wrapper.emitted('submit')).toHaveLength(1)
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', true])
     })
 
     it('emits submit on Enter key', async () => {
@@ -78,7 +78,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter' })
       expect(wrapper.emitted('submit')).toHaveLength(1)
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', true])
     })
 
     it('filters out invalid characters', async () => {
@@ -89,7 +89,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
       // Only valid IUPAC codes should remain: X and Z are not valid, Y is valid
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATGY'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATGY', true])
     })
 
     it('does not emit submit with empty text', async () => {
@@ -145,7 +145,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATCG'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATCG', true])
     })
 
     it('accepts N wildcard', async () => {
@@ -155,7 +155,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATNGC'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATNGC', true])
     })
 
     it('accepts two-letter IUPAC codes', async () => {
@@ -165,7 +165,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['RYSWKM'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['RYSWKM', true])
     })
 
     it('accepts three-letter IUPAC codes', async () => {
@@ -175,7 +175,76 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['BDHV'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['BDHV', true])
+    })
+  })
+
+  describe('annotation toggle', () => {
+    it('does not show annotation toggle when overlayAnnotationCount is 0', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, overlayAnnotationCount: 0 }
+      })
+      expect(wrapper.find('.annotation-toggle').exists()).toBe(false)
+    })
+
+    it('shows annotation toggle when overlayAnnotationCount > 0', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, overlayAnnotationCount: 3 }
+      })
+      expect(wrapper.find('.annotation-toggle').exists()).toBe(true)
+      expect(wrapper.find('.annotation-toggle').text()).toContain('Include 3 annotations')
+    })
+
+    it('shows singular "annotation" when count is 1', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, overlayAnnotationCount: 1 }
+      })
+      expect(wrapper.find('.annotation-toggle').text()).toContain('Include 1 annotation')
+      expect(wrapper.find('.annotation-toggle').text()).not.toContain('annotations')
+    })
+
+    it('toggle is checked by default', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, overlayAnnotationCount: 2 }
+      })
+      const checkbox = wrapper.find('.annotation-toggle input[type="checkbox"]')
+      expect(checkbox.element.checked).toBe(true)
+    })
+
+    it('emits includeAnnotations=false when toggle is unchecked', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, initialText: 'ATG', overlayAnnotationCount: 2 }
+      })
+      await nextTick()
+      await nextTick()
+
+      // Uncheck the toggle
+      const checkbox = wrapper.find('.annotation-toggle input[type="checkbox"]')
+      await checkbox.setValue(false)
+
+      await wrapper.find('.btn-submit').trigger('click')
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', false])
+    })
+
+    it('resets toggle to checked when modal reopens', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, overlayAnnotationCount: 2 }
+      })
+
+      // Uncheck the toggle
+      let checkbox = wrapper.find('.annotation-toggle input[type="checkbox"]')
+      await checkbox.setValue(false)
+      expect(checkbox.element.checked).toBe(false)
+
+      // Close and reopen modal
+      await wrapper.setProps({ visible: false })
+      await wrapper.setProps({ visible: true })
+      await nextTick()
+
+      // Re-query the checkbox after modal reopened
+      checkbox = wrapper.find('.annotation-toggle input[type="checkbox"]')
+      // Toggle should be checked again
+      expect(checkbox.element.checked).toBe(true)
     })
   })
 })
