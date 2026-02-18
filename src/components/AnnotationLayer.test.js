@@ -499,4 +499,98 @@ describe('AnnotationLayer', () => {
       expect(wrapper.vm.fragmentsByLine.get(0)).toHaveLength(1)
     })
   })
+
+  describe('indefinite locations', () => {
+    it('uses solid fill for definite annotations', () => {
+      const annotation = new Annotation({
+        id: 'ann1',
+        type: 'gene',
+        span: '10..50'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const path = wrapper.find('.annotation-fragment path')
+      expect(path.attributes('fill')).toBe('#4CAF50')
+      expect(path.attributes('opacity')).toBe('0.7')
+    })
+
+    it('creates gradient for start indefinite annotation', () => {
+      const annotation = new Annotation({
+        id: 'ann1',
+        type: 'gene',
+        span: '<10..50'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+
+      // Should have a gradient defined
+      const gradient = wrapper.find('linearGradient')
+      expect(gradient.exists()).toBe(true)
+
+      // Path should reference the gradient
+      const path = wrapper.find('.annotation-fragment path')
+      expect(path.attributes('fill')).toContain('url(#grad-')
+    })
+
+    it('creates gradient for end indefinite annotation', () => {
+      const annotation = new Annotation({
+        id: 'ann1',
+        type: 'gene',
+        span: '10..>50'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+
+      const gradient = wrapper.find('linearGradient')
+      expect(gradient.exists()).toBe(true)
+
+      const path = wrapper.find('.annotation-fragment path')
+      expect(path.attributes('fill')).toContain('url(#grad-')
+    })
+
+    it('creates gradient for both ends indefinite', () => {
+      const annotation = new Annotation({
+        id: 'ann1',
+        type: 'gene',
+        span: '<10..>50'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+
+      const gradient = wrapper.find('linearGradient')
+      expect(gradient.exists()).toBe(true)
+
+      // Gradient should have 4 stops for both-ends fade
+      const stops = wrapper.findAll('linearGradient stop')
+      expect(stops.length).toBe(4)
+    })
+
+    it('uses opacity 1 for indefinite annotations (gradient handles opacity)', () => {
+      const annotation = new Annotation({
+        id: 'ann1',
+        type: 'gene',
+        span: '<10..50'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const path = wrapper.find('.annotation-fragment path')
+      expect(path.attributes('opacity')).toBe('1')
+    })
+
+    it('gradient stops use annotation type color', () => {
+      const annotation = new Annotation({
+        id: 'ann1',
+        type: 'gene',
+        span: '<10..50'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const stops = wrapper.findAll('linearGradient stop')
+
+      // All stops should use the gene color
+      for (const stop of stops) {
+        expect(stop.attributes('stop-color')).toBe('#4CAF50')
+      }
+    })
+  })
 })

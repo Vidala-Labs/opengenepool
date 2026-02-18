@@ -241,6 +241,62 @@ const annotationDeltaYByLine = computed(() => {
   return result
 })
 
+// Computed: Generate gradient definitions for fragments with indefinite locations
+const indefiniteGradients = computed(() => {
+  const gradients = []
+  for (const elements of elementsByLine.value.values()) {
+    for (const elem of elements) {
+      const frag = elem.fragment
+      if (frag.startIndefinite || frag.endIndefinite) {
+        const color = getTypeColor(frag.type)
+        const id = `grad-${frag.annotation?.id}-${frag.line}-${frag.start}`
+
+        // Build gradient stops
+        const stops = []
+        if (frag.startIndefinite && frag.endIndefinite) {
+          // Both ends indefinite: fade in from left, fade out to right
+          stops.push({ offset: '0%', color, opacity: 0 })
+          stops.push({ offset: '20%', color, opacity: 0.7 })
+          stops.push({ offset: '80%', color, opacity: 0.7 })
+          stops.push({ offset: '100%', color, opacity: 0 })
+        } else if (frag.startIndefinite) {
+          // Start indefinite: fade in from left
+          stops.push({ offset: '0%', color, opacity: 0 })
+          stops.push({ offset: '30%', color, opacity: 0.7 })
+          stops.push({ offset: '100%', color, opacity: 0.7 })
+        } else {
+          // End indefinite: fade out to right
+          stops.push({ offset: '0%', color, opacity: 0.7 })
+          stops.push({ offset: '70%', color, opacity: 0.7 })
+          stops.push({ offset: '100%', color, opacity: 0 })
+        }
+
+        gradients.push({ id, stops, element: elem })
+      }
+    }
+  }
+  return gradients
+})
+
+// Get fill for an element - gradient if indefinite, solid color otherwise
+function getElementFill(element) {
+  const frag = element.fragment
+  if (frag.startIndefinite || frag.endIndefinite) {
+    const id = `grad-${frag.annotation?.id}-${frag.line}-${frag.start}`
+    return `url(#${id})`
+  }
+  return getTypeColor(frag.type)
+}
+
+// Get opacity for element - 1 for gradient (opacity in gradient), 0.7 for solid
+function getElementOpacity(element) {
+  const frag = element.fragment
+  if (frag.startIndefinite || frag.endIndefinite) {
+    return 1  // Opacity is handled in gradient stops
+  }
+  return 0.7
+}
+
 // Expose for testing and visibility control
 defineExpose({
   showAnnotations,
@@ -255,6 +311,27 @@ defineExpose({
 
 <template>
   <g v-if="visible" class="annotation-layer">
+    <!-- Gradient definitions for indefinite annotations -->
+    <defs>
+      <linearGradient
+        v-for="grad in indefiniteGradients"
+        :key="grad.id"
+        :id="grad.id"
+        x1="0%"
+        y1="0%"
+        x2="100%"
+        y2="0%"
+      >
+        <stop
+          v-for="(stop, idx) in grad.stops"
+          :key="idx"
+          :offset="stop.offset"
+          :stop-color="stop.color"
+          :stop-opacity="stop.opacity"
+        />
+      </linearGradient>
+    </defs>
+
     <!-- Render annotations for each line -->
     <!-- Position at top of line so negative-Y arrows extend into space above -->
     <g
@@ -274,11 +351,11 @@ defineExpose({
         @mouseenter="handleMouseEnter($event, element.fragment)"
         @mouseleave="handleMouseLeave($event, element.fragment)"
       >
-        <!-- Use pre-computed arrow path from layout, color from localStorage -->
+        <!-- Use pre-computed arrow path from layout, color/gradient based on indefinite state -->
         <path
           :d="element.path"
-          :fill="getTypeColor(element.fragment.type)"
-          :opacity="0.7"
+          :fill="getElementFill(element)"
+          :opacity="getElementOpacity(element)"
           class="annotation-path"
         />
 
