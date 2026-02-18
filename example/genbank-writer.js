@@ -10,6 +10,7 @@
  * Convert a fenced range back to GenBank location format
  * Fenced: 0-based, half-open (132..154)
  * GenBank: 1-based, inclusive (133..154)
+ * Also handles indefinite locations with < and > markers
  * @param {string} span - Fenced range string
  * @returns {string} GenBank location string
  */
@@ -18,12 +19,21 @@ function convertSpanToLocation(span) {
   const isComplement = span.startsWith('(') && span.endsWith(')')
   let inner = isComplement ? span.slice(1, -1) : span
 
+  // Check for indefinite markers
+  const startIndefinite = inner.startsWith('<')
+  const endIndefinite = inner.includes('..>')
+
+  // Remove indefinite markers for parsing
+  const cleaned = inner.replace(/[<>]/g, '')
+
   // Handle simple range: 132..154
-  const rangeMatch = inner.match(/^(\d+)\.\.(\d+)$/)
+  const rangeMatch = cleaned.match(/^(\d+)\.\.(\d+)$/)
   if (rangeMatch) {
     const start = parseInt(rangeMatch[1], 10) + 1  // Convert to 1-based
     const end = parseInt(rangeMatch[2], 10)        // Stays same (half-open→inclusive)
-    const location = `${start}..${end}`
+    const startStr = startIndefinite ? `<${start}` : `${start}`
+    const endStr = endIndefinite ? `>${end}` : `${end}`
+    const location = `${startStr}..${endStr}`
     return isComplement ? `complement(${location})` : location
   }
 

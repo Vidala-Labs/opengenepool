@@ -275,6 +275,148 @@ describe('AnnotationModal', () => {
     })
   })
 
+  describe('indefinite locations', () => {
+    it('shows indefinite checkboxes for each range', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '0..10' }
+      })
+      const checkboxes = wrapper.findAll('.indefinite-checkbox')
+      expect(checkboxes.length).toBe(2) // start and end
+    })
+
+    it('indefinite checkboxes are unchecked by default', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '0..10' }
+      })
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      expect(checkboxes[0].element.checked).toBe(false)
+      expect(checkboxes[1].element.checked).toBe(false)
+    })
+
+    it('pre-fills start indefinite from span with < marker', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '<0..10' }
+      })
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      expect(checkboxes[0].element.checked).toBe(true)
+      expect(checkboxes[1].element.checked).toBe(false)
+    })
+
+    it('pre-fills end indefinite from span with > marker', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '0..>10' }
+      })
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      expect(checkboxes[0].element.checked).toBe(false)
+      expect(checkboxes[1].element.checked).toBe(true)
+    })
+
+    it('pre-fills both indefinite from span with both markers', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '<0..>10' }
+      })
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      expect(checkboxes[0].element.checked).toBe(true)
+      expect(checkboxes[1].element.checked).toBe(true)
+    })
+
+    it('emits span with < marker for start indefinite', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '0..10' }
+      })
+
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('gene')
+
+      // Check start indefinite
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      await checkboxes[0].setValue(true)
+
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')[0][0]
+      expect(emitted.span).toBe('<0..10')
+    })
+
+    it('emits span with > marker for end indefinite', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '0..10' }
+      })
+
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('gene')
+
+      // Check end indefinite
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      await checkboxes[1].setValue(true)
+
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')[0][0]
+      expect(emitted.span).toBe('0..>10')
+    })
+
+    it('emits span with both markers for both indefinite', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '0..10' }
+      })
+
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('gene')
+
+      // Check both indefinite
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      await checkboxes[0].setValue(true)
+      await checkboxes[1].setValue(true)
+
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')[0][0]
+      expect(emitted.span).toBe('<0..>10')
+    })
+
+    it('works with reverse strand and indefinite', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '(<0..>10)' }
+      })
+
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('gene')
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')[0][0]
+      expect(emitted.span).toBe('(<0..>10)')
+    })
+
+    it('works with multi-range and indefinite', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '<0..10 + 20..>30' }
+      })
+
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('gene')
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')[0][0]
+      expect(emitted.span).toBe('<0..10 + 20..>30')
+    })
+
+    it('newly added range has indefinite unchecked', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: '<0..>10' }
+      })
+
+      await wrapper.find('.btn-add-range').trigger('click')
+
+      // Get all checkboxes (should be 4 now: 2 for first range, 2 for second)
+      const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
+      expect(checkboxes.length).toBe(4)
+      // New range checkboxes should be unchecked
+      expect(checkboxes[2].element.checked).toBe(false)
+      expect(checkboxes[3].element.checked).toBe(false)
+    })
+  })
+
   describe('optional fields', () => {
     it('shows add field dropdown', () => {
       const wrapper = mount(AnnotationModal, {

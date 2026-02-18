@@ -59,7 +59,7 @@ const attributes = ref({})
 const visibleFields = ref([])
 const customFieldName = ref('')
 
-// Parse span prop to extract ranges with orientation
+// Parse span prop to extract ranges with orientation and indefinite flags
 function parseSpan(spanStr) {
   // Split on " + " for multi-range spans
   const parts = spanStr.split(/\s*\+\s*/)
@@ -69,10 +69,12 @@ function parseSpan(spanStr) {
       return {
         start: range.start,
         end: range.end,
-        strand: orientationToStrand(range.orientation)
+        strand: orientationToStrand(range.orientation),
+        startIndefinite: range.startIndefinite,
+        endIndefinite: range.endIndefinite
       }
     } catch {
-      return { start: 0, end: 0, strand: 'forward' }
+      return { start: 0, end: 0, strand: 'forward', startIndefinite: false, endIndefinite: false }
     }
   })
 }
@@ -131,7 +133,9 @@ const computedSpan = computed(() => {
   return ranges.value.map(range => {
     const start = parseInt(range.start, 10) || 0
     const end = parseInt(range.end, 10) || 0
-    const content = `${start}..${end}`
+    const startStr = range.startIndefinite ? `<${start}` : `${start}`
+    const endStr = range.endIndefinite ? `>${end}` : `${end}`
+    const content = `${startStr}..${endStr}`
 
     switch (range.strand) {
       case 'reverse': return `(${content})`
@@ -193,7 +197,7 @@ function addRange() {
   const lastStrand = ranges.value.length > 0
     ? ranges.value[ranges.value.length - 1].strand
     : 'forward'
-  ranges.value.push({ start: '', end: '', strand: lastStrand })
+  ranges.value.push({ start: '', end: '', strand: lastStrand, startIndefinite: false, endIndefinite: false })
 }
 
 function removeRange(index) {
@@ -363,6 +367,10 @@ function onOverlayClick() {
                   </button>
                 </div>
               </template>
+              <label class="indefinite-checkbox" title="5' indefinite (uncertain start)">
+                <input type="checkbox" v-model="range.startIndefinite" />
+                <span>&lt;</span>
+              </label>
               <input
                 type="number"
                 class="range-start"
@@ -379,6 +387,10 @@ function onOverlayClick() {
                 :max="props.sequenceLength"
                 placeholder="End"
               />
+              <label class="indefinite-checkbox" title="3' indefinite (uncertain end)">
+                <input type="checkbox" v-model="range.endIndefinite" />
+                <span>&gt;</span>
+              </label>
               <select class="range-strand" v-model="range.strand">
                 <option value="forward">Forward</option>
                 <option value="reverse">Reverse</option>
@@ -651,6 +663,28 @@ function onOverlayClick() {
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.indefinite-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.indefinite-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.indefinite-checkbox:has(input:checked) span {
+  color: #4CAF50;
 }
 
 .range-row .range-strand {

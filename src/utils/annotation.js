@@ -93,7 +93,9 @@ export class Annotation {
           end: ((range.end - 1) % zoomLevel) + 1,
           orientation: range.orientation,
           isStart: true,
-          isEnd: true
+          isEnd: true,
+          startIndefinite: range.startIndefinite,
+          endIndefinite: range.endIndefinite
         }))
       } else {
         // Multi-line: create fragment for each line
@@ -106,7 +108,9 @@ export class Annotation {
           end: zoomLevel,
           orientation: range.orientation,
           isStart: true,
-          isEnd: false
+          isEnd: false,
+          startIndefinite: range.startIndefinite,
+          endIndefinite: false
         }))
 
         // Middle lines (full width)
@@ -118,7 +122,9 @@ export class Annotation {
             end: zoomLevel,
             orientation: range.orientation,
             isStart: false,
-            isEnd: false
+            isEnd: false,
+            startIndefinite: false,
+            endIndefinite: false
           }))
         }
 
@@ -130,7 +136,9 @@ export class Annotation {
           end: ((range.end - 1) % zoomLevel) + 1,
           orientation: range.orientation,
           isStart: false,
-          isEnd: true
+          isEnd: true,
+          startIndefinite: false,
+          endIndefinite: range.endIndefinite
         }))
       }
     }
@@ -147,7 +155,7 @@ export class Annotation {
  * AnnotationFragment represents a portion of an annotation on a single line.
  */
 export class AnnotationFragment {
-  constructor({ annotation, line, start, end, orientation, isStart, isEnd }) {
+  constructor({ annotation, line, start, end, orientation, isStart, isEnd, startIndefinite = false, endIndefinite = false }) {
     this.annotation = annotation
     this.line = line
     this.start = start  // position within line
@@ -155,6 +163,8 @@ export class AnnotationFragment {
     this.orientation = orientation
     this.isStart = isStart  // is this the start of the annotation?
     this.isEnd = isEnd      // is this the end of the annotation?
+    this.startIndefinite = startIndefinite  // is the start boundary uncertain?
+    this.endIndefinite = endIndefinite      // is the end boundary uncertain?
   }
 
   /**

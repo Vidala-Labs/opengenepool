@@ -246,6 +246,127 @@ describe('Range', () => {
     })
   })
 
+  describe('indefinite locations', () => {
+    describe('constructor', () => {
+      it('defaults indefinite flags to false', () => {
+        const range = new Range(10, 20)
+        expect(range.startIndefinite).toBe(false)
+        expect(range.endIndefinite).toBe(false)
+      })
+
+      it('accepts indefinite flags', () => {
+        const range = new Range(10, 20, Orientation.PLUS, true, true)
+        expect(range.startIndefinite).toBe(true)
+        expect(range.endIndefinite).toBe(true)
+      })
+    })
+
+    describe('parse', () => {
+      it('parses start indefinite marker (<)', () => {
+        const range = Range.parse('<10..20')
+        expect(range.start).toBe(10)
+        expect(range.end).toBe(20)
+        expect(range.startIndefinite).toBe(true)
+        expect(range.endIndefinite).toBe(false)
+      })
+
+      it('parses end indefinite marker (>)', () => {
+        const range = Range.parse('10..>20')
+        expect(range.start).toBe(10)
+        expect(range.end).toBe(20)
+        expect(range.startIndefinite).toBe(false)
+        expect(range.endIndefinite).toBe(true)
+      })
+
+      it('parses both indefinite markers', () => {
+        const range = Range.parse('<10..>20')
+        expect(range.start).toBe(10)
+        expect(range.end).toBe(20)
+        expect(range.startIndefinite).toBe(true)
+        expect(range.endIndefinite).toBe(true)
+      })
+
+      it('parses indefinite with minus strand', () => {
+        const range = Range.parse('(<10..>20)')
+        expect(range.start).toBe(10)
+        expect(range.end).toBe(20)
+        expect(range.orientation).toBe(Orientation.MINUS)
+        expect(range.startIndefinite).toBe(true)
+        expect(range.endIndefinite).toBe(true)
+      })
+
+      it('parses indefinite with unoriented notation', () => {
+        const range = Range.parse('[<10..>20]')
+        expect(range.orientation).toBe(Orientation.NONE)
+        expect(range.startIndefinite).toBe(true)
+        expect(range.endIndefinite).toBe(true)
+      })
+    })
+
+    describe('toString', () => {
+      it('formats start indefinite', () => {
+        const range = new Range(10, 20, Orientation.PLUS, true, false)
+        expect(range.toString()).toBe('<10..20')
+      })
+
+      it('formats end indefinite', () => {
+        const range = new Range(10, 20, Orientation.PLUS, false, true)
+        expect(range.toString()).toBe('10..>20')
+      })
+
+      it('formats both indefinite', () => {
+        const range = new Range(10, 20, Orientation.PLUS, true, true)
+        expect(range.toString()).toBe('<10..>20')
+      })
+
+      it('formats indefinite with minus strand', () => {
+        const range = new Range(10, 20, Orientation.MINUS, true, true)
+        expect(range.toString()).toBe('(<10..>20)')
+      })
+
+      it('formats indefinite with unoriented notation', () => {
+        const range = new Range(10, 20, Orientation.NONE, true, true)
+        expect(range.toString()).toBe('[<10..>20]')
+      })
+    })
+
+    describe('shift preserves indefinite flags', () => {
+      it('preserves indefinite flags when shifting', () => {
+        const range = new Range(10, 20, Orientation.PLUS, true, true)
+        const shifted = range.shift(5)
+        expect(shifted.start).toBe(15)
+        expect(shifted.end).toBe(25)
+        expect(shifted.startIndefinite).toBe(true)
+        expect(shifted.endIndefinite).toBe(true)
+      })
+    })
+
+    describe('flip preserves indefinite flags', () => {
+      it('preserves indefinite flags when flipping', () => {
+        const range = new Range(10, 20, Orientation.PLUS, true, false)
+        const flipped = range.flip()
+        expect(flipped.orientation).toBe(Orientation.MINUS)
+        expect(flipped.startIndefinite).toBe(true)
+        expect(flipped.endIndefinite).toBe(false)
+      })
+    })
+
+    describe('round-trip', () => {
+      it('parses and stringifies correctly', () => {
+        const tests = [
+          '<10..20',
+          '10..>20',
+          '<10..>20',
+          '(<10..>20)',
+          '[<10..>20]'
+        ]
+        for (const str of tests) {
+          expect(Range.parse(str).toString()).toBe(str)
+        }
+      })
+    })
+  })
+
 })
 
 describe('Span', () => {

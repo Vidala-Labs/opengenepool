@@ -86,8 +86,10 @@ export class Range {
    * @param {number} start - Start position (0-based, inclusive)
    * @param {number} end - End position (0-based, exclusive)
    * @param {number} [orientation=1] - Strand orientation (-1, 0, or 1)
+   * @param {boolean} [startIndefinite=false] - 5' indefinite location (GenBank '<')
+   * @param {boolean} [endIndefinite=false] - 3' indefinite location (GenBank '>')
    */
-  constructor(start, end, orientation = Orientation.PLUS) {
+  constructor(start, end, orientation = Orientation.PLUS, startIndefinite = false, endIndefinite = false) {
     if (start < 0 || end < 0) {
       throw new Error('Range positions must be non-negative')
     }
@@ -98,16 +100,21 @@ export class Range {
     this.start = start
     this.end = end
     this.orientation = orientation
+    this.startIndefinite = startIndefinite
+    this.endIndefinite = endIndefinite
   }
 
   /**
    * Parse a range from fenced coordinate notation.
    *
    * Formats:
-   *   "10..20"   → Range from 10 to 20 (plus strand)
-   *   "(10..20)" → Range from 10 to 20 (minus strand)
-   *   "[10..20]" → Range from 10 to 20 (unoriented)
-   *   "15"       → Cursor at position 15 (same as "15..15")
+   *   "10..20"    → Range from 10 to 20 (plus strand)
+   *   "(10..20)"  → Range from 10 to 20 (minus strand)
+   *   "[10..20]"  → Range from 10 to 20 (unoriented)
+   *   "15"        → Cursor at position 15 (same as "15..15")
+   *   "<10..20"   → Range with 5' indefinite (start is uncertain)
+   *   "10..>20"   → Range with 3' indefinite (end is uncertain)
+   *   "<10..>20"  → Range with both ends indefinite
    *
    * Ranges must be in ascending order (start ≤ end). Use "(10..20)" for minus
    * strand, not "(20..10)".
@@ -129,7 +136,14 @@ export class Range {
       inner = trimmed.slice(1, -1)
     }
 
-    const parts = inner.split('..')
+    // Check for indefinite markers
+    const startIndefinite = inner.startsWith('<')
+    const endIndefinite = inner.includes('..>') || (inner.endsWith('>') && !inner.includes('..'))
+
+    // Remove indefinite markers for parsing
+    const cleaned = inner.replace(/[<>]/g, '')
+
+    const parts = cleaned.split('..')
     const start = parseInt(parts[0], 10)
     // Single number means cursor position (start == end)
     const end = parts[1] !== undefined ? parseInt(parts[1], 10) : start
@@ -138,7 +152,7 @@ export class Range {
       throw new Error(`Invalid range string: ${str}`)
     }
 
-    return new Range(start, end, orientation)
+    return new Range(start, end, orientation, startIndefinite, endIndefinite)
   }
 
   /**
@@ -185,7 +199,7 @@ export class Range {
    * @returns {Range}
    */
   shift(offset) {
-    return new Range(this.start + offset, this.end + offset, this.orientation)
+    return new Range(this.start + offset, this.end + offset, this.orientation, this.startIndefinite, this.endIndefinite)
   }
 
   /**
@@ -193,16 +207,21 @@ export class Range {
    * @returns {Range}
    */
   flip() {
-    return new Range(this.start, this.end, this.orientation * -1)
+    return new Range(this.start, this.end, this.orientation * -1, this.startIndefinite, this.endIndefinite)
   }
 
   /**
    * String representation (fenced coordinates)
    */
   toString() {
-    const content = this.start === this.end ?
-      `${this.start}` :
-      `${this.start}..${this.end}`
+    let content
+    if (this.start === this.end) {
+      content = `${this.start}`
+    } else {
+      const startStr = this.startIndefinite ? `<${this.start}` : `${this.start}`
+      const endStr = this.endIndefinite ? `>${this.end}` : `${this.end}`
+      content = `${startStr}..${endStr}`
+    }
 
     switch (this.orientation) {
       case Orientation.MINUS: return `(${content})`
