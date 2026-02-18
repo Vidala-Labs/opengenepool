@@ -15,6 +15,7 @@
 /**
  * Convert a GenBank location to fenced range format
  * Handles simple ranges like "133..154" and "complement(317..333)"
+ * Also handles indefinite locations like "<133..154", "133..>154", "<133..>154"
  * @param {string} location - GenBank location string
  * @returns {string} Fenced range string (0-based, half-open)
  */
@@ -27,21 +28,33 @@ function convertLocation(location) {
     loc = loc.replace('complement(', '').replace(')', '')
   }
 
-  // Handle simple range: 133..154
-  const rangeMatch = loc.match(/^(\d+)\.\.(\d+)$/)
+  // Check for indefinite markers
+  const startIndefinite = loc.startsWith('<')
+  const endIndefinite = loc.includes('..>') || (loc.includes('>') && !loc.includes('..'))
+
+  // Remove indefinite markers for numeric parsing
+  const cleanLoc = loc.replace(/[<>]/g, '')
+
+  // Handle simple range: 133..154 (with optional indefinite markers already stripped)
+  const rangeMatch = cleanLoc.match(/^(\d+)\.\.(\d+)$/)
   if (rangeMatch) {
     const start = parseInt(rangeMatch[1], 10) - 1  // Convert to 0-based
     const end = parseInt(rangeMatch[2], 10)        // Stays same (inclusive→exclusive)
-    const range = `${start}..${end}`
+    const startStr = startIndefinite ? `<${start}` : `${start}`
+    const endStr = endIndefinite ? `>${end}` : `${end}`
+    const range = `${startStr}..${endStr}`
     // Wrap in parentheses for complement (minus strand)
     return isComplement ? `(${range})` : range
   }
 
-  // Handle single position: 500
-  const singleMatch = loc.match(/^(\d+)$/)
+  // Handle single position: 500 (with optional indefinite marker)
+  const singleMatch = cleanLoc.match(/^(\d+)$/)
   if (singleMatch) {
     const pos = parseInt(singleMatch[1], 10) - 1
-    const range = `${pos}..${pos + 1}`
+    // Single positions with indefinite markers become indefinite ranges
+    const startStr = startIndefinite ? `<${pos}` : `${pos}`
+    const endStr = endIndefinite ? `>${pos + 1}` : `${pos + 1}`
+    const range = `${startStr}..${endStr}`
     return isComplement ? `(${range})` : range
   }
 
