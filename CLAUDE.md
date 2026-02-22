@@ -152,6 +152,27 @@ const ann = new Annotation({
 })
 ```
 
+## Running the Example App
+
+To start the example app for browser testing:
+
+```bash
+cd example && bun run dev &
+```
+
+The server runs on port 5174 (5173 is used by another project). Use the Playwright MCP tools to interact with the browser:
+
+```javascript
+// Navigate to the app
+mcp__playwright__browser_navigate({ url: 'http://localhost:5174' })
+
+// Take a snapshot (better than screenshots for accessibility)
+mcp__playwright__browser_snapshot()
+
+// Click elements by ref from the snapshot
+mcp__playwright__browser_click({ ref: 'E123', element: 'Search button' })
+```
+
 ## Backend Adapter Protocol
 
 Backend adapters must implement these methods (all optional):

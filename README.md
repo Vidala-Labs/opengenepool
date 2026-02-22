@@ -31,6 +31,7 @@ A Vue.js DNA sequence editor component for viewing and editing genetic sequences
 
 ### Developer Features
 - **Backend Adapter** - Optional server communication for edits and annotation changes
+- **Extensions** - Plugin system for extra functionality (see [EXTENSIONS.md](EXTENSIONS.md))
 - **Toolbar Slot** - Inject custom toolbar content from parent application
 - **Exposed API** - Methods for programmatic control (setSelection, scrollToPosition, etc.)
 - **Event System** - Comprehensive events for selection, editing, and annotation interactions
@@ -75,6 +76,7 @@ const annotations = [
 | `readonly` | Boolean | `false` | Disable all editing operations |
 | `showAnnotationCaptions` | Boolean | `true` | Show labels on annotations |
 | `backend` | Object | `null` | Backend adapter for server communication |
+| `extensions` | Array | `[]` | Extension objects (see [EXTENSIONS.md](EXTENSIONS.md)) |
 
 ## Events
 

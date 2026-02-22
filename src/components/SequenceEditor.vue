@@ -59,6 +59,11 @@ const props = defineProps({
   backend: {
     type: Object,
     default: null
+  },
+  /** Array of extension objects */
+  extensions: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -821,6 +826,34 @@ provide('selection', selection)  // Single source of truth for selection
 provide('annotationColors', annotationColors)  // Colors persisted to localStorage
 provide('showAnnotations', showAnnotations)  // Shared visibility for annotation layers
 provide('showTranslation', showTranslation)  // Shared visibility for translation layer
+
+// Extension API for external extensions
+// Selection change handlers for extensions
+const selectionChangeHandlers = new Set()
+
+const extensionAPI = {
+  // State access
+  getSequence: () => editorState.sequence.value,
+  getSelectedSequence: getSelectedSequenceText,
+
+  // Actions
+  setSelection,
+  clearSelection,
+  scrollToPosition,
+
+  // Event subscription
+  onSelectionChange: (handler) => {
+    selectionChangeHandlers.add(handler)
+    return () => selectionChangeHandlers.delete(handler)  // Returns unsubscribe fn
+  }
+}
+provide('extensionAPI', extensionAPI)
+
+// Watch selection changes and notify extension handlers
+// Use deep: true to detect mutations to range properties (e.g., during handle dragging)
+watch(() => selection.domain.value, () => {
+  selectionChangeHandlers.forEach(handler => handler())
+}, { deep: true })
 
 // Template refs
 const containerRef = ref(null)
@@ -2331,6 +2364,13 @@ defineExpose({
       <!-- Spacer to push config to right -->
       <div class="toolbar-spacer"></div>
 
+      <!-- Extension toolbar buttons -->
+      <component
+        v-for="ext in props.extensions.filter(e => e.toolbarButton)"
+        :key="ext.id"
+        :is="ext.toolbarButton"
+      />
+
       <!-- Slot for external toolbar content (appears left of help button) -->
       <slot name="toolbar"></slot>
 
@@ -2631,6 +2671,13 @@ defineExpose({
       :max-bases="extendModalMaxBases"
       @submit="handleExtendSubmit"
       @cancel="handleExtendCancel"
+    />
+
+    <!-- Extension panels/overlays -->
+    <component
+      v-for="ext in props.extensions.filter(e => e.panel)"
+      :key="ext.id + '-panel'"
+      :is="ext.panel"
     />
   </div>
 </template>

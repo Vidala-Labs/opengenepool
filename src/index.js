@@ -25,3 +25,6 @@ export {
   ANNOTATION_COLORS,
   getAnnotationColor
 } from './utils/annotation.js'
+
+// Extensions
+export { SearchExtension } from './extensions/SearchExtension/index.js'
