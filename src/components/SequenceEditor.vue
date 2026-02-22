@@ -648,6 +648,56 @@ function handleAnnotationUpdate(data) {
   editingAnnotation.value = null
 }
 
+/**
+ * Merge two adjacent ranges within an annotation's span.
+ * @param {Object} annotation - The annotation to modify
+ * @param {number} leftIndex - Index of the left range to merge
+ * @param {number} rightIndex - Index of the right range to merge (must be leftIndex + 1)
+ */
+function mergeAnnotationRanges(annotation, leftIndex, rightIndex) {
+  const ranges = annotation.span.ranges
+  const leftRange = ranges[leftIndex]
+  const rightRange = ranges[rightIndex]
+
+  // Create merged range (preserves left range's start and right range's end)
+  const mergedRange = new Range(
+    leftRange.start,
+    rightRange.end,
+    leftRange.orientation,
+    leftRange.startIndefinite,
+    rightRange.endIndefinite
+  )
+
+  // Build new ranges array with the merge applied
+  const newRanges = [
+    ...ranges.slice(0, leftIndex),
+    mergedRange,
+    ...ranges.slice(rightIndex + 1)
+  ]
+
+  // Create new span string
+  const newSpanStr = newRanges.map(r => r.toString()).join(' + ')
+
+  // Send update to backend
+  effectiveBackend.value?.annotationUpdate?.({
+    id: crypto.randomUUID(),
+    annotationId: annotation.id,
+    caption: annotation.caption,
+    type: annotation.type,
+    span: newSpanStr,
+    attributes: annotation.attributes
+  })
+
+  // Update local state for optimistic UI
+  localAnnotations.value = localAnnotations.value.map(ann =>
+    ann.id === annotation.id
+      ? { ...ann, span: newSpanStr }
+      : ann
+  )
+  // Emit for parent components (standalone mode)
+  emit('annotations-update', localAnnotations.value)
+}
+
 function handleAnnotationCreate(data) {
   // Generate a new UUID for the annotation
   const annotationId = crypto.randomUUID()
@@ -929,6 +979,43 @@ function buildContextMenuItems(context) {
             selection.subtractSpan(annotationSpan)
           }
         })
+      }
+    }
+
+    // Merge segment options for multi-range annotations
+    const fragment = context.fragment
+    const spanRanges = annotation.span?.ranges
+    if (fragment && fragment.rangeIndex !== undefined && spanRanges && spanRanges.length > 1) {
+      const rangeIndex = fragment.rangeIndex
+      const ranges = spanRanges
+      const currentRange = ranges[rangeIndex]
+
+      // Check if can merge with left (previous range)
+      if (rangeIndex > 0) {
+        const leftRange = ranges[rangeIndex - 1]
+        // Adjacent (left.end === current.start) and same orientation
+        if (leftRange.end === currentRange.start && leftRange.orientation === currentRange.orientation) {
+          items.push({
+            label: 'Merge with left segment',
+            action: () => {
+              mergeAnnotationRanges(annotation, rangeIndex - 1, rangeIndex)
+            }
+          })
+        }
+      }
+
+      // Check if can merge with right (next range)
+      if (rangeIndex < ranges.length - 1) {
+        const rightRange = ranges[rangeIndex + 1]
+        // Adjacent (current.end === right.start) and same orientation
+        if (currentRange.end === rightRange.start && currentRange.orientation === rightRange.orientation) {
+          items.push({
+            label: 'Merge with right segment',
+            action: () => {
+              mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1)
+            }
+          })
+        }
       }
     }
   }
@@ -1222,7 +1309,8 @@ function handleAnnotationContextMenu(data) {
   // Show the same context menu as selection
   const items = buildContextMenuItems({
     source: 'annotation',
-    annotation: data.annotation
+    annotation: data.annotation,
+    fragment: data.fragment
   })
   contextMenuItems.value = items
   contextMenuX.value = data.event.clientX
@@ -1522,6 +1610,41 @@ function deleteSelectedRange() {
 
   if (rangesToDelete.length === 0) return false
 
+  // Check if ranges are contiguous/adjacent (for cursor placement after deletion)
+  // Sort ascending to check adjacency
+  const sortedAsc = [...rangesToDelete].sort((a, b) => a.start - b.start)
+  const isCircular = props.metadata?.circular === true
+  const seqLen = editorState.sequenceLength.value
+
+  // Check standard linear contiguity
+  let isContiguous = sortedAsc.every((range, i) => {
+    if (i === 0) return true
+    return sortedAsc[i - 1].end >= range.start  // Adjacent or overlapping
+  })
+
+  // For circular sequences, also check wrap-around contiguity
+  // e.g., ranges [0..10, 90..100] on a 100bp circular sequence are adjacent at the origin
+  if (!isContiguous && isCircular && sortedAsc.length >= 2) {
+    const firstRange = sortedAsc[0]
+    const lastRange = sortedAsc[sortedAsc.length - 1]
+
+    // Check if ranges wrap around: first starts at 0, last ends at seqLen
+    if (firstRange.start === 0 && lastRange.end === seqLen) {
+      // Check that all ranges except the wrap point are contiguous
+      isContiguous = sortedAsc.every((range, i) => {
+        if (i === 0) return true
+        // Skip the gap between last (by position) and first - that's the wrap point
+        if (i === sortedAsc.length - 1 && sortedAsc[i - 1].end < range.start) {
+          // This is the wrap gap - allowed for circular
+          return true
+        }
+        return sortedAsc[i - 1].end >= range.start
+      })
+    }
+  }
+
+  const cursorPosition = sortedAsc[0].start
+
   for (const range of rangesToDelete) {
     const editId = crypto.randomUUID()
 
@@ -1537,8 +1660,12 @@ function deleteSelectedRange() {
     }
   }
 
-  // 5. Clear selection
-  selection.unselect()
+  // Leave cursor at deletion point if contiguous, otherwise clear selection
+  if (isContiguous) {
+    selection.select(`${cursorPosition}..${cursorPosition}`)
+  } else {
+    selection.unselect()
+  }
 
   return true
 }

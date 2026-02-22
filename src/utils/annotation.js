@@ -80,7 +80,8 @@ export class Annotation {
   toFragments(zoomLevel) {
     const fragments = []
 
-    for (const range of this.span.ranges) {
+    for (let rangeIndex = 0; rangeIndex < this.span.ranges.length; rangeIndex++) {
+      const range = this.span.ranges[rangeIndex]
       const startLine = Math.floor(range.start / zoomLevel)
       const endLine = Math.floor((range.end - 1) / zoomLevel)
 
@@ -88,6 +89,7 @@ export class Annotation {
         // Single line fragment
         fragments.push(new AnnotationFragment({
           annotation: this,
+          rangeIndex,
           line: startLine,
           start: range.start % zoomLevel,
           end: ((range.end - 1) % zoomLevel) + 1,
@@ -103,6 +105,7 @@ export class Annotation {
         // First line
         fragments.push(new AnnotationFragment({
           annotation: this,
+          rangeIndex,
           line: startLine,
           start: range.start % zoomLevel,
           end: zoomLevel,
@@ -117,6 +120,7 @@ export class Annotation {
         for (let line = startLine + 1; line < endLine; line++) {
           fragments.push(new AnnotationFragment({
             annotation: this,
+            rangeIndex,
             line,
             start: 0,
             end: zoomLevel,
@@ -131,6 +135,7 @@ export class Annotation {
         // Last line
         fragments.push(new AnnotationFragment({
           annotation: this,
+          rangeIndex,
           line: endLine,
           start: 0,
           end: ((range.end - 1) % zoomLevel) + 1,
@@ -155,8 +160,9 @@ export class Annotation {
  * AnnotationFragment represents a portion of an annotation on a single line.
  */
 export class AnnotationFragment {
-  constructor({ annotation, line, start, end, orientation, isStart, isEnd, startIndefinite = false, endIndefinite = false }) {
+  constructor({ annotation, rangeIndex = 0, line, start, end, orientation, isStart, isEnd, startIndefinite = false, endIndefinite = false }) {
     this.annotation = annotation
+    this.rangeIndex = rangeIndex  // Index of the range within the annotation's span
     this.line = line
     this.start = start  // position within line
     this.end = end      // position within line
