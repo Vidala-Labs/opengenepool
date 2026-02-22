@@ -835,11 +835,18 @@ const extensionAPI = {
   // State access
   getSequence: () => editorState.sequence.value,
   getSelectedSequence: getSelectedSequenceText,
+  getAnnotations: () => localAnnotations.value,
 
   // Actions
   setSelection,
   clearSelection,
   scrollToPosition,
+
+  // Annotation creation
+  addAnnotation: (data) => {
+    // data: { span: string, type: string, label: string, color?: string, attributes?: object }
+    handleAnnotationCreate(data)
+  },
 
   // Event subscription
   onSelectionChange: (handler) => {

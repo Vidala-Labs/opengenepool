@@ -8,6 +8,7 @@ import { pUC19 } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
 import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
+import { CDSSearchExtension } from '../src/extensions/CDSSearchExtension/index.js'
 
 // List of sequences for sidebar
 const sequences = ref([])
@@ -179,7 +180,7 @@ async function handleUpload(file) {
         :title="currentSequence.name"
         :annotations="currentSequence.annotations || []"
         :metadata="currentSequence.metadata || {}"
-        :extensions="[SearchExtension]"
+        :extensions="[SearchExtension, CDSSearchExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"

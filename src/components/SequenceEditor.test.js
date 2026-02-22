@@ -2258,5 +2258,105 @@ describe('SequenceEditor', () => {
       // The callback should have been triggered by the mutation
       expect(callbackCount).toBe(1)
     })
+
+    it('addAnnotation calls backend.annotationCreated', async () => {
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const mockBackend = {
+        annotationCreated: mock(() => {}),
+        onAck: mock(() => () => {}),
+        onError: mock(() => () => {}),
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension],
+          backend: mockBackend
+        }
+      })
+      wrapper.vm.setSequence('ATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATG')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+
+      // Call addAnnotation via the extensionAPI
+      capturedAPI.addAnnotation({
+        span: '0..30',
+        type: 'CDS',
+        caption: 'Test CDS'
+      })
+      await wrapper.vm.$nextTick()
+
+      // Backend should have been called
+      expect(mockBackend.annotationCreated).toHaveBeenCalledTimes(1)
+      const call = mockBackend.annotationCreated.mock.calls[0][0]
+      expect(call.caption).toBe('Test CDS')
+      expect(call.type).toBe('CDS')
+      expect(call.span).toBe('0..30')
+      expect(call.id).toBeDefined()
+    })
+
+    it('addAnnotation emits annotations-update event', async () => {
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATG')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+
+      // Call addAnnotation via the extensionAPI
+      capturedAPI.addAnnotation({
+        span: '0..30',
+        type: 'CDS',
+        caption: 'Test CDS'
+      })
+      await wrapper.vm.$nextTick()
+
+      // Should emit annotations-update
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      expect(emitted.length).toBeGreaterThan(0)
+
+      // The last emitted annotations array should contain our new annotation
+      const lastUpdate = emitted[emitted.length - 1][0]
+      const newAnnotation = lastUpdate.find(a => a.caption === 'Test CDS')
+      expect(newAnnotation).toBeDefined()
+      expect(newAnnotation.type).toBe('CDS')
+    })
   })
 })
