@@ -1717,14 +1717,31 @@ function handleReplaceSubmit(text) {
   const selStart = insertModalPosition.value
   const selEnd = insertModalSelectionEnd.value
 
-  // Delete the selected range and insert replacement text
+  // 1. Apply locally (optimistic UI)
   editorState.replaceRange(selStart, selEnd, text)
-
   adjustAnnotationsForReplace(selStart, selEnd, text.length)
 
-  // Update selection to cover the newly inserted text
+  // 2. Send to backend if connected (delete + insert)
+  if (effectiveBackend.value?.delete) {
+    effectiveBackend.value.delete({
+      id: crypto.randomUUID(),
+      start: selStart,
+      end: selEnd
+    })
+  }
+
+  if (effectiveBackend.value?.insert) {
+    effectiveBackend.value.insert({
+      id: crypto.randomUUID(),
+      position: selStart,
+      text: text
+    })
+  }
+
+  // 3. Update selection to cover the newly inserted text
   selection.select(`${selStart}..${selStart + text.length}`)
 
+  // 4. Emit for standalone mode / parent components
   emit('edit', { type: 'replace', text })
 
   // Create overlay annotations (rich paste)
@@ -1834,6 +1851,8 @@ function handleKeyDown(event) {
 }
 
 // Public API
+// Note: setSequence is for initial load only - it does NOT notify the backend.
+// For user edits, use the insert/delete/replace operations which properly notify the backend.
 function setSequence(seq, title = '') {
   editorState.setSequence(seq, title)
 }
