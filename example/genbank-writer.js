@@ -7,17 +7,18 @@
  */
 
 /**
- * Convert a fenced range back to GenBank location format
+ * Convert a single fenced range to GenBank location format
  * Fenced: 0-based, half-open (132..154)
  * GenBank: 1-based, inclusive (133..154)
  * Also handles indefinite locations with < and > markers
- * @param {string} span - Fenced range string
- * @returns {string} GenBank location string
+ * @param {string} rangeStr - Single fenced range string
+ * @returns {string} GenBank location string for this range
  */
-function convertSpanToLocation(span) {
-  // Handle minus strand (parentheses)
-  const isComplement = span.startsWith('(') && span.endsWith(')')
-  let inner = isComplement ? span.slice(1, -1) : span
+function convertSingleRange(rangeStr) {
+  // Handle minus strand (parentheses) or unoriented (brackets)
+  const isComplement = rangeStr.startsWith('(') && rangeStr.endsWith(')')
+  const isUnoriented = rangeStr.startsWith('[') && rangeStr.endsWith(']')
+  let inner = (isComplement || isUnoriented) ? rangeStr.slice(1, -1) : rangeStr
 
   // Check for indefinite markers
   const startIndefinite = inner.startsWith('<')
@@ -33,12 +34,44 @@ function convertSpanToLocation(span) {
     const end = parseInt(rangeMatch[2], 10)        // Stays same (half-open→inclusive)
     const startStr = startIndefinite ? `<${start}` : `${start}`
     const endStr = endIndefinite ? `>${end}` : `${end}`
-    const location = `${startStr}..${endStr}`
-    return isComplement ? `complement(${location})` : location
+    return `${startStr}..${endStr}`
   }
 
-  // Return as-is for complex spans
-  return span
+  // Return as-is if can't parse
+  return rangeStr
+}
+
+/**
+ * Convert a fenced span to GenBank location format
+ * Handles single ranges, multi-range joins, and complement
+ * @param {string|object} span - Fenced span string or Span object
+ * @returns {string} GenBank location string
+ */
+function convertSpanToLocation(span) {
+  // Convert Span object to string if needed
+  const spanStr = (typeof span === 'object' && span !== null && typeof span.toString === 'function')
+    ? span.toString()
+    : String(span)
+
+  // Check if this is a multi-range span (contains " + ")
+  if (spanStr.includes(' + ')) {
+    const parts = spanStr.split(/\s*\+\s*/)
+
+    // Check if all parts have the same orientation
+    const isAllComplement = parts.every(p => p.startsWith('(') && p.endsWith(')'))
+
+    // Convert each range
+    const locations = parts.map(convertSingleRange)
+    const joinedLocation = `join(${locations.join(',')})`
+
+    return isAllComplement ? `complement(${joinedLocation})` : joinedLocation
+  }
+
+  // Single range
+  const isComplement = spanStr.startsWith('(') && spanStr.endsWith(')')
+  const location = convertSingleRange(spanStr)
+
+  return isComplement ? `complement(${location})` : location
 }
 
 /**

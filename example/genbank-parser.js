@@ -13,29 +13,20 @@
  */
 
 /**
- * Convert a GenBank location to fenced range format
- * Handles simple ranges like "133..154" and "complement(317..333)"
- * Also handles indefinite locations like "<133..154", "133..>154", "<133..>154"
- * @param {string} location - GenBank location string
- * @returns {string} Fenced range string (0-based, half-open)
+ * Convert a single GenBank range to fenced format
+ * @param {string} rangeStr - Single GenBank range like "133..154" or "<133..>154"
+ * @param {boolean} isComplement - Whether this is part of a complement
+ * @returns {string} Fenced range string
  */
-function convertLocation(location) {
-  // Handle complement - note we need to preserve orientation in fenced format
-  // Fenced format uses parentheses for minus strand: (316..333)
-  const isComplement = location.startsWith('complement(')
-  let loc = location
-  if (isComplement) {
-    loc = loc.replace('complement(', '').replace(')', '')
-  }
-
+function convertSingleLocation(rangeStr, isComplement = false) {
   // Check for indefinite markers
-  const startIndefinite = loc.startsWith('<')
-  const endIndefinite = loc.includes('..>') || (loc.includes('>') && !loc.includes('..'))
+  const startIndefinite = rangeStr.startsWith('<')
+  const endIndefinite = rangeStr.includes('..>') || (rangeStr.includes('>') && !rangeStr.includes('..'))
 
   // Remove indefinite markers for numeric parsing
-  const cleanLoc = loc.replace(/[<>]/g, '')
+  const cleanLoc = rangeStr.replace(/[<>]/g, '')
 
-  // Handle simple range: 133..154 (with optional indefinite markers already stripped)
+  // Handle simple range: 133..154
   const rangeMatch = cleanLoc.match(/^(\d+)\.\.(\d+)$/)
   if (rangeMatch) {
     const start = parseInt(rangeMatch[1], 10) - 1  // Convert to 0-based
@@ -43,25 +34,48 @@ function convertLocation(location) {
     const startStr = startIndefinite ? `<${start}` : `${start}`
     const endStr = endIndefinite ? `>${end}` : `${end}`
     const range = `${startStr}..${endStr}`
-    // Wrap in parentheses for complement (minus strand)
     return isComplement ? `(${range})` : range
   }
 
-  // Handle single position: 500 (with optional indefinite marker)
+  // Handle single position: 500
   const singleMatch = cleanLoc.match(/^(\d+)$/)
   if (singleMatch) {
     const pos = parseInt(singleMatch[1], 10) - 1
-    // Single positions with indefinite markers become indefinite ranges
     const startStr = startIndefinite ? `<${pos}` : `${pos}`
     const endStr = endIndefinite ? `>${pos + 1}` : `${pos + 1}`
     const range = `${startStr}..${endStr}`
     return isComplement ? `(${range})` : range
   }
 
-  // For complex locations (joins, etc.), return as-is with a warning
-  // A more sophisticated parser would handle these
-  console.warn(`Complex GenBank location not fully supported: ${location}`)
-  return location
+  return rangeStr
+}
+
+/**
+ * Convert a GenBank location to fenced range format
+ * Handles simple ranges like "133..154" and "complement(317..333)"
+ * Also handles join() locations and indefinite markers
+ * @param {string} location - GenBank location string
+ * @returns {string} Fenced range string (0-based, half-open)
+ */
+function convertLocation(location) {
+  // Handle complement wrapper
+  const isComplement = location.startsWith('complement(') && location.endsWith(')')
+  let loc = location
+  if (isComplement) {
+    loc = location.slice(11, -1)  // Remove "complement(" and ")"
+  }
+
+  // Handle join() locations
+  const isJoin = loc.startsWith('join(') && loc.endsWith(')')
+  if (isJoin) {
+    const inner = loc.slice(5, -1)  // Remove "join(" and ")"
+    const parts = inner.split(',').map(p => p.trim())
+    const convertedParts = parts.map(p => convertSingleLocation(p, isComplement))
+    return convertedParts.join(' + ')
+  }
+
+  // Simple range or single position
+  return convertSingleLocation(loc, isComplement)
 }
 
 /**
