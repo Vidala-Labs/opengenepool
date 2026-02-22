@@ -156,8 +156,8 @@ describe('AnnotationModal', () => {
       await wrapper.findAll('.btn-remove-range')[0].trigger('click')
 
       expect(wrapper.findAll('.range-row').length).toBe(1)
-      // Second range should remain
-      expect(wrapper.find('.range-start').element.value).toBe('20')
+      // Second range should remain (GenBank coords: fenced 20 → GenBank 21)
+      expect(wrapper.find('.range-start').element.value).toBe('21')
     })
 
     it('shows up/down buttons for ranges when multiple ranges', () => {
@@ -183,9 +183,9 @@ describe('AnnotationModal', () => {
       // Click up on second range
       await wrapper.findAll('.range-row')[1].find('.btn-move-up').trigger('click')
 
-      // Now first range should be 20..30
-      expect(wrapper.findAll('.range-start')[0].element.value).toBe('20')
-      expect(wrapper.findAll('.range-start')[1].element.value).toBe('0')
+      // Now first range should be 20..30 (GenBank coords: fenced 20 → 21, fenced 0 → 1)
+      expect(wrapper.findAll('.range-start')[0].element.value).toBe('21')
+      expect(wrapper.findAll('.range-start')[1].element.value).toBe('1')
     })
 
     it('moves range down when down button clicked', async () => {
@@ -196,9 +196,9 @@ describe('AnnotationModal', () => {
       // Click down on first range
       await wrapper.findAll('.range-row')[0].find('.btn-move-down').trigger('click')
 
-      // Now first range should be 20..30
-      expect(wrapper.findAll('.range-start')[0].element.value).toBe('20')
-      expect(wrapper.findAll('.range-start')[1].element.value).toBe('0')
+      // Now first range should be 20..30 (GenBank coords: fenced 20 → 21, fenced 0 → 1)
+      expect(wrapper.findAll('.range-start')[0].element.value).toBe('21')
+      expect(wrapper.findAll('.range-start')[1].element.value).toBe('1')
     })
 
     it('each range row has start, end, and strand controls', () => {
@@ -216,7 +216,9 @@ describe('AnnotationModal', () => {
       const wrapper = mount(AnnotationModal, {
         props: { open: true, span: '100..200' }
       })
-      expect(wrapper.find('.range-start').element.value).toBe('100')
+      // Start is displayed in GenBank (1-based): fenced 100 → GenBank 101
+      // End stays the same (fenced end = GenBank end due to half-open vs closed intervals)
+      expect(wrapper.find('.range-start').element.value).toBe('101')
       expect(wrapper.find('.range-end').element.value).toBe('200')
     })
 
@@ -227,18 +229,20 @@ describe('AnnotationModal', () => {
       expect(wrapper.find('.range-end').element.max).toBe('500')
     })
 
-    it('sets end min to start + 1', () => {
+    it('sets end min to GenBank start', () => {
       const wrapper = mount(AnnotationModal, {
         props: { open: true, span: '50..100' }
       })
+      // GenBank start is 51 (fenced 50 + 1), min for end is GenBank start
       expect(wrapper.find('.range-end').element.min).toBe('51')
     })
 
-    it('sets start max to end - 1', () => {
+    it('sets start max to end', () => {
       const wrapper = mount(AnnotationModal, {
         props: { open: true, span: '50..100' }
       })
-      expect(wrapper.find('.range-start').element.max).toBe('99')
+      // Max for GenBank start equals the fenced end (since GenBank start can equal fenced end for 1-base ranges)
+      expect(wrapper.find('.range-start').element.max).toBe('100')
     })
 
     it('strand dropdown has Forward, Reverse, None options', () => {
@@ -736,13 +740,15 @@ describe('AnnotationModal', () => {
         props: { open: true, span: '0..10' }
       })
 
-      await wrapper.find('.range-start').setValue('20')
+      // Input is GenBank (1-based): 21 converts to fenced 20
+      await wrapper.find('.range-start').setValue('21')
       await wrapper.find('.range-end').setValue('30')
       await wrapper.find('#annotation-caption').setValue('Test')
       await wrapper.find('#annotation-type').setValue('gene')
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
+      // Output span is fenced coordinates
       expect(emitted.span).toBe('20..30')
     })
 

@@ -152,8 +152,10 @@ function walkCDS(annotation, sequence, zoom) {
     // Map startEdge/endEdge (coding order) to left/right (visual position)
     // Plus strand: start is left, end is right
     // Minus strand: start is right, end is left
-    const left = isMinus ? comp.endEdge : comp.startEdge
-    const right = isMinus ? comp.startEdge : comp.endEdge
+    // Use the fragment's own orientation, not the overall span orientation
+    const fragIsMinus = comp.orientation === -1
+    const left = fragIsMinus ? comp.endEdge : comp.startEdge
+    const right = fragIsMinus ? comp.startEdge : comp.endEdge
 
     return {
       ...comp,
@@ -303,16 +305,12 @@ function getTranslationString(annotationId) {
   if (!span || span.ranges.length === 0) return ''
 
   // Use the translation cache feature of iterateCodons
+  // This produces amino acids in coding order (N-to-C terminus), which is
+  // the correct order for copying translations regardless of strand
   const result = { aminoAcids: '' }
   const bases = iterateSequence(span, sequence)
   // Consume the iterator to populate result.aminoAcids
   for (const _ of iterateCodons(bases, result)) { /* just consume */ }
-
-  // For minus strand, reverse to match visual display order (genomic left-to-right)
-  const isMinus = span.ranges[0].orientation === Orientation.MINUS
-  if (isMinus) {
-    return result.aminoAcids.split('').reverse().join('')
-  }
 
   return result.aminoAcids
 }

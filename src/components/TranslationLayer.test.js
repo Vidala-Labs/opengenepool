@@ -160,5 +160,85 @@ describe('TranslationLayer', () => {
         expect(wrapper.emitted('click')).toBeTruthy()
       }
     })
+
+    it('emits contextmenu with translation in coding order for plus strand', async () => {
+      // ATG AAA = M K
+      const annotation = new Annotation({
+        id: 'cds1',
+        caption: 'Test',
+        type: 'CDS',
+        span: '0..6'
+      })
+
+      const wrapper = mountWithProviders(
+        { annotations: [annotation] },
+        { sequence: 'ATGAAA', sequenceLength: 6 }
+      )
+
+      const fragment = wrapper.find('.aa-element')
+      expect(fragment.exists()).toBe(true)
+      await fragment.trigger('contextmenu')
+
+      const emitted = wrapper.emitted('contextmenu')
+      expect(emitted).toBeTruthy()
+      expect(emitted[0][0].translation).toBe('MK')
+    })
+
+    it('emits contextmenu with translation in coding order for minus strand', async () => {
+      // Minus strand: (0..6) on sequence 'ATGAAA'
+      // Walking high to low: positions 5,4,3,2,1,0 -> A,A,A,G,T,A
+      // Complemented: T,T,T,C,A,T -> TTT CAT -> F H
+      // The translation should be 'FH' in coding order (N to C terminus)
+      const annotation = new Annotation({
+        id: 'cds1',
+        caption: 'Test',
+        type: 'CDS',
+        span: '(0..6)'  // Minus strand
+      })
+
+      const wrapper = mountWithProviders(
+        { annotations: [annotation] },
+        { sequence: 'ATGAAA', sequenceLength: 6 }
+      )
+
+      const fragment = wrapper.find('.aa-element')
+      expect(fragment.exists()).toBe(true)
+      await fragment.trigger('contextmenu')
+
+      const emitted = wrapper.emitted('contextmenu')
+      expect(emitted).toBeTruthy()
+      // Translation should be in coding order (N to C), not reversed
+      expect(emitted[0][0].translation).toBe('FH')
+    })
+
+    it('handles mixed orientation spans by processing each range per its orientation', async () => {
+      // Mixed orientation: 0..6 (plus) + (10..16) (minus)
+      // Sequence: 'ATGAAACCC' + 'G' + 'TTTGGG' = 'ATGAAACCCGTTTGGG'
+      //                                          0123456789...
+      // Plus range 0..6: ATG AAA = M K
+      // Minus range (10..16): positions 15,14,13,12,11,10 = G,G,G,T,T,T
+      //   complemented: C,C,C,A,A,A = CCC AAA = P K
+      // Combined translation: M K P K
+      const annotation = new Annotation({
+        id: 'cds1',
+        caption: 'Test',
+        type: 'CDS',
+        span: '0..6 + (10..16)'
+      })
+
+      const wrapper = mountWithProviders(
+        { annotations: [annotation] },
+        { sequence: 'ATGAAACCCGTTTGGG', sequenceLength: 16 }
+      )
+
+      const fragment = wrapper.find('.aa-element')
+      expect(fragment.exists()).toBe(true)
+      await fragment.trigger('contextmenu')
+
+      const emitted = wrapper.emitted('contextmenu')
+      expect(emitted).toBeTruthy()
+      // Each range processed per its orientation, accumulated in range order
+      expect(emitted[0][0].translation).toBe('MKPK')
+    })
   })
 })

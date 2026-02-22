@@ -141,8 +141,37 @@ export function* iterateCodons(baseIterator, result = null) {
 }
 
 /**
- * Chunk codons into renderable fragments at segment/line boundaries.
- * Segment boundaries are detected via position discontinuity.
+ * Check if two bases are visually adjacent (no discontinuity).
+ * A discontinuity occurs when:
+ * - Position gap (segment boundary in the annotation)
+ * - Line wrap (bases on different display lines)
+ *
+ * @param {Object} base - Current base with position and direction
+ * @param {Object} nextBase - Next base in coding order
+ * @param {number} zoom - Bases per line
+ * @returns {boolean} True if visually adjacent, false if there's a discontinuity
+ */
+function basesAreVisuallyAdjacent(base, nextBase, zoom) {
+  // Check position adjacency based on strand direction
+  const baseIsMinus = !base.direction
+  const expectedNext = baseIsMinus ? base.position - 1 : base.position + 1
+  if (nextBase.position !== expectedNext) {
+    return false
+  }
+
+  // Check line adjacency
+  const currentLine = Math.floor(base.position / zoom)
+  const nextLine = Math.floor(nextBase.position / zoom)
+  if (currentLine !== nextLine) {
+    return false
+  }
+
+  return true
+}
+
+/**
+ * Chunk codons into renderable fragments at visual discontinuities.
+ * Discontinuities occur at segment boundaries (position gaps) or line wraps.
  *
  * @param {Iterable} codonIterator - Iterator/array from iterateCodons
  * @param {number} zoom - Bases per line
@@ -154,40 +183,31 @@ export function* iterateCodonFragments(codonIterator, zoom) {
 
   for (let codonIdx = 0; codonIdx < codons.length; codonIdx++) {
     const codon = codons[codonIdx]
+    const prevCodon = codonIdx > 0 ? codons[codonIdx - 1] : null
+    const nextCodon = codonIdx < codons.length - 1 ? codons[codonIdx + 1] : null
     const isFirstCodon = codonIdx === 0
     const isLastCodon = codonIdx === codons.length - 1
-    const isMinus = !codon.bases[0].direction
+
+    // Check for discontinuity BEFORE this codon (between prev codon's last base and this codon's first)
+    const hasDiscontinuityBeforeCodon = prevCodon &&
+      !basesAreVisuallyAdjacent(prevCodon.bases[prevCodon.bases.length - 1], codon.bases[0], zoom)
+
+    // Check for discontinuity AFTER this codon (between this codon's last base and next codon's first)
+    const hasDiscontinuityAfterCodon = nextCodon &&
+      !basesAreVisuallyAdjacent(codon.bases[codon.bases.length - 1], nextCodon.bases[0], zoom)
 
     // Compute codon bounds (genomic positions, half-open interval)
     const codonPositions = codon.bases.map(b => b.position)
     const codonStart = Math.min(...codonPositions)
     const codonEnd = Math.max(...codonPositions) + 1
 
-    // Track which bases are at boundaries within this codon
+    // Track which bases have discontinuities after them (within this codon)
     const baseBoundaries = []
     for (let i = 0; i < codon.bases.length; i++) {
       const base = codon.bases[i]
       const nextBase = i < codon.bases.length - 1 ? codon.bases[i + 1] : null
 
-      let hasRightBoundary = false
-
-      // Check for segment boundary (position discontinuity)
-      if (nextBase !== null) {
-        const expectedNext = isMinus ? base.position - 1 : base.position + 1
-        if (nextBase.position !== expectedNext) {
-          hasRightBoundary = true
-        }
-      }
-
-      // Check for line boundary
-      if (nextBase !== null) {
-        const currentLine = Math.floor(base.position / zoom)
-        const nextLine = Math.floor(nextBase.position / zoom)
-        if (currentLine !== nextLine) {
-          hasRightBoundary = true
-        }
-      }
-
+      const hasRightBoundary = nextBase !== null && !basesAreVisuallyAdjacent(base, nextBase, zoom)
       baseBoundaries.push(hasRightBoundary)
     }
 
@@ -218,6 +238,10 @@ export function* iterateCodonFragments(codonIterator, zoom) {
         const containsMiddle = middleInComp >= 0 && middleInComp < width
         const letter = containsMiddle ? middleInComp : null
 
+        // Determine orientation from this fragment's bases, not the codon's first base.
+        // This matters for split codons across segments with different orientations.
+        const fragmentIsMinus = !compBases[0].direction
+
         // Edge styles in coding order (start = N-terminus side, end = C-terminus side)
         // Uses "fenced" indexing for line boundaries:
         //   - Sequence positions are 0-indexed base positions
@@ -230,21 +254,34 @@ export function* iterateCodonFragments(codonIterator, zoom) {
         const codingStartPos = compBases[0].position
         const codingEndPos = compBases[compBases.length - 1].position
 
-        // Fences in coding order
-        const startFence = isMinus ? codingStartPos + 1 : codingStartPos
-        const endFence = isMinus ? codingEndPos : codingEndPos + 1
+        // Fences in coding order (use fragment orientation, not codon orientation)
+        const startFence = fragmentIsMinus ? codingStartPos + 1 : codingStartPos
+        const endFence = fragmentIsMinus ? codingEndPos : codingEndPos + 1
 
         // Check line boundaries at each fence
         const atStartLineBoundary = startFence % zoom === 0
         const atEndLineBoundary = endFence % zoom === 0
 
-        // Flat if at codon boundary (first/last codon, or split within codon)
+        // Flat if at codon boundary (first/last codon, split within codon, or segment boundary)
         const hasBoundaryBefore = compStart > 0
         const isStartTerminus = isFirstCodon && compStart === 0
         const isEndTerminus = isLastCodon && isLastBase
 
-        const startEdge = isStartTerminus || hasBoundaryBefore || atStartLineBoundary ? 'flat' : 'chevron'
-        const endEdge = isEndTerminus || hasRightBoundary || atEndLineBoundary ? 'flat' : 'chevron'
+        // startEdge is flat if:
+        // - N-terminus of entire CDS (isStartTerminus)
+        // - Split codon continuation (hasBoundaryBefore)
+        // - At a line boundary
+        // - First fragment of codon that's at a discontinuity (compStart === 0 && hasDiscontinuityBeforeCodon)
+        const atDiscontinuityStart = compStart === 0 && hasDiscontinuityBeforeCodon
+        const startEdge = isStartTerminus || hasBoundaryBefore || atStartLineBoundary || atDiscontinuityStart ? 'flat' : 'chevron'
+
+        // endEdge is flat if:
+        // - C-terminus of entire CDS (isEndTerminus)
+        // - Split codon boundary (hasRightBoundary)
+        // - At a line boundary
+        // - Last fragment of codon that's at a discontinuity (isLastBase && hasDiscontinuityAfterCodon)
+        const atDiscontinuityEnd = isLastBase && hasDiscontinuityAfterCodon
+        const endEdge = isEndTerminus || hasRightBoundary || atEndLineBoundary || atDiscontinuityEnd ? 'flat' : 'chevron'
 
         yield {
           aminoAcid: codon.aminoAcid,
@@ -256,7 +293,7 @@ export function* iterateCodonFragments(codonIterator, zoom) {
           letter,
           lineIndex,
           posInLine,
-          orientation: isMinus ? -1 : 1,
+          orientation: fragmentIsMinus ? -1 : 1,
           codonStart,  // Genomic start of full codon (for selection)
           codonEnd     // Genomic end of full codon (half-open)
         }

@@ -400,6 +400,33 @@ describe('iterateCodonFragments', () => {
     })
   })
 
+  describe('mixed orientation within codon', () => {
+    it('each fragment uses its own orientation, not the codon first base', () => {
+      // A codon split across two segments with different orientations:
+      // First two bases from plus strand, third base from minus strand
+      // This is biologically unusual but the code should handle it correctly
+      const mixedCodon = {
+        bases: [
+          { letter: 'A', direction: true, position: 0 },   // plus strand
+          { letter: 'T', direction: true, position: 1 },   // plus strand
+          { letter: 'G', direction: false, position: 10 }  // minus strand (different segment)
+        ],
+        aminoAcid: 'M',
+        codon: 'ATG'
+      }
+      const fragments = [...iterateCodonFragments([mixedCodon], 100)]
+
+      // Should have 2 fragments (split at segment boundary due to position discontinuity)
+      expect(fragments.length).toBe(2)
+
+      // First fragment (positions 0,1) should have plus orientation
+      expect(fragments[0].orientation).toBe(1)
+
+      // Second fragment (position 10) should have minus orientation
+      expect(fragments[1].orientation).toBe(-1)
+    })
+  })
+
   describe('minus strand', () => {
     it('fragments have orientation -1', () => {
       const codons = [mockCodon([5, 4, 3], 'F', false)]  // direction=false for minus
