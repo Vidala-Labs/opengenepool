@@ -914,6 +914,23 @@ function buildContextMenuItems(context) {
         emit('annotations-update', localAnnotations.value)
       }
     })
+
+    // Subtract from selection option when annotation overlaps selection
+    if (isSelected && domain) {
+      const annotationSpan = annotation.span
+      const hasOverlap = domain.ranges.some(selRange =>
+        annotationSpan.ranges.some(annRange => selRange.overlaps(annRange))
+      )
+
+      if (hasOverlap) {
+        items.push({
+          label: 'Subtract from selection',
+          action: () => {
+            selection.subtractSpan(annotationSpan)
+          }
+        })
+      }
+    }
   }
 
   // Group 4: Strand and Multi-range operations
