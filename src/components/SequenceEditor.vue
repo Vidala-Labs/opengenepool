@@ -940,6 +940,20 @@ const tooltipX = ref(0)
 const tooltipY = ref(0)
 const tooltipContent = ref('')
 
+// Get context menu items from extensions
+function getExtensionContextMenuItems(context) {
+  const items = []
+  for (const ext of props.extensions || []) {
+    if (typeof ext.contextMenuItems === 'function') {
+      const extItems = ext.contextMenuItems(context, extensionAPI)
+      if (Array.isArray(extItems) && extItems.length > 0) {
+        items.push(...extItems)
+      }
+    }
+  }
+  return items
+}
+
 // Build context menu items based on current context
 function buildContextMenuItems(context) {
   const items = []
@@ -1193,6 +1207,38 @@ function buildContextMenuItems(context) {
     }
   }
 
+  // Extension context menu items
+  let extContext = null
+  if (context.source === 'selection' && isSelected && domain) {
+    const selectedSeq = getSelectedSequenceText()
+    extContext = {
+      type: 'selection',
+      data: { sequence: selectedSeq, domain }
+    }
+  } else if (context.source === 'annotation' && context.annotation) {
+    const ann = context.annotation
+    // Handle both Span objects and string spans
+    const spanBounds = ann.span?.bounds ?? null
+    const annSeq = spanBounds ? editorState.sequence.value.slice(spanBounds.start, spanBounds.end) : ''
+    extContext = {
+      type: 'annotation',
+      data: { annotation: ann, sequence: annSeq, fragment: context.fragment }
+    }
+  } else if (context.pos !== undefined) {
+    // Sequence background right-click
+    extContext = {
+      type: 'sequence',
+      data: { position: context.pos }
+    }
+  }
+
+  if (extContext) {
+    const extItems = getExtensionContextMenuItems(extContext)
+    if (extItems.length > 0) {
+      items.push({ separator: true }, ...extItems)
+    }
+  }
+
   return items
 }
 
@@ -1351,6 +1397,15 @@ function handleHandleContextMenu(data) {
       label: 'Extend positive (right)',
       action: () => openExtendModal(rangeIndex, 'end', 'positive')
     })
+  }
+
+  // Extension context menu items for handle
+  const extItems = getExtensionContextMenuItems({
+    type: 'handle',
+    data: { range, position: handleType || (isCursor ? 'cursor' : 'start') }
+  })
+  if (extItems.length > 0) {
+    items.push({ separator: true }, ...extItems)
   }
 
   contextMenuItems.value = items
@@ -1566,9 +1621,9 @@ function handleTranslationClick(data) {
 }
 
 function handleTranslationContextMenu(data) {
-  const { event, translation } = data
+  const { event, element, translation } = data
 
-  contextMenuItems.value = [{
+  const items = [{
     label: 'Copy translation',
     action: async () => {
       try {
@@ -1578,6 +1633,18 @@ function handleTranslationContextMenu(data) {
       }
     }
   }]
+
+  // Extension context menu items for translation
+  const annotation = localAnnotations.value.find(a => a.id === element.annotationId)
+  const extItems = getExtensionContextMenuItems({
+    type: 'translation',
+    data: { translation, annotation }
+  })
+  if (extItems.length > 0) {
+    items.push({ separator: true }, ...extItems)
+  }
+
+  contextMenuItems.value = items
   contextMenuX.value = event.clientX
   contextMenuY.value = event.clientY
   contextMenuVisible.value = true

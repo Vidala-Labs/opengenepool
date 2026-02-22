@@ -9,6 +9,7 @@ import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
 import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
 import { CDSSearchExtension } from '../src/extensions/CDSSearchExtension/index.js'
+import { BlastExtension } from '../src/extensions/BlastExtension/index.js'
 
 // List of sequences for sidebar
 const sequences = ref([])
@@ -180,7 +181,7 @@ async function handleUpload(file) {
         :title="currentSequence.name"
         :annotations="currentSequence.annotations || []"
         :metadata="currentSequence.metadata || {}"
-        :extensions="[SearchExtension, CDSSearchExtension]"
+        :extensions="[SearchExtension, CDSSearchExtension, BlastExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"
