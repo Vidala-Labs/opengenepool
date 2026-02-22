@@ -67,14 +67,14 @@ function parseSpan(spanStr) {
     try {
       const range = Range.parse(part.trim())
       return {
-        start: range.start,
+        start: range.start + 1,  // Convert fenced to GenBank (1-based)
         end: range.end,
         strand: orientationToStrand(range.orientation),
         startIndefinite: range.startIndefinite,
         endIndefinite: range.endIndefinite
       }
     } catch {
-      return { start: 0, end: 0, strand: 'forward', startIndefinite: false, endIndefinite: false }
+      return { start: 1, end: 1, strand: 'forward', startIndefinite: false, endIndefinite: false }
     }
   })
 }
@@ -131,7 +131,7 @@ const rangesLabel = computed(() => {
 // Build span string from current ranges
 const computedSpan = computed(() => {
   return ranges.value.map(range => {
-    const start = parseInt(range.start, 10) || 0
+    const start = (parseInt(range.start, 10) || 1) - 1  // Convert GenBank (1-based) to fenced
     const end = parseInt(range.end, 10) || 0
     const startStr = range.startIndefinite ? `<${start}` : `${start}`
     const endStr = range.endIndefinite ? `>${end}` : `${end}`
@@ -375,15 +375,15 @@ function onOverlayClick() {
                 type="number"
                 class="range-start"
                 v-model="range.start"
-                min="0"
-                :max="range.end !== '' && range.end !== null ? Number(range.end) - 1 : props.sequenceLength"
+                min="1"
+                :max="range.end !== '' && range.end !== null ? Number(range.end) : props.sequenceLength"
                 placeholder="Start"
               />
               <input
                 type="number"
                 class="range-end"
                 v-model="range.end"
-                :min="range.start !== '' && range.start !== null ? Number(range.start) + 1 : 1"
+                :min="range.start !== '' && range.start !== null ? Number(range.start) : 1"
                 :max="props.sequenceLength"
                 placeholder="End"
               />
