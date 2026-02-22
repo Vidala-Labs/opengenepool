@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 
 const props = defineProps({
   /** Whether the menu is visible */
@@ -25,6 +25,49 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
+
+const menuRef = ref(null)
+const adjustedY = ref(0)
+const adjustedX = ref(0)
+
+// Adjust position when menu becomes visible or position changes
+async function adjustPosition() {
+  // Start at the requested position
+  adjustedY.value = props.y
+  adjustedX.value = props.x
+
+  // Wait for render, then check bounds
+  await nextTick()
+  if (menuRef.value) {
+    const rect = menuRef.value.getBoundingClientRect()
+    const viewportHeight = window.innerHeight
+    const viewportWidth = window.innerWidth
+    const margin = 8
+
+    // Nudge up if extending past bottom
+    if (rect.bottom > viewportHeight - margin) {
+      adjustedY.value = viewportHeight - rect.height - margin
+    }
+
+    // Nudge left if extending past right edge
+    if (rect.right > viewportWidth - margin) {
+      adjustedX.value = viewportWidth - rect.width - margin
+    }
+  }
+}
+
+watch(() => props.visible, (visible) => {
+  if (visible) {
+    adjustPosition()
+  }
+}, { immediate: true })
+
+// Also adjust when position props change while visible
+watch(() => [props.x, props.y], () => {
+  if (props.visible) {
+    adjustPosition()
+  }
+})
 
 // Handle menu item click
 function handleItemClick(item) {
@@ -52,8 +95,8 @@ function handleBackdropClick() {
 
 // Computed style for positioning
 const menuStyle = computed(() => ({
-  left: `${props.x}px`,
-  top: `${props.y}px`
+  left: `${adjustedX.value}px`,
+  top: `${adjustedY.value}px`
 }))
 </script>
 
@@ -64,6 +107,7 @@ const menuStyle = computed(() => ({
 
     <!-- The actual menu -->
     <div
+      ref="menuRef"
       class="context-menu"
       :style="menuStyle"
       tabindex="0"
