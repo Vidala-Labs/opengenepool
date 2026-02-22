@@ -698,6 +698,63 @@ function mergeAnnotationRanges(annotation, leftIndex, rightIndex) {
   emit('annotations-update', localAnnotations.value)
 }
 
+/**
+ * Split a range within an annotation's span at a given position.
+ * @param {Object} annotation - The annotation to modify
+ * @param {number} rangeIndex - Index of the range to split
+ * @param {number} position - Position at which to split the range
+ */
+function splitAnnotationAtPosition(annotation, rangeIndex, position) {
+  const spanRanges = annotation.span?.ranges || Span.parse(annotation.span).ranges
+  const targetRange = spanRanges[rangeIndex]
+
+  // Create two new ranges from the split
+  const leftRange = new Range(
+    targetRange.start,
+    position,
+    targetRange.orientation,
+    targetRange.startIndefinite,
+    false  // split point is definite
+  )
+  const rightRange = new Range(
+    position,
+    targetRange.end,
+    targetRange.orientation,
+    false,  // split point is definite
+    targetRange.endIndefinite
+  )
+
+  // Build new ranges array with the split
+  const newRanges = [
+    ...spanRanges.slice(0, rangeIndex),
+    leftRange,
+    rightRange,
+    ...spanRanges.slice(rangeIndex + 1)
+  ]
+
+  const newSpanStr = newRanges.map(r => r.toString()).join(' + ')
+
+  // Update backend
+  effectiveBackend.value?.annotationUpdate?.({
+    id: crypto.randomUUID(),
+    annotationId: annotation.id,
+    caption: annotation.caption,
+    type: annotation.type,
+    span: newSpanStr,
+    attributes: annotation.attributes
+  })
+
+  // Update local state
+  const updatedAnnotations = localAnnotations.value.map(a => {
+    if (a.id === annotation.id) {
+      return { ...a, span: newSpanStr }
+    }
+    return a
+  })
+  localAnnotations.value = updatedAnnotations
+  emit('annotations-update', updatedAnnotations)
+}
+
 function handleAnnotationCreate(data) {
   // Generate a new UUID for the annotation
   const annotationId = crypto.randomUUID()
@@ -1015,6 +1072,33 @@ function buildContextMenuItems(context) {
               mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1)
             }
           })
+        }
+      }
+    }
+
+    // Split annotation option when cursor is strictly inside a range
+    if (selection.isSelected.value) {
+      const selRanges = selection.domain.value?.ranges
+      if (selRanges?.length === 1 && selRanges[0].start === selRanges[0].end) {
+        const cursorPos = selRanges[0].start
+
+        // Get the actual range from the annotation span
+        const splitSpanRanges = annotation.span?.ranges ||
+          (typeof annotation.span === 'string' ? Span.parse(annotation.span).ranges : [])
+
+        const frag = context.fragment
+        if (frag?.rangeIndex !== undefined && splitSpanRanges[frag.rangeIndex]) {
+          const targetRange = splitSpanRanges[frag.rangeIndex]
+
+          // Check if cursor is strictly inside (not at boundaries)
+          if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
+            items.push({
+              label: 'Split annotation',
+              action: () => {
+                splitAnnotationAtPosition(annotation, frag.rangeIndex, cursorPos)
+              }
+            })
+          }
         }
       }
     }

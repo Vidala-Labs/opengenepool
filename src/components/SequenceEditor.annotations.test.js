@@ -1472,6 +1472,294 @@ describe('SequenceEditor annotations', () => {
       })
     })
 
+    describe('split annotation', () => {
+      it('shows split option when cursor is inside annotation range', async () => {
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 20 (inside 10..30)
+        wrapper.vm.selection.select('20..20')
+        await wrapper.vm.$nextTick()
+
+        // Right-click on annotation
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuText = wrapper.find('.context-menu').text()
+        expect(menuText).toContain('Split annotation')
+      })
+
+      it('does not show split option when cursor is at annotation start', async () => {
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 10 (start of 10..30) - should NOT show split
+        wrapper.vm.selection.select('10..10')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuText = wrapper.find('.context-menu').text()
+        expect(menuText).not.toContain('Split annotation')
+      })
+
+      it('does not show split option when cursor is at annotation end', async () => {
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 30 (end of 10..30) - should NOT show split
+        wrapper.vm.selection.select('30..30')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuText = wrapper.find('.context-menu').text()
+        expect(menuText).not.toContain('Split annotation')
+      })
+
+      it('does not show split option when no cursor exists', async () => {
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Selection is 15..25 (non-zero length) - should NOT show split
+        wrapper.vm.selection.select('15..25')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuText = wrapper.find('.context-menu').text()
+        expect(menuText).not.toContain('Split annotation')
+      })
+
+      it('splits annotation into two ranges when clicking split option', async () => {
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 20 (inside 10..30)
+        wrapper.vm.selection.select('20..20')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        // Click "Split annotation"
+        const menuItems = wrapper.findAll('.menu-item')
+        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        await splitItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        // After split: 10..20 + 20..30
+        const emitted = wrapper.emitted('annotations-update')
+        expect(emitted).toBeTruthy()
+
+        const updatedAnnotations = emitted[emitted.length - 1][0]
+        const ann = updatedAnnotations.find(a => a.id === 'ann1')
+        expect(ann.span).toBe('10..20 + 20..30')
+      })
+
+      it('preserves orientation when splitting', async () => {
+        // annotation: (10..30) minus strand, cursor at 20
+        // after split: (10..20) + (20..30) both minus strand
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '(10..30)' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 20
+        wrapper.vm.selection.select('20..20')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuItems = wrapper.findAll('.menu-item')
+        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        await splitItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        const emitted = wrapper.emitted('annotations-update')
+        const updatedAnnotations = emitted[emitted.length - 1][0]
+        const ann = updatedAnnotations.find(a => a.id === 'ann1')
+        // Both ranges should be minus strand
+        expect(ann.span).toBe('(10..20) + (20..30)')
+      })
+
+      it('preserves indefinite flags appropriately when splitting', async () => {
+        // annotation: <10..>30, cursor at 20
+        // after split: <10..20 + 20..>30
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '<10..>30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 20
+        wrapper.vm.selection.select('20..20')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuItems = wrapper.findAll('.menu-item')
+        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        await splitItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        const emitted = wrapper.emitted('annotations-update')
+        const updatedAnnotations = emitted[emitted.length - 1][0]
+        const ann = updatedAnnotations.find(a => a.id === 'ann1')
+        // Left range has startIndefinite, right range has endIndefinite
+        expect(ann.span).toBe('<10..20 + 20..>30')
+      })
+
+      it('calls backend.annotationUpdate when splitting', async () => {
+        const mockBackend = {
+          annotationUpdate: mock(() => {})
+        }
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100, backend: mockBackend }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 20 and trigger split
+        wrapper.vm.selection.select('20..20')
+        await wrapper.vm.$nextTick()
+
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuItems = wrapper.findAll('.menu-item')
+        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        await splitItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        expect(mockBackend.annotationUpdate).toHaveBeenCalledTimes(1)
+        const call = mockBackend.annotationUpdate.mock.calls[0][0]
+        expect(call.annotationId).toBe('ann1')
+        expect(call.span).toBe('10..20 + 20..30')
+      })
+
+      it('does not show split option in readonly mode', async () => {
+        const annotations = [
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100, readonly: true }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Set cursor at position 20 (inside 10..30)
+        wrapper.vm.selection.select('20..20')
+        await wrapper.vm.$nextTick()
+
+        // Right-click on annotation
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        const menuText = wrapper.find('.context-menu').text()
+        expect(menuText).not.toContain('Split annotation')
+      })
+    })
+
     describe('subtract annotation from selection', () => {
       it('subtracts multi-range annotation from multi-range selection', async () => {
         // Annotation: 1..5 + 10..20
