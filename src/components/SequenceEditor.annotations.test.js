@@ -930,6 +930,52 @@ describe('SequenceEditor annotations', () => {
     })
   })
 
+  describe('annotation adjustment on multi-range delete', () => {
+    it('preserves multi-range annotation structure when deleting overlapping multi-range selection', async () => {
+      // Annotation with two segments: 1..5 and 10..20
+      // Selection: 2..7 and 15..24 (overlaps both segments)
+      // After delete: should have two segments with adjusted positions
+      const annotations = [
+        { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '1..5 + 10..20' }
+      ]
+
+      const wrapper = mount(SequenceEditor, {
+        props: { annotations, initialZoom: 100 }
+      })
+      wrapper.vm.setSequence('A'.repeat(50))
+      await wrapper.vm.$nextTick()
+
+      // Create multi-range selection: 2..7 + 15..24
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('2..7 + 15..24')
+      await wrapper.vm.$nextTick()
+
+      // Delete the selection
+      await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
+      await wrapper.vm.$nextTick()
+
+      // Check that annotations-update was emitted
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+
+      // Get the final annotation state (last emission)
+      const finalAnnotations = emitted[emitted.length - 1][0]
+      const ann = finalAnnotations.find(a => a.id === 'ann1')
+      expect(ann).toBeTruthy()
+
+      // The annotation should still have two segments
+      // Original: 1..5 + 10..20
+      // Delete 15..24 first (from high to low):
+      //   - 1..5: unchanged (before deletion)
+      //   - 10..20: overlaps 15..24, truncated to 10..15
+      // Then delete 2..7:
+      //   - 1..5: overlaps 2..7, truncated to 1..2
+      //   - 10..15: shifts left by 5 (deletion length), becomes 5..10
+      // Final: 1..2 + 5..10
+      expect(ann.span).toBe('1..2 + 5..10')
+    })
+  })
+
   describe('annotation CRUD operations', () => {
     describe('create annotation', () => {
       it('adds annotation to local state when created via modal', async () => {
@@ -1423,6 +1469,94 @@ describe('SequenceEditor annotations', () => {
 
         const menuText = wrapper.find('.context-menu').text()
         expect(menuText).not.toContain('Merge with')
+      })
+    })
+
+    describe('subtract annotation from selection', () => {
+      it('subtracts multi-range annotation from multi-range selection', async () => {
+        // Annotation: 1..5 + 10..20
+        // Selection: 2..7 + 15..24
+        // After subtraction: 5..7 + 20..24 (the parts not covered by the annotation)
+        const annotations = [
+          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: '1..5 + 10..20' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Create multi-range selection: 2..7 + 15..24
+        wrapper.vm.selection.select('2..7 + 15..24')
+        await wrapper.vm.$nextTick()
+
+        // Right-click on annotation to get context menu
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        // Click "Subtract from selection"
+        const menuItems = wrapper.findAll('.menu-item')
+        const subtractItem = menuItems.find(item => item.text().includes('Subtract from selection'))
+        expect(subtractItem).toBeTruthy()
+        await subtractItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        // Verify selection has two segments: 5..7 and 20..24
+        const domain = wrapper.vm.selection.domain.value
+        expect(domain.ranges).toHaveLength(2)
+        expect(domain.ranges[0].start).toBe(5)
+        expect(domain.ranges[0].end).toBe(7)
+        expect(domain.ranges[1].start).toBe(20)
+        expect(domain.ranges[1].end).toBe(24)
+      })
+
+      it('subtracts multi-range annotation from single selection spanning gap', async () => {
+        // Annotation: 1..5 + 10..20
+        // Selection: 2..12
+        // After subtraction: 5..10 (the gap between annotation ranges)
+        const annotations = [
+          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: '1..5 + 10..20' }
+        ]
+        const wrapper = mount(SequenceEditor, {
+          props: { annotations, initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Create selection spanning both annotation ranges: 2..12
+        wrapper.vm.selection.select('2..12')
+        await wrapper.vm.$nextTick()
+
+        // Right-click on annotation to get context menu
+        const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = annotationLayer.vm.fragments
+
+        annotationLayer.vm.$emit('contextmenu', {
+          annotation: fragments[0].annotation,
+          event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+          fragment: fragments[0]
+        })
+        await wrapper.vm.$nextTick()
+
+        // Click "Subtract from selection"
+        const menuItems = wrapper.findAll('.menu-item')
+        const subtractItem = menuItems.find(item => item.text().includes('Subtract from selection'))
+        expect(subtractItem).toBeTruthy()
+        await subtractItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        // Verify selection is just the gap: 5..10
+        const domain = wrapper.vm.selection.domain.value
+        expect(domain.ranges).toHaveLength(1)
+        expect(domain.ranges[0].start).toBe(5)
+        expect(domain.ranges[0].end).toBe(10)
       })
     })
   })
