@@ -1,13 +1,13 @@
 <script setup>
-import { cdsSearchVisible } from './state.js'
+import { orfFinderVisible } from './state.js'
 
-function openCDSSearch() {
-  cdsSearchVisible.value = true
+function openORFFinder() {
+  orfFinderVisible.value = true
 }
 </script>
 
 <template>
-  <button class="toolbar-icon-btn" @click="openCDSSearch" title="Find ORFs (Open Reading Frames)">
+  <button class="toolbar-icon-btn" @click="openORFFinder" title="Find ORFs (Open Reading Frames)">
     <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <!-- Gene arrow pointing right -->
       <path d="M4 12h12m0 0l-4-4m4 4l-4 4" stroke-linecap="round" stroke-linejoin="round"/>

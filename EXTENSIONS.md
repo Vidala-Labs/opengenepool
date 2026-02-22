@@ -26,6 +26,46 @@ import { SequenceEditor, SearchExtension } from 'opengenepool'
 - Pre-fills search with current selection when opened
 - Auto-closes when selection changes externally
 
+### ORFFinderExtension
+
+Scans all six reading frames for open reading frames (ORFs).
+
+```javascript
+import { SequenceEditor, ORFFinderExtension } from 'opengenepool'
+
+<SequenceEditor
+  :sequence="dnaSequence"
+  :extensions="[ORFFinderExtension]"
+/>
+```
+
+**Features:**
+- Toolbar button to open ORF finder panel
+- Scans all 6 reading frames (3 forward, 3 reverse complement)
+- Configurable minimum length filter (default 50 amino acids)
+- Results displayed in GenBank notation, clickable to select
+- Matches ORFs against existing CDS annotations to show their names
+- Custom modal for naming and creating new CDS annotations from ORFs
+
+### BlastExtension
+
+Context menu integration for NCBI BLAST searches.
+
+```javascript
+import { SequenceEditor, BlastExtension } from 'opengenepool'
+
+<SequenceEditor
+  :sequence="dnaSequence"
+  :extensions="[BlastExtension]"
+/>
+```
+
+**Features:**
+- Adds "BLAST (DNA)" to context menu for selections and annotations
+- Adds "BLAST (Protein)" to context menu for CDS translations
+- Opens NCBI BLAST in a new browser tab with the sequence pre-filled
+- No toolbar button or panel (context menu only)
+
 ## Using Extensions
 
 Pass an array of extension objects to the `extensions` prop:
@@ -52,7 +92,8 @@ Extensions are plain objects with the following structure:
   id: 'my-extension',           // Unique identifier (required)
   name: 'My Extension',         // Display name (required)
   toolbarButton: MyButton,      // Vue component for toolbar (optional)
-  panel: MyPanel                // Vue component for overlay panel (optional)
+  panel: MyPanel,               // Vue component for overlay panel (optional)
+  contextMenuItems: (context, api) => []  // Context menu items (optional)
 }
 ```
 
@@ -63,6 +104,86 @@ Toolbar button components are rendered in the toolbar area, before the toolbar s
 ### Panels
 
 Panel components are rendered after the main editor content as overlay elements. They can be modal dialogs, floating panels, or any other UI that should appear above the editor.
+
+### Context Menu Items
+
+Extensions can add items to context menus by providing a `contextMenuItems` function. This function receives context about what was right-clicked and returns an array of menu items.
+
+```javascript
+{
+  id: 'my-extension',
+  name: 'My Extension',
+  contextMenuItems: (context, extensionAPI) => {
+    // context.type: 'selection' | 'annotation' | 'translation' | 'handle' | 'sequence'
+    // context.data: relevant data for that context type
+
+    if (context.type === 'selection') {
+      return [{
+        label: 'Process Selection',
+        action: () => {
+          const sequence = context.data.sequence
+          // Do something with the selected sequence
+        }
+      }]
+    }
+
+    return []  // Return empty array for contexts you don't handle
+  }
+}
+```
+
+**Context Types:**
+
+| Type | When | Data Provided |
+|------|------|---------------|
+| `sequence` | Right-click on sequence background | `{ position: number }` |
+| `selection` | Right-click on highlighted selection | `{ sequence: string, domain: SelectionDomain }` |
+| `annotation` | Right-click on annotation bar | `{ annotation: object, sequence: string, fragment: object }` |
+| `translation` | Right-click on amino acid (CDS) | `{ translation: string, annotation: object }` |
+| `handle` | Right-click on selection handle | `{ range: Range, position: 'start' \| 'end' \| 'cursor' }` |
+
+**Menu Item Format:**
+
+```javascript
+{
+  label: 'Menu Item Text',    // Displayed text
+  action: () => { ... }       // Function called when clicked
+}
+```
+
+Extension items appear in a separate section at the end of the context menu, separated by a divider.
+
+**Example: BLAST Extension**
+
+```javascript
+export const BlastExtension = {
+  id: 'blast',
+  name: 'NCBI BLAST',
+  contextMenuItems: (context) => {
+    if (context.type === 'translation') {
+      return [{
+        label: 'BLAST (Protein)',
+        action: () => {
+          const url = `https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastp&QUERY=${context.data.translation}`
+          window.open(url, '_blank')
+        }
+      }]
+    }
+
+    if (context.type === 'selection' && context.data.sequence) {
+      return [{
+        label: 'BLAST (DNA)',
+        action: () => {
+          const url = `https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&QUERY=${context.data.sequence}`
+          window.open(url, '_blank')
+        }
+      }]
+    }
+
+    return []
+  }
+}
+```
 
 ## Extension API
 
@@ -80,9 +201,11 @@ const extensionAPI = inject('extensionAPI')
 |--------|---------|-------------|
 | `getSequence()` | `string` | Get the current DNA sequence |
 | `getSelectedSequence()` | `string` | Get the selected sequence text (orientation-aware) |
+| `getAnnotations()` | `array` | Get all annotations in the editor |
 | `setSelection(spec)` | `void` | Set selection using span notation (`'10..20'`, `'(10..20)'`, etc.) |
 | `clearSelection()` | `void` | Clear the current selection |
 | `scrollToPosition(pos)` | `void` | Scroll to make a position visible |
+| `addAnnotation(data)` | `void` | Create a new annotation (`{ span, type, label, color?, attributes? }`) |
 | `onSelectionChange(handler)` | `() => void` | Subscribe to selection changes; returns unsubscribe function |
 
 ### Example: Custom Extension

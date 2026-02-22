@@ -1,6 +1,6 @@
 <script setup>
 import { ref, inject, computed, watch } from 'vue'
-import { cdsSearchVisible } from './state.js'
+import { orfFinderVisible } from './state.js'
 import { CODON_TABLE, START_CODONS } from '../../utils/translation.js'
 import { reverseComplement, Span } from '../../utils/dna.js'
 
@@ -289,11 +289,11 @@ function adjustMinLength(delta) {
 }
 
 function closePanel() {
-  cdsSearchVisible.value = false
+  orfFinderVisible.value = false
 }
 
 // Auto-scan when panel opens
-watch(cdsSearchVisible, (visible) => {
+watch(orfFinderVisible, (visible) => {
   if (visible) {
     findAllORFs()
   }
@@ -302,8 +302,8 @@ watch(cdsSearchVisible, (visible) => {
 
 <template>
   <Transition name="fade">
-    <div v-if="cdsSearchVisible" class="cds-search-overlay">
-      <div class="cds-search-panel">
+    <div v-if="orfFinderVisible" class="orf-finder-overlay">
+      <div class="orf-finder-panel">
         <div class="panel-header">
           <span class="panel-title">Find ORFs</span>
           <button class="close-btn" @click="closePanel">&times;</button>
@@ -403,7 +403,7 @@ watch(cdsSearchVisible, (visible) => {
   opacity: 0;
 }
 
-.cds-search-overlay {
+.orf-finder-overlay {
   position: absolute;
   top: 0;
   left: 0;
@@ -413,7 +413,7 @@ watch(cdsSearchVisible, (visible) => {
   pointer-events: none;
 }
 
-.cds-search-panel {
+.orf-finder-panel {
   position: absolute;
   top: 60px;
   right: 20px;
@@ -597,7 +597,7 @@ watch(cdsSearchVisible, (visible) => {
 }
 
 @media (max-width: 768px) {
-  .cds-search-panel {
+  .orf-finder-panel {
     top: 120px;
     right: 10px;
     left: 10px;

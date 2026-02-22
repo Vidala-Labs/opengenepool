@@ -28,5 +28,5 @@ export {
 
 // Extensions
 export { SearchExtension } from './extensions/SearchExtension/index.js'
-export { CDSSearchExtension } from './extensions/CDSSearchExtension/index.js'
+export { ORFFinderExtension } from './extensions/ORFFinderExtension/index.js'
 export { BlastExtension } from './extensions/BlastExtension/index.js'
