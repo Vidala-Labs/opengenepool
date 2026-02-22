@@ -424,6 +424,65 @@ export function useSelection(editorState, graphics, eventBus) {
   }
 
   /**
+   * Subtract one range from another, returning 0-2 ranges.
+   * @param {Range} target - The range to subtract from
+   * @param {Range} subtract - The range to subtract
+   * @returns {Range[]} - Array of 0-2 remaining ranges
+   */
+  function subtractRangeFromRange(target, subtract) {
+    // No overlap - return original
+    if (subtract.end <= target.start || subtract.start >= target.end) {
+      return [target]
+    }
+
+    const result = []
+
+    // Left portion (before subtraction)
+    if (subtract.start > target.start) {
+      result.push(new Range(target.start, subtract.start, target.orientation))
+    }
+
+    // Right portion (after subtraction)
+    if (subtract.end < target.end) {
+      result.push(new Range(subtract.end, target.end, target.orientation))
+    }
+
+    return result
+  }
+
+  /**
+   * Subtract a span from the current selection.
+   * @param {Span} span - The span to subtract from the selection
+   */
+  function subtractSpan(span) {
+    const currentDomain = domain.value
+    if (!currentDomain || currentDomain.ranges.length === 0) return
+
+    const newRanges = []
+
+    for (const selRange of currentDomain.ranges) {
+      let remainingRanges = [selRange]
+
+      // Subtract each annotation range from this selection range
+      for (const subRange of span.ranges) {
+        const nextRemaining = []
+        for (const r of remainingRanges) {
+          nextRemaining.push(...subtractRangeFromRange(r, subRange))
+        }
+        remainingRanges = nextRemaining
+      }
+
+      newRanges.push(...remainingRanges)
+    }
+
+    if (newRanges.length === 0) {
+      unselect()
+    } else {
+      domain.value = new SelectionDomain(newRanges)
+    }
+  }
+
+  /**
    * Extend an existing range to include a new position.
    * Preserves the original orientation (doesn't flip based on direction).
    *
@@ -570,6 +629,7 @@ export function useSelection(editorState, graphics, eventBus) {
     splitRange,
     deleteRange,
     moveRange,
+    subtractSpan,
 
     // Graphics
     getSelectionPath,

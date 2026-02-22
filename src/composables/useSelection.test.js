@@ -3,7 +3,7 @@ import { useSelection, SelectionDomain } from './useSelection.js'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics } from './useGraphics.js'
 import { createEventBus } from './useEventBus.js'
-import { Range, Orientation } from '../utils/dna.js'
+import { Range, Span, Orientation } from '../utils/dna.js'
 
 describe('SelectionDomain', () => {
   describe('constructor', () => {
@@ -658,6 +658,169 @@ describe('useSelection', () => {
       expect(sel.domain.value.ranges).toHaveLength(1)
       expect(sel.domain.value.ranges[0].start).toBe(50)
       expect(sel.domain.value.ranges[0].end).toBe(200)
+    })
+  })
+
+  describe('subtractSpan', () => {
+    it('does nothing when annotation does not overlap selection', () => {
+      const sel = createSelection()
+      sel.select('10..20')
+      const span = Span.parse('30..40')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(1)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(20)
+    })
+
+    it('removes range when annotation fully contains it', () => {
+      const sel = createSelection()
+      sel.select('15..25')
+      const span = Span.parse('10..30')
+
+      sel.subtractSpan(span)
+
+      expect(sel.isSelected.value).toBe(false)
+      expect(sel.domain.value).toBe(null)
+    })
+
+    it('splits range when selection contains annotation', () => {
+      const sel = createSelection()
+      sel.select('10..50')
+      const span = Span.parse('20..30')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(2)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(20)
+      expect(sel.domain.value.ranges[1].start).toBe(30)
+      expect(sel.domain.value.ranges[1].end).toBe(50)
+    })
+
+    it('trims range when annotation overlaps start', () => {
+      const sel = createSelection()
+      sel.select('20..40')
+      const span = Span.parse('10..30')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(1)
+      expect(sel.domain.value.ranges[0].start).toBe(30)
+      expect(sel.domain.value.ranges[0].end).toBe(40)
+    })
+
+    it('trims range when annotation overlaps end', () => {
+      const sel = createSelection()
+      sel.select('20..40')
+      const span = Span.parse('30..50')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(1)
+      expect(sel.domain.value.ranges[0].start).toBe(20)
+      expect(sel.domain.value.ranges[0].end).toBe(30)
+    })
+
+    it('handles annotation end matching selection end', () => {
+      const sel = createSelection()
+      sel.select('10..30')
+      const span = Span.parse('20..30')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(1)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(20)
+    })
+
+    it('handles annotation start matching selection start', () => {
+      const sel = createSelection()
+      sel.select('10..30')
+      const span = Span.parse('10..20')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(1)
+      expect(sel.domain.value.ranges[0].start).toBe(20)
+      expect(sel.domain.value.ranges[0].end).toBe(30)
+    })
+
+    it('removes range when annotation exactly matches', () => {
+      const sel = createSelection()
+      sel.select('10..30')
+      const span = Span.parse('10..30')
+
+      sel.subtractSpan(span)
+
+      expect(sel.isSelected.value).toBe(false)
+      expect(sel.domain.value).toBe(null)
+    })
+
+    it('handles multiple selection ranges with partial overlap', () => {
+      const sel = createSelection()
+      sel.select('10..20 + 30..40 + 50..60')
+      const span = Span.parse('15..35')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(3)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(15)
+      expect(sel.domain.value.ranges[1].start).toBe(35)
+      expect(sel.domain.value.ranges[1].end).toBe(40)
+      expect(sel.domain.value.ranges[2].start).toBe(50)
+      expect(sel.domain.value.ranges[2].end).toBe(60)
+    })
+
+    it('handles multi-range annotation span', () => {
+      const sel = createSelection()
+      sel.select('10..100')
+      const span = Span.parse('20..30 + 50..60')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(3)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(20)
+      expect(sel.domain.value.ranges[1].start).toBe(30)
+      expect(sel.domain.value.ranges[1].end).toBe(50)
+      expect(sel.domain.value.ranges[2].start).toBe(60)
+      expect(sel.domain.value.ranges[2].end).toBe(100)
+    })
+
+    it('removes selection when annotation is strictly bigger', () => {
+      const sel = createSelection()
+      sel.select('20..30')
+      const span = Span.parse('10..50')
+
+      sel.subtractSpan(span)
+
+      expect(sel.isSelected.value).toBe(false)
+      expect(sel.domain.value).toBe(null)
+    })
+
+    it('preserves orientation when splitting range', () => {
+      const sel = createSelection()
+      sel.select('(10..50)')  // minus strand
+      const span = Span.parse('20..30')
+
+      sel.subtractSpan(span)
+
+      expect(sel.domain.value.ranges).toHaveLength(2)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+      expect(sel.domain.value.ranges[1].orientation).toBe(Orientation.MINUS)
+    })
+
+    it('does nothing when no selection exists', () => {
+      const sel = createSelection()
+      const span = Span.parse('10..20')
+
+      sel.subtractSpan(span)
+
+      expect(sel.isSelected.value).toBe(false)
+      expect(sel.domain.value).toBe(null)
     })
   })
 })
