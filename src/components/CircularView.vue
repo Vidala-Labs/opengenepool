@@ -14,6 +14,11 @@ const props = defineProps({
   showAnnotationCaptions: {
     type: Boolean,
     default: true
+  },
+  /** Extensions to render circular layers for */
+  extensions: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -450,6 +455,13 @@ defineExpose({
       @click="handleAnnotationClick"
       @contextmenu="handleAnnotationContextMenu"
       @hover="handleAnnotationHover"
+    />
+
+    <!-- Extension circular graphics layers -->
+    <component
+      v-for="ext in props.extensions.filter(e => e.circularGraphicsLayer)"
+      :key="ext.id + '-circular-layer'"
+      :is="ext.circularGraphicsLayer"
     />
 
     <!-- Center text (title and length) -->

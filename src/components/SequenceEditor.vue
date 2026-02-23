@@ -2519,6 +2519,7 @@ defineExpose({
         <CircularView
           :annotations="annotationInstances"
           :show-annotation-captions="showAnnotationCaptions"
+          :extensions="props.extensions"
           @select="handleSelectionChange"
           @contextmenu="showContextMenu($event.event, $event)"
           @handle-contextmenu="handleHandleContextMenu"

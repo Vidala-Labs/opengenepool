@@ -1,6 +1,7 @@
 import RestrictionButton from './RestrictionButton.vue'
 import RestrictionPanel from './RestrictionPanel.vue'
 import RestrictionLayer from './RestrictionLayer.vue'
+import CircularRestrictionLayer from './CircularRestrictionLayer.vue'
 
 export {
   restrictionSitesVisible,
@@ -18,5 +19,6 @@ export const RestrictionExtension = {
   name: 'Restriction Enzymes',
   toolbarButton: RestrictionButton,
   panel: RestrictionPanel,
-  graphicsLayer: RestrictionLayer
+  graphicsLayer: RestrictionLayer,
+  circularGraphicsLayer: CircularRestrictionLayer
 }
