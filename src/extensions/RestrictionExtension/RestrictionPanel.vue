@@ -18,15 +18,43 @@ const extensionAPI = inject('extensionAPI')
 // Search filter
 const searchQuery = ref('')
 
-// Filtered enzymes based on search
-const filteredEnzymes = computed(() => {
-  const query = searchQuery.value.toLowerCase().trim()
-  if (!query) return ENZYMES_SORTED
+// Filter options
+const showZeroCutters = ref(true)
+const cutCountFilter = ref('all') // 'all', '1', '2', '3+', or a specific number
 
-  return ENZYMES_SORTED.filter(enzyme =>
-    enzyme.name.toLowerCase().includes(query) ||
-    enzyme.recognitionSequence.toLowerCase().includes(query)
-  )
+// Filtered enzymes based on search and cut count filters
+const filteredEnzymes = computed(() => {
+  let enzymes = ENZYMES_SORTED
+
+  // Apply search filter
+  const query = searchQuery.value.toLowerCase().trim()
+  if (query) {
+    enzymes = enzymes.filter(enzyme =>
+      enzyme.name.toLowerCase().includes(query) ||
+      enzyme.recognitionSequence.toLowerCase().includes(query)
+    )
+  }
+
+  // Apply zero-cutter filter
+  if (!showZeroCutters.value) {
+    enzymes = enzymes.filter(enzyme => {
+      const count = cutSiteCounts.value.get(enzyme.name) || 0
+      return count > 0
+    })
+  }
+
+  // Apply cut count filter
+  if (cutCountFilter.value !== 'all') {
+    enzymes = enzymes.filter(enzyme => {
+      const count = cutSiteCounts.value.get(enzyme.name) || 0
+      if (cutCountFilter.value === '1') return count === 1
+      if (cutCountFilter.value === '2') return count === 2
+      if (cutCountFilter.value === '3+') return count >= 3
+      return true
+    })
+  }
+
+  return enzymes
 })
 
 // Summary text
@@ -128,6 +156,20 @@ function handleKeydown(event) {
           <div class="action-buttons">
             <button class="action-btn" @click="selectAllEnzymes">Select All</button>
             <button class="action-btn" @click="clearAllEnzymes">Clear All</button>
+          </div>
+
+          <!-- Filter options -->
+          <div class="filter-options">
+            <label class="filter-toggle">
+              <input type="checkbox" v-model="showZeroCutters" />
+              <span>Show 0-cutters</span>
+            </label>
+            <select v-model="cutCountFilter" class="cut-count-select">
+              <option value="all">All counts</option>
+              <option value="1">1-cutters</option>
+              <option value="2">2-cutters</option>
+              <option value="3+">3+ cutters</option>
+            </select>
           </div>
 
           <!-- Enzyme list -->
@@ -270,6 +312,40 @@ function handleKeydown(event) {
   border-color: #ccc;
 }
 
+.filter-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+}
+
+.filter-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.cut-count-select {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+
+.cut-count-select:focus {
+  border-color: #2196F3;
+  outline: none;
+}
+
 .enzyme-list {
   flex: 1;
   overflow-y: auto;
@@ -305,6 +381,7 @@ function handleKeydown(event) {
   font-size: 11px;
   color: #666;
   flex: 1;
+  word-break: break-all;
 }
 
 .enzyme-count {
