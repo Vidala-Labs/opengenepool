@@ -1,14 +1,18 @@
 <script setup>
 import { inject, computed, watch } from 'vue'
 import { restrictionSitesVisible, cutSites, setSequence } from './state.js'
+import { polarToCartesian } from '../../utils/circular.js'
 
 // Inject from parent CircularView
 const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 
-// Line lengths for the cut site markers
-const MARKER_LINE_LENGTH = 12
-const LABEL_OFFSET = 18
+// Layout constants
+const TICK_LENGTH = 6           // Short tick mark through backbone
+const LEADER_START_OFFSET = 8   // Start of leader line (outside backbone)
+const LEADER_LENGTH = 20        // Length of radial portion of leader
+const LABEL_GAP = 4             // Gap between leader end and label
+const ANGULAR_SPREAD = 0.06     // Radians to spread crowded labels (~3.5 degrees)
 
 // Update sequence when it changes (same as linear layer)
 watch(
@@ -33,99 +37,136 @@ const shouldRender = computed(() => {
   return restrictionSitesVisible.value && cutSites.value.length > 0
 })
 
-// Compute marker elements for rendering
-const markers = computed(() => {
+// Compute marker elements with leader line layout
+const markersWithLayout = computed(() => {
   if (!shouldRender.value || !circularGraphics) return []
 
   const cx = circularGraphics.centerX.value
   const cy = circularGraphics.centerY.value
   const backboneRadius = circularGraphics.backboneRadius.value
+  const seqLen = editorState?.sequenceLength?.value || 1
 
-  const result = []
-
+  // First pass: create basic marker data
+  const markers = []
   for (let i = 0; i < cutSites.value.length; i++) {
     const site = cutSites.value[i]
     const position = site.position
-
-    // Get angle for this position
     const angle = circularGraphics.positionToAngle(position)
 
-    // Calculate points for the radial line (extends inward from backbone)
-    const outerPoint = circularGraphics.positionToCartesian(position, backboneRadius)
-    const innerPoint = circularGraphics.positionToCartesian(position, backboneRadius - MARKER_LINE_LENGTH)
-
-    // Calculate label position (inside the circle)
-    const labelPoint = circularGraphics.positionToCartesian(position, backboneRadius - LABEL_OFFSET)
-
-    // Calculate label rotation (perpendicular to radial line, readable)
-    // Convert angle from radians to degrees and add 90 to make text follow the circle
-    let rotationDeg = (angle * 180 / Math.PI) + 90
-    // Flip text on bottom half so it's not upside down
-    const isBottomHalf = rotationDeg > 90 && rotationDeg < 270
-    if (isBottomHalf) {
-      rotationDeg += 180
-    }
-
-    // Determine text anchor based on position
-    const textAnchor = 'middle'
-
-    result.push({
+    markers.push({
       id: `${site.enzyme}-${i}`,
       enzyme: site.enzyme,
       position,
       angle,
-      outerPoint,
-      innerPoint,
-      labelPoint,
-      rotationDeg,
-      textAnchor,
-      isBottomHalf
+      labelAngle: angle, // Will be adjusted for crowded labels
+      row: 0             // Will be set for stacked labels
     })
   }
 
-  return result
-})
+  // Sort by position for collision detection
+  markers.sort((a, b) => a.position - b.position)
 
-// For collision detection on labels, we'll group nearby labels
-// and offset them if they would overlap
-const markersWithLayout = computed(() => {
-  if (markers.value.length === 0) return []
+  // Second pass: detect clusters and spread labels
+  // Group markers that are close together
+  const collisionThreshold = seqLen * 0.025 // ~2.5% of sequence
+  const clusters = []
+  let currentCluster = []
 
-  const seqLen = editorState?.sequenceLength?.value || 1
-  const result = [...markers.value]
+  for (let i = 0; i < markers.length; i++) {
+    if (currentCluster.length === 0) {
+      currentCluster.push(markers[i])
+    } else {
+      const lastMarker = currentCluster[currentCluster.length - 1]
+      const dist = markers[i].position - lastMarker.position
 
-  // Sort by position
-  result.sort((a, b) => a.position - b.position)
-
-  // Detect collisions - labels within ~3% of sequence length might overlap
-  const collisionThreshold = seqLen * 0.02 // ~2% of sequence
-  const labelRadiusOffsets = new Map()
-
-  for (let i = 0; i < result.length; i++) {
-    let offset = 0
-    // Check against previous markers
-    for (let j = 0; j < i; j++) {
-      const dist = Math.abs(result[i].position - result[j].position)
-      const wrapDist = seqLen - dist
-      const minDist = Math.min(dist, wrapDist)
-
-      if (minDist < collisionThreshold) {
-        // This marker is close to a previous one, offset it further inward
-        const prevOffset = labelRadiusOffsets.get(result[j].id) || 0
-        offset = Math.max(offset, prevOffset + 14) // 14px per row
+      if (dist < collisionThreshold) {
+        currentCluster.push(markers[i])
+      } else {
+        clusters.push(currentCluster)
+        currentCluster = [markers[i]]
       }
     }
-    labelRadiusOffsets.set(result[i].id, offset)
+  }
+  if (currentCluster.length > 0) {
+    clusters.push(currentCluster)
+  }
 
-    // Recalculate label position with offset
-    if (offset > 0) {
-      const backboneRadius = circularGraphics.backboneRadius.value
-      result[i].labelPoint = circularGraphics.positionToCartesian(
-        result[i].position,
-        backboneRadius - LABEL_OFFSET - offset
-      )
-      result[i].labelOffset = offset
+  // Check for wrap-around cluster (first and last markers close together)
+  if (clusters.length >= 2) {
+    const firstCluster = clusters[0]
+    const lastCluster = clusters[clusters.length - 1]
+    const firstPos = firstCluster[0].position
+    const lastPos = lastCluster[lastCluster.length - 1].position
+    const wrapDist = (seqLen - lastPos) + firstPos
+
+    if (wrapDist < collisionThreshold) {
+      // Merge first and last clusters
+      const merged = [...lastCluster, ...firstCluster]
+      clusters[0] = merged
+      clusters.pop()
     }
+  }
+
+  // Third pass: spread labels within each cluster
+  for (const cluster of clusters) {
+    if (cluster.length === 1) continue
+
+    // Calculate center angle of cluster
+    const centerAngle = cluster.reduce((sum, m) => sum + m.angle, 0) / cluster.length
+
+    // Spread labels evenly around the center
+    const totalSpread = (cluster.length - 1) * ANGULAR_SPREAD
+    const startAngle = centerAngle - totalSpread / 2
+
+    for (let i = 0; i < cluster.length; i++) {
+      cluster[i].labelAngle = startAngle + i * ANGULAR_SPREAD
+      cluster[i].row = i // For staggered radius if needed
+    }
+  }
+
+  // Fourth pass: calculate all geometry
+  const result = []
+  for (const marker of markers) {
+    const { angle, labelAngle, enzyme, id, position, row } = marker
+
+    // Tick mark through backbone
+    const tickInner = polarToCartesian(cx, cy, backboneRadius - TICK_LENGTH / 2, angle)
+    const tickOuter = polarToCartesian(cx, cy, backboneRadius + TICK_LENGTH / 2, angle)
+
+    // Leader line: starts at backbone, goes outward radially, then bends to label
+    const leaderStart = polarToCartesian(cx, cy, backboneRadius + LEADER_START_OFFSET, angle)
+
+    // Add extra radius for stacked labels in clusters
+    const extraRadius = row * 12
+    const leaderEndRadius = backboneRadius + LEADER_START_OFFSET + LEADER_LENGTH + extraRadius
+    const leaderEnd = polarToCartesian(cx, cy, leaderEndRadius, labelAngle)
+
+    // Label position (just beyond leader end)
+    const labelRadius = leaderEndRadius + LABEL_GAP
+    const labelPoint = polarToCartesian(cx, cy, labelRadius, labelAngle)
+
+    // Label rotation - text reads outward from center
+    let rotationDeg = (labelAngle * 180 / Math.PI) + 90
+    // Flip on left side so text is always readable
+    const isLeftSide = labelAngle > Math.PI / 2 && labelAngle < 3 * Math.PI / 2
+    const textAnchor = isLeftSide ? 'end' : 'start'
+    if (isLeftSide) {
+      rotationDeg += 180
+    }
+
+    result.push({
+      id,
+      enzyme,
+      position,
+      tickInner,
+      tickOuter,
+      leaderStart,
+      leaderEnd,
+      labelPoint,
+      rotationDeg,
+      textAnchor,
+      hasLeaderBend: Math.abs(angle - labelAngle) > 0.01 // Leader bends if label was spread
+    })
   }
 
   return result
@@ -139,24 +180,22 @@ const markersWithLayout = computed(() => {
       :key="marker.id"
       class="restriction-marker"
     >
-      <!-- Radial cut line (from backbone inward) -->
+      <!-- Tick mark through backbone -->
       <line
-        :x1="marker.outerPoint.x"
-        :y1="marker.outerPoint.y"
-        :x2="marker.innerPoint.x"
-        :y2="marker.innerPoint.y"
+        :x1="marker.tickInner.x"
+        :y1="marker.tickInner.y"
+        :x2="marker.tickOuter.x"
+        :y2="marker.tickOuter.y"
         stroke="black"
         stroke-width="1.5"
       />
 
-      <!-- Small tick mark at backbone -->
-      <line
-        :x1="marker.outerPoint.x"
-        :y1="marker.outerPoint.y"
-        :x2="circularGraphics.positionToCartesian(marker.position, circularGraphics.backboneRadius.value + 3).x"
-        :y2="circularGraphics.positionToCartesian(marker.position, circularGraphics.backboneRadius.value + 3).y"
+      <!-- Leader line (from backbone outward to label) -->
+      <path
+        :d="`M ${marker.tickOuter.x} ${marker.tickOuter.y} L ${marker.leaderStart.x} ${marker.leaderStart.y} L ${marker.leaderEnd.x} ${marker.leaderEnd.y}`"
         stroke="black"
-        stroke-width="1.5"
+        stroke-width="1"
+        fill="none"
       />
 
       <!-- Enzyme name label -->
