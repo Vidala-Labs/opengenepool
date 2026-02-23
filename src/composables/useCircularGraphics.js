@@ -34,6 +34,10 @@ export function useCircularGraphics(editorState, options = {}) {
   // Zoom limits
   const minBackboneRadius = 50
 
+  // Extension radial space - tracks extra space needed by extensions (e.g., restriction labels)
+  // Map<sourceId, pixels>
+  const extensionRadialSpace = ref(new Map())
+
   // Annotation settings (fixed)
   const annotationHeight = ref(14)
   const annotationPadding = ref(4)       // Padding between annotation rows
@@ -45,6 +49,18 @@ export function useCircularGraphics(editorState, options = {}) {
     const rows = annotationRowCount.value || 0
     if (rows === 0) return 0
     return annotationGap.value + rows * annotationHeight.value + (rows - 1) * annotationPadding.value
+  })
+
+  // Calculate max radial space needed by any extension
+  // Extensions are at the same radial layer, so we take the max (not sum)
+  const totalExtensionRadialSpace = computed(() => {
+    let max = 0
+    for (const pixels of extensionRadialSpace.value.values()) {
+      if (pixels > max) {
+        max = pixels
+      }
+    }
+    return max
   })
 
   // Fixed size for the circular view
@@ -68,9 +84,9 @@ export function useCircularGraphics(editorState, options = {}) {
     `0 0 ${viewBoxWidth.value} ${viewBoxHeight.value}`
   )
 
-  // Max backbone radius - leave room for annotations and margin
+  // Max backbone radius - leave room for annotations, extensions, and margin
   const maxBackboneRadius = computed(() => {
-    return (viewBoxWidth.value / 2) - annotationSpace.value - 20
+    return (viewBoxWidth.value / 2) - annotationSpace.value - totalExtensionRadialSpace.value - 20
   })
 
   /**
@@ -174,6 +190,29 @@ export function useCircularGraphics(editorState, options = {}) {
   function setAnnotationRowCount(count) {
     if (annotationRowCount.value !== count) {
       annotationRowCount.value = count
+    }
+  }
+
+  /**
+   * Set extra radial space needed by an extension.
+   * This affects the max zoom-out radius to keep content on screen.
+   * @param {string} sourceId - Unique identifier for the extension
+   * @param {number} pixels - Radial space in pixels (0 to clear)
+   */
+  function setExtensionRadialSpace(sourceId, pixels) {
+    const newMap = new Map(extensionRadialSpace.value)
+    if (pixels > 0) {
+      newMap.set(sourceId, pixels)
+    } else {
+      newMap.delete(sourceId)
+    }
+    extensionRadialSpace.value = newMap
+
+    // Re-apply zoom constraints if current zoom exceeds new max
+    const base = Math.max(80, baseBackboneRadius - annotationSpace.value / 2)
+    const currentRadius = base * zoomScale.value
+    if (currentRadius > maxBackboneRadius.value) {
+      setZoom(zoomScale.value)
     }
   }
 
@@ -334,6 +373,10 @@ export function useCircularGraphics(editorState, options = {}) {
     // Annotation stacking
     getRowRadius,
     setAnnotationRowCount,
-    annotationRowCount
+    annotationRowCount,
+
+    // Extension radial space (for zoom constraints)
+    setExtensionRadialSpace,
+    totalExtensionRadialSpace
   }
 }

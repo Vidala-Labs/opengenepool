@@ -59,6 +59,11 @@ const props = defineProps({
   backend: {
     type: Object,
     default: null
+  },
+  /** Array of extension objects */
+  extensions: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -822,6 +827,42 @@ provide('annotationColors', annotationColors)  // Colors persisted to localStora
 provide('showAnnotations', showAnnotations)  // Shared visibility for annotation layers
 provide('showTranslation', showTranslation)  // Shared visibility for translation layer
 
+// Extension API for external extensions
+// Selection change handlers for extensions
+const selectionChangeHandlers = new Set()
+
+const extensionAPI = {
+  // State access
+  getSequence: () => editorState.sequence.value,
+  getTitle: () => editorState.title.value,
+  getSelectedSequence: getSelectedSequenceText,
+  getAnnotations: () => localAnnotations.value,
+
+  // Actions
+  setSelection,
+  clearSelection,
+  scrollToPosition,
+
+  // Annotation creation
+  addAnnotation: (data) => {
+    // data: { span: string, type: string, label: string, color?: string, attributes?: object }
+    handleAnnotationCreate(data)
+  },
+
+  // Event subscription
+  onSelectionChange: (handler) => {
+    selectionChangeHandlers.add(handler)
+    return () => selectionChangeHandlers.delete(handler)  // Returns unsubscribe fn
+  }
+}
+provide('extensionAPI', extensionAPI)
+
+// Watch selection changes and notify extension handlers
+// Use deep: true to detect mutations to range properties (e.g., during handle dragging)
+watch(() => selection.domain.value, () => {
+  selectionChangeHandlers.forEach(handler => handler())
+}, { deep: true })
+
 // Template refs
 const containerRef = ref(null)
 const svgRef = ref(null)
@@ -899,6 +940,20 @@ const tooltipVisible = ref(false)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
 const tooltipContent = ref('')
+
+// Get context menu items from extensions
+function getExtensionContextMenuItems(context) {
+  const items = []
+  for (const ext of props.extensions || []) {
+    if (typeof ext.contextMenuItems === 'function') {
+      const extItems = ext.contextMenuItems(context, extensionAPI)
+      if (Array.isArray(extItems) && extItems.length > 0) {
+        items.push(...extItems)
+      }
+    }
+  }
+  return items
+}
 
 // Build context menu items based on current context
 function buildContextMenuItems(context) {
@@ -1153,6 +1208,38 @@ function buildContextMenuItems(context) {
     }
   }
 
+  // Extension context menu items
+  let extContext = null
+  if (context.source === 'selection' && isSelected && domain) {
+    const selectedSeq = getSelectedSequenceText()
+    extContext = {
+      type: 'selection',
+      data: { sequence: selectedSeq, domain }
+    }
+  } else if (context.source === 'annotation' && context.annotation) {
+    const ann = context.annotation
+    // Handle both Span objects and string spans
+    const spanBounds = ann.span?.bounds ?? null
+    const annSeq = spanBounds ? editorState.sequence.value.slice(spanBounds.start, spanBounds.end) : ''
+    extContext = {
+      type: 'annotation',
+      data: { annotation: ann, sequence: annSeq, fragment: context.fragment }
+    }
+  } else if (context.pos !== undefined) {
+    // Sequence background right-click
+    extContext = {
+      type: 'sequence',
+      data: { position: context.pos }
+    }
+  }
+
+  if (extContext) {
+    const extItems = getExtensionContextMenuItems(extContext)
+    if (extItems.length > 0) {
+      items.push({ separator: true }, ...extItems)
+    }
+  }
+
   return items
 }
 
@@ -1311,6 +1398,15 @@ function handleHandleContextMenu(data) {
       label: 'Extend positive (right)',
       action: () => openExtendModal(rangeIndex, 'end', 'positive')
     })
+  }
+
+  // Extension context menu items for handle
+  const extItems = getExtensionContextMenuItems({
+    type: 'handle',
+    data: { range, position: handleType || (isCursor ? 'cursor' : 'start') }
+  })
+  if (extItems.length > 0) {
+    items.push({ separator: true }, ...extItems)
   }
 
   contextMenuItems.value = items
@@ -1526,9 +1622,9 @@ function handleTranslationClick(data) {
 }
 
 function handleTranslationContextMenu(data) {
-  const { event, translation } = data
+  const { event, element, translation } = data
 
-  contextMenuItems.value = [{
+  const items = [{
     label: 'Copy translation',
     action: async () => {
       try {
@@ -1538,6 +1634,18 @@ function handleTranslationContextMenu(data) {
       }
     }
   }]
+
+  // Extension context menu items for translation
+  const annotation = localAnnotations.value.find(a => a.id === element.annotationId)
+  const extItems = getExtensionContextMenuItems({
+    type: 'translation',
+    data: { translation, annotation }
+  })
+  if (extItems.length > 0) {
+    items.push({ separator: true }, ...extItems)
+  }
+
+  contextMenuItems.value = items
   contextMenuX.value = event.clientX
   contextMenuY.value = event.clientY
   contextMenuVisible.value = true
@@ -2331,6 +2439,13 @@ defineExpose({
       <!-- Spacer to push config to right -->
       <div class="toolbar-spacer"></div>
 
+      <!-- Extension toolbar buttons -->
+      <component
+        v-for="ext in props.extensions.filter(e => e.toolbarButton)"
+        :key="ext.id"
+        :is="ext.toolbarButton"
+      />
+
       <!-- Slot for external toolbar content (appears left of help button) -->
       <slot name="toolbar"></slot>
 
@@ -2404,6 +2519,7 @@ defineExpose({
         <CircularView
           :annotations="annotationInstances"
           :show-annotation-captions="showAnnotationCaptions"
+          :extensions="props.extensions"
           @select="handleSelectionChange"
           @contextmenu="showContextMenu($event.event, $event)"
           @handle-contextmenu="handleHandleContextMenu"
@@ -2566,6 +2682,13 @@ defineExpose({
           @hover="handleAnnotationHover"
         />
 
+        <!-- Extension graphics layers -->
+        <component
+          v-for="ext in props.extensions.filter(e => e.graphicsLayer)"
+          :key="ext.id + '-layer'"
+          :is="ext.graphicsLayer"
+        />
+
       </svg>
       </div>
 
@@ -2631,6 +2754,13 @@ defineExpose({
       :max-bases="extendModalMaxBases"
       @submit="handleExtendSubmit"
       @cancel="handleExtendCancel"
+    />
+
+    <!-- Extension panels/overlays -->
+    <component
+      v-for="ext in props.extensions.filter(e => e.panel)"
+      :key="ext.id + '-panel'"
+      :is="ext.panel"
     />
   </div>
 </template>

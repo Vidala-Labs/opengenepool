@@ -14,6 +14,11 @@ const props = defineProps({
   showAnnotationCaptions: {
     type: Boolean,
     default: true
+  },
+  /** Extensions to render circular layers for */
+  extensions: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -37,6 +42,9 @@ const circularGraphics = useCircularGraphics(editorState)
 
 // Provide circular graphics to child components
 provide('circularGraphics', circularGraphics)
+
+// Provide annotations for extensions that need position-aware layout
+provide('circularAnnotations', computed(() => props.annotations))
 
 // SVG ref for mouse coordinate calculation
 const svgRef = ref(null)
@@ -450,6 +458,13 @@ defineExpose({
       @click="handleAnnotationClick"
       @contextmenu="handleAnnotationContextMenu"
       @hover="handleAnnotationHover"
+    />
+
+    <!-- Extension circular graphics layers -->
+    <component
+      v-for="ext in props.extensions.filter(e => e.circularGraphicsLayer)"
+      :key="ext.id + '-circular-layer'"
+      :is="ext.circularGraphicsLayer"
     />
 
     <!-- Center text (title and length) -->

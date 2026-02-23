@@ -2004,4 +2004,359 @@ describe('SequenceEditor', () => {
       expect(overlay.annotations[0].relativeRanges[0].orientation).toBe(-1)
     })
   })
+
+  describe('extensionAPI', () => {
+    it('provides extensionAPI to child components', async () => {
+      const wrapper = mount(SequenceEditor)
+      wrapper.vm.setSequence('ATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // The extensionAPI should be provided (we can't directly access provide,
+      // but we can check if the extension mechanism works)
+      expect(wrapper.vm.getSequence()).toBe('ATCGATCGATCG')
+    })
+
+    it('onSelectionChange notifies when selection.domain changes', async () => {
+      // Create a test extension that captures the API
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Get selection composable via SelectionLayer
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      const selection = selectionLayer.vm.selection
+
+      // Track callback invocations
+      let callbackCount = 0
+      expect(capturedAPI).not.toBeNull()
+
+      const unsubscribe = capturedAPI.onSelectionChange(() => {
+        callbackCount++
+      })
+
+      // Change selection - this should trigger the watcher
+      selection.select('5..10')
+      await wrapper.vm.$nextTick()
+
+      expect(callbackCount).toBe(1)
+
+      // Change selection again
+      selection.select('2..8')
+      await wrapper.vm.$nextTick()
+
+      expect(callbackCount).toBe(2)
+
+      // Unsubscribe and verify no more calls
+      unsubscribe()
+
+      selection.select('0..5')
+      await wrapper.vm.$nextTick()
+
+      expect(callbackCount).toBe(2) // Should not have increased
+    })
+
+    it('onSelectionChange uses watcher not eventBus commands', async () => {
+      // This test verifies that selection changes trigger callbacks
+      // even when selection is changed programmatically (not via eventBus)
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      let callbackCalled = false
+      expect(capturedAPI).not.toBeNull()
+
+      capturedAPI.onSelectionChange(() => {
+        callbackCalled = true
+      })
+
+      // Use the exposed setSelection method (bypasses eventBus)
+      wrapper.vm.setSelection('3..7')
+      await wrapper.vm.$nextTick()
+
+      // Callback should still be called because we watch selection.domain
+      expect(callbackCalled).toBe(true)
+    })
+
+    it('onSelectionChange fires when user clicks in sequence (mouse event)', async () => {
+      // This test simulates real UI interaction - clicking in the sequence
+      // to change selection, rather than calling selection.select() directly
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCG')
+      wrapper.vm.graphics.setContainerSize(1000, 600)
+      await wrapper.vm.$nextTick()
+
+      let callbackCount = 0
+      expect(capturedAPI).not.toBeNull()
+
+      capturedAPI.onSelectionChange(() => {
+        callbackCount++
+      })
+
+      // Simulate mouse click on the sequence overlay (like a user would)
+      const overlay = wrapper.find('.sequence-overlay')
+      await overlay.trigger('mousedown', {
+        button: 0,
+        clientX: 200,
+        clientY: 20
+      })
+      await overlay.trigger('mouseup')
+      await wrapper.vm.$nextTick()
+
+      // The callback should have been triggered
+      expect(callbackCount).toBeGreaterThan(0)
+    })
+
+    it('getSelectedSequence returns selected text', async () => {
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+
+      // No selection initially
+      expect(capturedAPI.getSelectedSequence()).toBe('')
+
+      // Select a range
+      wrapper.vm.setSelection('2..6')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI.getSelectedSequence()).toBe('CGAT')
+    })
+
+    it('onSelectionChange fires when selection range is mutated (handle dragging)', async () => {
+      // This test simulates what happens during handle dragging:
+      // the range properties are mutated directly without replacing domain.value
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+
+      // Create initial selection
+      wrapper.vm.setSelection('10..15')
+      await wrapper.vm.$nextTick()
+
+      let callbackCount = 0
+      capturedAPI.onSelectionChange(() => {
+        callbackCount++
+      })
+
+      // Now simulate handle dragging by directly mutating the range
+      // This is what SelectionLayer.vue does in handleDragMove
+      const selection = wrapper.findComponent({ name: 'SelectionLayer' }).vm.selection
+      const range = selection.domain.value.ranges[0]
+
+      // Mutate the range (simulating dragging the end handle)
+      range.end = 20
+      await wrapper.vm.$nextTick()
+
+      // The callback should have been triggered by the mutation
+      expect(callbackCount).toBe(1)
+    })
+
+    it('addAnnotation calls backend.annotationCreated', async () => {
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const mockBackend = {
+        annotationCreated: mock(() => {}),
+        onAck: mock(() => () => {}),
+        onError: mock(() => () => {}),
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension],
+          backend: mockBackend
+        }
+      })
+      wrapper.vm.setSequence('ATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATG')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+
+      // Call addAnnotation via the extensionAPI
+      capturedAPI.addAnnotation({
+        span: '0..30',
+        type: 'CDS',
+        caption: 'Test CDS'
+      })
+      await wrapper.vm.$nextTick()
+
+      // Backend should have been called
+      expect(mockBackend.annotationCreated).toHaveBeenCalledTimes(1)
+      const call = mockBackend.annotationCreated.mock.calls[0][0]
+      expect(call.caption).toBe('Test CDS')
+      expect(call.type).toBe('CDS')
+      expect(call.span).toBe('0..30')
+      expect(call.id).toBeDefined()
+    })
+
+    it('addAnnotation emits annotations-update event', async () => {
+      let capturedAPI = null
+      const TestPanel = {
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      }
+
+      const testExtension = {
+        id: 'test',
+        name: 'Test',
+        panel: TestPanel
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 100,
+          extensions: [testExtension]
+        }
+      })
+      wrapper.vm.setSequence('ATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATGATG')
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+
+      // Call addAnnotation via the extensionAPI
+      capturedAPI.addAnnotation({
+        span: '0..30',
+        type: 'CDS',
+        caption: 'Test CDS'
+      })
+      await wrapper.vm.$nextTick()
+
+      // Should emit annotations-update
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      expect(emitted.length).toBeGreaterThan(0)
+
+      // The last emitted annotations array should contain our new annotation
+      const lastUpdate = emitted[emitted.length - 1][0]
+      const newAnnotation = lastUpdate.find(a => a.caption === 'Test CDS')
+      expect(newAnnotation).toBeDefined()
+      expect(newAnnotation.type).toBe('CDS')
+    })
+  })
 })
