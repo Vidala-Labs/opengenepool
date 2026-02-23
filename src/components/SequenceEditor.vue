@@ -834,6 +834,7 @@ const selectionChangeHandlers = new Set()
 const extensionAPI = {
   // State access
   getSequence: () => editorState.sequence.value,
+  getTitle: () => editorState.title.value,
   getSelectedSequence: getSelectedSequenceText,
   getAnnotations: () => localAnnotations.value,
 
@@ -2678,6 +2679,13 @@ defineExpose({
           @click="handleAnnotationClick"
           @contextmenu="handleAnnotationContextMenu"
           @hover="handleAnnotationHover"
+        />
+
+        <!-- Extension graphics layers -->
+        <component
+          v-for="ext in props.extensions.filter(e => e.graphicsLayer)"
+          :key="ext.id + '-layer'"
+          :is="ext.graphicsLayer"
         />
 
       </svg>

@@ -274,18 +274,51 @@ export function useGraphics(editorState) {
     return m.lmargin + pos * m.charWidth
   }
 
-  // Track extra height needed above each line (for annotations)
-  // Key: line index, Value: extra pixels needed above the line
-  const lineExtraHeight = ref(new Map())
+  // Track extra height contributions from multiple sources (annotations, restriction sites, etc.)
+  // Map<lineIndex, Map<sourceId, height>>
+  const lineExtraHeightContributions = ref(new Map())
 
-  // Set extra height for a line (called by annotation layer after layout)
-  function setLineExtraHeight(lineIndex, extraHeight) {
-    const current = lineExtraHeight.value.get(lineIndex) || 0
-    if (extraHeight !== current) {
-      const newMap = new Map(lineExtraHeight.value)
-      newMap.set(lineIndex, extraHeight)
-      lineExtraHeight.value = newMap
+  // Computed total extra height per line (sum of all contributions)
+  const lineExtraHeight = computed(() => {
+    const totals = new Map()
+    for (const [lineIndex, contributions] of lineExtraHeightContributions.value) {
+      const total = Array.from(contributions.values()).reduce((a, b) => a + b, 0)
+      if (total > 0) {
+        totals.set(lineIndex, total)
+      }
     }
+    return totals
+  })
+
+  // Set extra height for a line from a specific source
+  function setLineExtraHeight(lineIndex, extraHeight, sourceId = 'annotations') {
+    const newContributions = new Map(lineExtraHeightContributions.value)
+
+    if (!newContributions.has(lineIndex)) {
+      newContributions.set(lineIndex, new Map())
+    }
+
+    const lineContribs = new Map(newContributions.get(lineIndex))
+    if (extraHeight > 0) {
+      lineContribs.set(sourceId, extraHeight)
+    } else {
+      lineContribs.delete(sourceId)
+    }
+
+    if (lineContribs.size > 0) {
+      newContributions.set(lineIndex, lineContribs)
+    } else {
+      newContributions.delete(lineIndex)
+    }
+
+    lineExtraHeightContributions.value = newContributions
+  }
+
+  // Get height contribution from a specific source for a line
+  function getLineExtraHeightForSource(lineIndex, sourceId) {
+    const contributions = lineExtraHeightContributions.value.get(lineIndex)
+    if (!contributions) return 0
+    return contributions.get(sourceId) || 0
   }
 
   // Extra space at top for tooltips (merge button, segment indices) on first line
@@ -388,6 +421,7 @@ export function useGraphics(editorState) {
     pixelToSequencePosition,
     setContainerSize,
     setFontMetrics,
-    setLineExtraHeight
+    setLineExtraHeight,
+    getLineExtraHeightForSource
   }
 }

@@ -10,6 +10,7 @@ import { toGenBank } from './genbank-writer.js'
 import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
 import { ORFFinderExtension } from '../src/extensions/ORFFinderExtension/index.js'
 import { BlastExtension } from '../src/extensions/BlastExtension/index.js'
+import { RestrictionExtension } from '../src/extensions/RestrictionExtension/index.js'
 
 // List of sequences for sidebar
 const sequences = ref([])
@@ -181,7 +182,7 @@ async function handleUpload(file) {
         :title="currentSequence.name"
         :annotations="currentSequence.annotations || []"
         :metadata="currentSequence.metadata || {}"
-        :extensions="[SearchExtension, ORFFinderExtension, BlastExtension]"
+        :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"

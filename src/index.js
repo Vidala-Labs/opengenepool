@@ -30,3 +30,4 @@ export {
 export { SearchExtension } from './extensions/SearchExtension/index.js'
 export { ORFFinderExtension } from './extensions/ORFFinderExtension/index.js'
 export { BlastExtension } from './extensions/BlastExtension/index.js'
+export { RestrictionExtension } from './extensions/RestrictionExtension/index.js'

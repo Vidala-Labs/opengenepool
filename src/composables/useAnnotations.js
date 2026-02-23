@@ -326,7 +326,7 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
       if (currentExtraHeights) {
         for (const [line] of currentExtraHeights) {
           if (!byLine.has(line)) {
-            graphics.setLineExtraHeight(line, 0)
+            graphics.setLineExtraHeight(line, 0, 'annotations')
           }
         }
       }
@@ -342,7 +342,7 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
           }
         }
         // Extra height is the absolute value of how far above y=0 they extend
-        graphics.setLineExtraHeight(line, Math.abs(minTop))
+        graphics.setLineExtraHeight(line, Math.abs(minTop), 'annotations')
       }
     }
 
