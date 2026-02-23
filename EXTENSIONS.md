@@ -66,6 +66,33 @@ import { SequenceEditor, BlastExtension } from 'opengenepool'
 - Opens NCBI BLAST in a new browser tab with the sequence pre-filled
 - No toolbar button or panel (context menu only)
 
+### RestrictionExtension
+
+Restriction enzyme cut site analysis and visualization.
+
+```javascript
+import { SequenceEditor, RestrictionExtension } from 'opengenepool'
+
+<SequenceEditor
+  :sequence="dnaSequence"
+  :extensions="[RestrictionExtension]"
+/>
+```
+
+**Features:**
+- Toolbar button to toggle restriction site visibility
+- Panel with 25+ common restriction enzymes (BamHI, EcoRI, HindIII, etc.)
+- Real-time cut site detection with count display
+- Filter controls:
+  - Toggle to show/hide 0-cutters (enzymes with no sites in sequence)
+  - Dropdown to filter by cut count (1-cutters, 2-cutters, 3+)
+- Search by enzyme name or recognition sequence
+- Select All / Clear All buttons
+- Recognition sequences displayed with cut position markers (ᵛ top strand, ‸ bottom strand)
+- **Linear view**: T-bar markers above sequence at cut positions
+- **Circular view**: Leader lines with horizontal labels, annotation-aware positioning, global relaxation for overlap resolution
+- Dynamic zoom constraints to keep labels on screen
+
 ## Using Extensions
 
 Pass an array of extension objects to the `extensions` prop:
@@ -93,7 +120,9 @@ Extensions are plain objects with the following structure:
   name: 'My Extension',         // Display name (required)
   toolbarButton: MyButton,      // Vue component for toolbar (optional)
   panel: MyPanel,               // Vue component for overlay panel (optional)
-  contextMenuItems: (context, api) => []  // Context menu items (optional)
+  contextMenuItems: (context, api) => [],  // Context menu items (optional)
+  graphicsLayer: MyLinearLayer,            // Vue component for linear view overlay (optional)
+  circularGraphicsLayer: MyCircularLayer   // Vue component for circular view overlay (optional)
 }
 ```
 
@@ -318,29 +347,82 @@ onUnmounted(() => {
 </style>
 ```
 
-## Future: Graphics API
+## Graphics Layers
 
-Extensions will be able to render custom graphics in the sequence view (planned for future releases). This will enable:
+Extensions can render custom graphics in both linear and circular sequence views by providing Vue components:
 
-- **Restriction enzyme cut sites** - Visual markers at recognition sequences
-- **Primer binding sites** - Arrows showing primer annealing positions
-- **Custom annotations** - Application-specific visual overlays
-- **Interactive markers** - Clickable/hoverable graphical elements
+- **`graphicsLayer`** - Rendered in the linear sequence view SVG
+- **`circularGraphicsLayer`** - Rendered in the circular plasmid view SVG
 
-The graphics API will provide access to:
+### Linear Graphics Layer
+
+Linear graphics layers receive injected state via Vue's provide/inject:
 
 ```javascript
-// Planned API (not yet implemented)
-const graphicsAPI = inject('graphicsAPI')
+import { inject } from 'vue'
 
-graphicsAPI.addOverlay({
-  id: 'my-overlay',
-  render: (ctx, metrics) => {
-    // Draw using canvas-like API or return SVG elements
-  }
+const editorState = inject('editorState')  // Sequence, zoom, cursor state
+const graphics = inject('graphics')         // Layout metrics and line geometry
+```
+
+The `graphics` object provides:
+- `getLineY(lineIndex)` - Y position for a line
+- `basesPerLine` - Current zoom level
+- `lineHeight`, `charWidth` - Layout dimensions
+- `setLineExtraHeight(line, pixels, sourceId)` - Request extra space above a line
+
+### Circular Graphics Layer
+
+Circular graphics layers receive:
+
+```javascript
+const editorState = inject('editorState')
+const circularGraphics = inject('circularGraphics')
+const circularAnnotations = inject('circularAnnotations')  // For annotation-aware positioning
+```
+
+The `circularGraphics` object provides:
+- `positionToAngle(position)` - Convert sequence position to angle
+- `positionToCartesian(position, radius)` - Convert to x,y coordinates
+- `backboneRadius`, `centerX`, `centerY` - Circle geometry
+- `getRowRadius(rowIndex)` - Radius for annotation row
+- `setExtensionRadialSpace(sourceId, pixels)` - Register radial space for zoom constraints
+
+### Example: Restriction Sites (simplified)
+
+```vue
+<script setup>
+import { inject, computed } from 'vue'
+import { cutSites, restrictionSitesVisible } from './state.js'
+
+const circularGraphics = inject('circularGraphics')
+
+const markers = computed(() => {
+  if (!restrictionSitesVisible.value) return []
+
+  return cutSites.value.map(site => {
+    const angle = circularGraphics.positionToAngle(site.position)
+    const point = circularGraphics.positionToCartesian(
+      site.position,
+      circularGraphics.backboneRadius.value
+    )
+    return { ...site, angle, point }
+  })
 })
+</script>
 
-graphicsAPI.removeOverlay('my-overlay')
+<template>
+  <g class="restriction-markers">
+    <circle
+      v-for="marker in markers"
+      :key="marker.id"
+      :cx="marker.point.x"
+      :cy="marker.point.y"
+      r="3"
+      fill="red"
+    />
+  </g>
+</template>
 ```
 
 ## Best Practices
