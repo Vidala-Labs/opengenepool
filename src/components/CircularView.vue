@@ -43,6 +43,9 @@ const circularGraphics = useCircularGraphics(editorState)
 // Provide circular graphics to child components
 provide('circularGraphics', circularGraphics)
 
+// Provide annotations for extensions that need position-aware layout
+provide('circularAnnotations', computed(() => props.annotations))
+
 // SVG ref for mouse coordinate calculation
 const svgRef = ref(null)
 
