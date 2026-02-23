@@ -1218,9 +1218,10 @@ function buildContextMenuItems(context) {
     }
   } else if (context.source === 'annotation' && context.annotation) {
     const ann = context.annotation
-    // Handle both Span objects and string spans
-    const spanBounds = ann.span?.bounds ?? null
-    const annSeq = spanBounds ? editorState.sequence.value.slice(spanBounds.start, spanBounds.end) : ''
+    // Use iterateSequence to handle orientation and multi-part spans correctly
+    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
+    const seq = editorState.sequence.value
+    const annSeq = [...iterateSequence(span, seq)].map(b => b.letter).join('')
     extContext = {
       type: 'annotation',
       data: { annotation: ann, sequence: annSeq, fragment: context.fragment }

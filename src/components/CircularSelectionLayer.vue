@@ -514,8 +514,10 @@ function handlePathClick(event, rangeIndex) {
 
 function handlePathContextMenu(event, rangeIndex) {
   event.preventDefault()
+  event.stopPropagation()
   emit('contextmenu', {
     event,
+    source: 'selection',
     rangeIndex,
     range: selection.domain.value.ranges[rangeIndex]
   })
