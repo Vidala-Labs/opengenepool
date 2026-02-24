@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 
 const props = defineProps({
   visible: {
@@ -21,6 +21,14 @@ const props = defineProps({
   overlayAnnotationCount: {
     type: Number,
     default: 0
+  },
+  selectionLength: {
+    type: Number,
+    default: 0
+  },
+  affectedAnnotationCount: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -29,16 +37,31 @@ const emit = defineEmits(['submit', 'cancel'])
 const inputRef = ref(null)
 const text = ref('')
 const includeAnnotations = ref(true)
+const preserveAnnotations = ref(false)
+
+// Computed: current text length matches selection length (equal-length replace)
+const isEqualLengthReplace = computed(() => {
+  if (!props.isReplace || props.selectionLength === 0) return false
+  const cleanedLength = text.value.toUpperCase().replace(/[^ATCGNRYSWKMBDHV]/g, '').length
+  return cleanedLength === props.selectionLength
+})
+
+// Show radio buttons when equal-length replace AND there are overlay annotations AND affected annotations
+const showRadioButtons = computed(() => isEqualLengthReplace.value && props.overlayAnnotationCount > 0 && props.affectedAnnotationCount > 0)
+
+// Show checkbox when equal-length replace AND no overlay annotations AND there are affected annotations
+const showPreserveCheckbox = computed(() => isEqualLengthReplace.value && props.overlayAnnotationCount === 0 && props.affectedAnnotationCount > 0)
 
 // Update text when initialText changes
 watch(() => props.initialText, (val) => {
   text.value = val
 })
 
-// Reset includeAnnotations when modal opens
+// Reset state when modal opens
 watch(() => props.visible, (visible) => {
   if (visible) {
     includeAnnotations.value = true
+    preserveAnnotations.value = false
   }
 })
 
@@ -58,7 +81,17 @@ function handleSubmit() {
   // Remove whitespace/newlines and invalid characters, uppercase
   const value = text.value.toUpperCase().replace(/[^ATCGNRYSWKMBDHV]/g, '')
   if (value) {
-    emit('submit', value, includeAnnotations.value)
+    // Determine annotation mode:
+    // - "preserve" = don't adjust existing annotations, no overlay annotations
+    // - "include" = adjust existing annotations, include overlay annotations
+    // - "default" = adjust existing annotations, no overlay annotations
+    let annotationMode = 'default'
+    if (preserveAnnotations.value) {
+      annotationMode = 'preserve'
+    } else if (showRadioButtons.value || (props.overlayAnnotationCount > 0 && includeAnnotations.value)) {
+      annotationMode = 'include'
+    }
+    emit('submit', value, annotationMode)
   }
   text.value = ''
 }
@@ -96,9 +129,26 @@ function handleKeyDown(event) {
       <div class="modal-hint">
         Valid characters: A, T, C, G, N, R, Y, S, W, K, M, B, D, H, V
       </div>
-      <label v-if="overlayAnnotationCount > 0" class="annotation-toggle">
+      <!-- Radio buttons for equal-length replace with overlay annotations -->
+      <div v-if="showRadioButtons" class="annotation-options">
+        <label class="annotation-radio">
+          <input type="radio" v-model="preserveAnnotations" :value="false" />
+          <span>Include {{ overlayAnnotationCount }} annotation{{ overlayAnnotationCount === 1 ? '' : 's' }}</span>
+        </label>
+        <label class="annotation-radio">
+          <input type="radio" v-model="preserveAnnotations" :value="true" />
+          <span>Sequence only (preserve existing annotations)</span>
+        </label>
+      </div>
+      <!-- Checkbox for overlay annotations when NOT equal-length replace -->
+      <label v-else-if="overlayAnnotationCount > 0" class="annotation-toggle">
         <input type="checkbox" v-model="includeAnnotations" />
         <span>Include {{ overlayAnnotationCount }} annotation{{ overlayAnnotationCount === 1 ? '' : 's' }}</span>
+      </label>
+      <!-- Checkbox for preserving annotations when no overlay annotations but equal-length replace -->
+      <label v-if="showPreserveCheckbox" class="annotation-toggle">
+        <input type="checkbox" v-model="preserveAnnotations" />
+        <span>Preserve existing annotations</span>
       </label>
       <div class="modal-buttons">
         <button class="btn btn-cancel" @click="handleCancel">Cancel</button>
@@ -210,6 +260,28 @@ function handleKeyDown(event) {
 }
 
 .annotation-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.annotation-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.annotation-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+}
+
+.annotation-radio input[type="radio"] {
   width: 16px;
   height: 16px;
   cursor: pointer;

@@ -104,6 +104,29 @@ const insertModalSelectionEnd = ref(0)  // End of selection for replace mode
 // Rich paste state - holds overlay annotations to create after paste
 const pendingOverlayAnnotations = ref(null)
 
+// Count annotations that would be affected by a replacement
+// Affected = intersects selection but doesn't fully contain it
+const affectedAnnotationCount = computed(() => {
+  if (!insertModalIsReplace.value) return 0
+  const selStart = insertModalPosition.value
+  const selEnd = insertModalSelectionEnd.value
+  if (selStart === selEnd) return 0
+
+  let count = 0
+  for (const ann of localAnnotations.value) {
+    const span = Span.parse(ann.span)
+    for (const range of span.ranges) {
+      const intersects = range.end > selStart && range.start < selEnd
+      const contains = range.start <= selStart && range.end >= selEnd
+      if (intersects && !contains) {
+        count++
+        break // Count each annotation only once
+      }
+    }
+  }
+  return count
+})
+
 // Annotation modal state
 const annotationModalOpen = ref(false)
 const annotationModalSpan = ref('0..0')
@@ -2050,13 +2073,17 @@ function createOverlayAnnotations(pastePosition, overlayAnnotations) {
   }
 }
 
-function handleReplaceSubmit(text) {
+function handleReplaceSubmit(text, preserveAnnotations = false) {
   const selStart = insertModalPosition.value
   const selEnd = insertModalSelectionEnd.value
 
   // 1. Apply locally (optimistic UI)
   editorState.replaceRange(selStart, selEnd, text)
-  adjustAnnotationsForReplace(selStart, selEnd, text.length)
+
+  // Only adjust annotations if not preserving them
+  if (!preserveAnnotations) {
+    adjustAnnotationsForReplace(selStart, selEnd, text.length)
+  }
 
   // 2. Send to backend if connected (delete + insert)
   if (effectiveBackend.value?.delete) {
@@ -2088,7 +2115,7 @@ function handleReplaceSubmit(text) {
   }
 }
 
-function handleModalSubmit(text, includeAnnotations = true) {
+function handleModalSubmit(text, annotationMode = 'default') {
   insertModalVisible.value = false
   if (!text) {
     // Clear pending overlay if modal submitted with no text
@@ -2097,13 +2124,13 @@ function handleModalSubmit(text, includeAnnotations = true) {
     return
   }
 
-  // Clear overlay annotations if user unchecked the toggle
-  if (!includeAnnotations) {
+  // Clear overlay annotations unless mode is 'include'
+  if (annotationMode !== 'include') {
     pendingOverlayAnnotations.value = null
   }
 
   if (insertModalIsReplace.value) {
-    handleReplaceSubmit(text)
+    handleReplaceSubmit(text, annotationMode === 'preserve')
   } else {
     handleInsertSubmit(text)
   }
@@ -2723,6 +2750,8 @@ defineExpose({
       :is-replace="insertModalIsReplace"
       :position="insertModalPosition"
       :overlay-annotation-count="pendingOverlayAnnotations?.length || 0"
+      :selection-length="insertModalSelectionEnd - insertModalPosition"
+      :affected-annotation-count="affectedAnnotationCount"
       @submit="handleModalSubmit"
       @cancel="handleInsertCancel"
     />
