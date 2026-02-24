@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { mount } from '@vue/test-utils'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
@@ -133,6 +133,32 @@ describe('CircularAnnotationLayer', () => {
       const wrapper = mountWithProviders({ annotations })
       const annotationElements = wrapper.findAll('.annotation')
       expect(annotationElements).toHaveLength(2)
+    })
+
+    it('allows annotations to fit between gaps of multi-part annotations', () => {
+      // Multi-part annotation with gap: 1..10 + 40..50
+      // Single annotation in gap: 20..30
+      // Both should render (detailed row assignment tested in useCircularAnnotations.test.js)
+      const multiPartAnnotation = new Annotation({
+        id: 'multi',
+        type: 'gene',
+        caption: 'Multi',
+        span: '1..10 + 40..50'
+      })
+
+      const gapAnnotation = new Annotation({
+        id: 'gap',
+        type: 'gene',
+        caption: 'Gap',
+        span: '20..30'
+      })
+
+      const wrapper = mountWithProviders({ annotations: [multiPartAnnotation, gapAnnotation] })
+
+      // Both annotations should render - the multi-part annotation renders 2 paths (one per range)
+      // and the gap annotation renders 1 path
+      const paths = wrapper.findAll('.annotation-path')
+      expect(paths.length).toBe(3) // 2 from multi-part + 1 from gap
     })
   })
 

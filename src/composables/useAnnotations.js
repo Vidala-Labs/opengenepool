@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { Annotation } from '../utils/annotation.js'
+import { rangesOverlap } from '../utils/layout.js'
 
 /**
  * Generate SVG path for an annotation arrow.
@@ -129,18 +130,6 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
    */
   function setAnnotations(list) {
     annotations.value = list
-  }
-
-  /**
-   * Check if two sequence ranges overlap (exclusive of touching edges).
-   * @param {number} start1
-   * @param {number} end1
-   * @param {number} start2
-   * @param {number} end2
-   * @returns {boolean}
-   */
-  function rangesOverlap(start1, end1, start2, end2) {
-    return start1 < end2 && end1 > start2
   }
 
   /**
