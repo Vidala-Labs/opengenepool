@@ -672,6 +672,100 @@ describe('SequenceEditor backend', () => {
     })
   })
 
+  describe('reverse complement replacement', () => {
+    it('should replace with reverse complement when selection is on minus strand', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG', // 12 bases
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on minus strand
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit replacement text 'AAAA' - should be reverse complemented to 'TTTT'
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'AAAA', 'default')
+      await wrapper.vm.$nextTick()
+
+      // The sequence should have TTTT inserted (reverse complement of AAAA)
+      // Original: ATCGATCGATCG, replacing positions 4..8 (ATCG) with TTTT
+      const newSeq = wrapper.vm.getSequence()
+      expect(newSeq).toBe('ATCGTTTTATCG')
+    })
+
+    it('should not reverse complement when selection is on plus strand', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG', // 12 bases
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on plus strand (default)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit replacement text 'AAAA' - should be inserted as-is
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'AAAA', 'default')
+      await wrapper.vm.$nextTick()
+
+      // The sequence should have AAAA inserted directly
+      const newSeq = wrapper.vm.getSequence()
+      expect(newSeq).toBe('ATCGAAAAATCG')
+    })
+
+    it('should reverse complement with IUPAC codes', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG',
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on minus strand
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('(4..8)')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit 'ATRY' - reverse complement:
+      // A->T, T->A, R->Y, Y->R: complement of ATRY = TAYR
+      // Reverse of TAYR = RYAT
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'ATRY', 'default')
+      await wrapper.vm.$nextTick()
+
+      const newSeq = wrapper.vm.getSequence()
+      expect(newSeq).toBe('ATCGRYATATCG')
+    })
+  })
+
   describe('preserveAnnotations option', () => {
     it('should not alter annotations when annotationMode is preserve', async () => {
       const mockBackend = createMockBackend()
