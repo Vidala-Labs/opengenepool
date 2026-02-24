@@ -31,7 +31,7 @@ src/
 ├── components/      # 23 Vue SFC components
 ├── composables/     # 7 Vue 3 composables for state management
 ├── utils/           # Utility modules (dna.js, annotation.js, translation.js, circular.js)
-├── adapters/        # Backend adapters (readonly, IndexedDB)
+├── backends/        # Backend adapters (readonly, IndexedDB)
 └── index.js         # Public exports
 test/                # Test setup (preload config, Vue SFC compiler)
 example/             # Working example app with GenBank import/export

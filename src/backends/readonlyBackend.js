@@ -5,7 +5,7 @@
  * disabled, this backend ensures no edits can be sent to the server.
  *
  * Usage:
- *   import { createReadonlyBackend } from '../adapters/readonlyBackend.js'
+ *   import { createReadonlyBackend } from '../backends/readonlyBackend.js'
  *   const backend = readonly ? createReadonlyBackend() : createLiveViewBackend(live)
  */
 
