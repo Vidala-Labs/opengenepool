@@ -270,6 +270,8 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
 
         // Place element in this row (include annotation ID for unique identification)
         rows[placedRow].elements.push({ start: fragStart, end: fragEnd, annotationId })
+        // Store the row assignment directly on the element for the second pass
+        elem.placedRow = placedRow
         // Update row height if this element needs more space
         rows[placedRow].height = Math.max(rows[placedRow].height, elemHeight)
 
@@ -285,19 +287,9 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
       // Second pass: recalculate deltaY now that all row heights are known
       // (in case earlier elements were placed before a tall element expanded the row)
       for (const elem of elements) {
-        const annotationId = elem.fragment.annotation?.id
-
-        // Find which row this element is in (match by annotation ID)
-        let elemRow = -1
-        for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-          for (const placed of rows[rowIdx].elements) {
-            if (placed.annotationId === annotationId) {
-              elemRow = rowIdx
-              break
-            }
-          }
-          if (elemRow !== -1) break
-        }
+        // Use the row stored in the first pass (not looked up by annotationId,
+        // which would be wrong for multi-range annotations with fragments on different rows)
+        const elemRow = elem.placedRow
 
         // Recalculate deltaY with final row heights
         let deltaY = 0
