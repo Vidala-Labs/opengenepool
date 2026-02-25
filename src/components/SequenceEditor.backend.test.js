@@ -671,4 +671,252 @@ describe('SequenceEditor backend', () => {
       expect(uniqueIds.size).toBe(3)
     })
   })
+
+  describe('reverse complement replacement', () => {
+    it('should replace with reverse complement when selection is on minus strand', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG', // 12 bases
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on minus strand
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit replacement text 'AAAA' - should be reverse complemented to 'TTTT'
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'AAAA', 'default')
+      await wrapper.vm.$nextTick()
+
+      // The sequence should have TTTT inserted (reverse complement of AAAA)
+      // Original: ATCGATCGATCG, replacing positions 4..8 (ATCG) with TTTT
+      const newSeq = wrapper.vm.getSequence()
+      expect(newSeq).toBe('ATCGTTTTATCG')
+    })
+
+    it('should not reverse complement when selection is on plus strand', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG', // 12 bases
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on plus strand (default)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit replacement text 'AAAA' - should be inserted as-is
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'AAAA', 'default')
+      await wrapper.vm.$nextTick()
+
+      // The sequence should have AAAA inserted directly
+      const newSeq = wrapper.vm.getSequence()
+      expect(newSeq).toBe('ATCGAAAAATCG')
+    })
+
+    it('should reverse complement with IUPAC codes', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG',
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on minus strand
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('(4..8)')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit 'ATRY' - reverse complement:
+      // A->T, T->A, R->Y, Y->R: complement of ATRY = TAYR
+      // Reverse of TAYR = RYAT
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'ATRY', 'default')
+      await wrapper.vm.$nextTick()
+
+      const newSeq = wrapper.vm.getSequence()
+      expect(newSeq).toBe('ATCGRYATATCG')
+    })
+  })
+
+  describe('preserveAnnotations option', () => {
+    it('should not alter annotations when annotationMode is preserve', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 15..25 (inside the annotation)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('15..25')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal to open (by typing a character)
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit with annotationMode='preserve' (equal length replacement: 10 chars -> 10 chars)
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'TTTTTTTTTT', 'preserve')
+      await wrapper.vm.$nextTick()
+
+      // Backend should receive delete and insert calls
+      expect(mockBackend.delete).toHaveBeenCalledTimes(1)
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // Annotation should NOT be updated (preserved at original position)
+      const emitted = wrapper.emitted('annotations-update')
+      // When annotationMode is 'preserve', annotations-update should not be emitted
+      // because adjustAnnotationsForReplace is skipped
+      expect(emitted).toBeFalsy()
+    })
+
+    it('should alter annotations normally when annotationMode is default', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 15..25 (inside the annotation)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('15..25')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit with annotationMode='default'
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'TTTTTTTTTT', 'default')
+      await wrapper.vm.$nextTick()
+
+      // Backend should receive delete and insert calls
+      expect(mockBackend.delete).toHaveBeenCalledTimes(1)
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // Annotation should be updated (adjustment applied)
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      // For equal length replace within annotation, the annotation remains 10..30
+      // (since net change is 0 and it contains the selection, end adjusts by 0)
+      expect(emitted[0][0][0].span).toBe('10..30')
+    })
+
+    it('should collapse annotation when selection contains it and annotationMode is default', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '15..25' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 10..30 (contains the annotation 15..25)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('10..30')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit with annotationMode='default', replacing 20 chars with 20 chars
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'T'.repeat(20), 'default')
+      await wrapper.vm.$nextTick()
+
+      // Annotation should be collapsed to zero-width at selection start
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      // Annotation that was contained by selection gets collapsed to zero-width at selStart
+      // Zero-width spans serialize as just the position (e.g., "10" not "10..10")
+      expect(emitted[0][0][0].span).toBe('10')
+    })
+
+    it('should keep annotation when selection contains it and annotationMode is preserve', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '15..25' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 10..30 (contains the annotation 15..25)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('10..30')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit with annotationMode='preserve', replacing 20 chars with 20 chars
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'T'.repeat(20), 'preserve')
+      await wrapper.vm.$nextTick()
+
+      // Annotation should NOT be updated (preserved at original position)
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeFalsy()
+    })
+  })
 })

@@ -59,7 +59,7 @@ describe('InsertModal', () => {
   })
 
   describe('submit', () => {
-    it('emits submit with uppercase text and includeAnnotations on button click', async () => {
+    it('emits submit with uppercase text and default annotation mode on button click', async () => {
       const wrapper = mount(InsertModal, {
         props: { visible: true, initialText: 'atg' }
       })
@@ -67,7 +67,8 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
       expect(wrapper.emitted('submit')).toHaveLength(1)
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', true])
+      // Emits [text, annotationMode]
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default'])
     })
 
     it('emits submit on Enter key', async () => {
@@ -78,7 +79,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter' })
       expect(wrapper.emitted('submit')).toHaveLength(1)
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', true])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default'])
     })
 
     it('filters out invalid characters', async () => {
@@ -89,7 +90,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
       // Only valid IUPAC codes should remain: X and Z are not valid, Y is valid
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATGY', true])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATGY', 'default'])
     })
 
     it('does not emit submit with empty text', async () => {
@@ -145,7 +146,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATCG', true])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATCG', 'default'])
     })
 
     it('accepts N wildcard', async () => {
@@ -155,7 +156,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATNGC', true])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATNGC', 'default'])
     })
 
     it('accepts two-letter IUPAC codes', async () => {
@@ -165,7 +166,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['RYSWKM', true])
+      expect(wrapper.emitted('submit')[0]).toEqual(['RYSWKM', 'default'])
     })
 
     it('accepts three-letter IUPAC codes', async () => {
@@ -175,7 +176,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['BDHV', true])
+      expect(wrapper.emitted('submit')[0]).toEqual(['BDHV', 'default'])
     })
   })
 
@@ -211,7 +212,7 @@ describe('InsertModal', () => {
       expect(checkbox.element.checked).toBe(true)
     })
 
-    it('emits includeAnnotations=false when toggle is unchecked', async () => {
+    it('emits default mode when toggle is unchecked', async () => {
       const wrapper = mount(InsertModal, {
         props: { visible: true, initialText: 'ATG', overlayAnnotationCount: 2 }
       })
@@ -223,7 +224,21 @@ describe('InsertModal', () => {
       await checkbox.setValue(false)
 
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', false])
+      // When unchecked, we don't include overlay annotations -> 'default' mode
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default'])
+    })
+
+    it('emits include mode when toggle is checked', async () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, initialText: 'ATG', overlayAnnotationCount: 2 }
+      })
+      await nextTick()
+      await nextTick()
+
+      // Toggle is checked by default
+      await wrapper.find('.btn-submit').trigger('click')
+      // When checked, we include overlay annotations -> 'include' mode
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'include'])
     })
 
     it('resets toggle to checked when modal reopens', async () => {

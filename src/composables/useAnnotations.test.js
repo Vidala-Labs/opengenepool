@@ -226,6 +226,41 @@ describe('useAnnotations', () => {
       const deltaYs = lineElements.map(e => e.deltaY)
       expect(deltaYs.every(d => d === 0)).toBe(true)
     })
+
+    it('stacks multi-range annotations correctly per fragment', () => {
+      // Bug fix test: multi-range annotations should have each fragment
+      // stacked independently, not all fragments using the first fragment's row
+      const ann = createAnnotations()
+      ann.setAnnotations([
+        // Multi-range annotation with fragments at 1..10 and 16..25
+        new Annotation({ id: '1', caption: 'Multi', type: 'gene', span: '1..10+16..25' }),
+        // Annotation that overlaps only the second fragment (16..25)
+        new Annotation({ id: '2', caption: 'Overlap', type: 'gene', span: '12..75' })
+      ])
+
+      const lineElements = ann.getElementsByLine.value.get(0)
+      // Should have 3 elements: two fragments from multi-range, one from overlapping
+      expect(lineElements.length).toBe(3)
+
+      // Find the fragment for positions 1..10 and 16..25
+      const frag1 = lineElements.find(e => e.fragment.start === 1 && e.fragment.end === 10)
+      const frag2 = lineElements.find(e => e.fragment.start === 16 && e.fragment.end === 25)
+      const overlapAnnotation = lineElements.find(e => e.fragment.annotation?.id === '2')
+
+      expect(frag1).toBeDefined()
+      expect(frag2).toBeDefined()
+      expect(overlapAnnotation).toBeDefined()
+
+      // The key test: frag1 (1..10) doesn't overlap with the overlap annotation (12..75),
+      // so frag1 should NOT be stacked (deltaY = 0)
+      // frag2 (16..25) DOES overlap with the overlap annotation (12..75),
+      // so one of them should be stacked (deltaY < 0)
+      expect(frag1.deltaY).toBe(0) // First fragment doesn't overlap, should be at baseline
+
+      // Either frag2 or overlapAnnotation should be stacked (one at row 0, one at row 1)
+      const stackedCount = [frag2, overlapAnnotation].filter(e => e.deltaY < 0).length
+      expect(stackedCount).toBe(1) // Exactly one should be stacked due to overlap
+    })
   })
 
   describe('tooltip', () => {
