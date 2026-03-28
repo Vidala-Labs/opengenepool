@@ -29,6 +29,27 @@ describe('SelectionDomain', () => {
       const domain = new SelectionDomain(ranges)
       expect(domain.ranges.length).toBe(2)
     })
+
+    it('accepts Span object', () => {
+      const span = new Span([new Range(10, 20, Orientation.MINUS)])
+      const domain = new SelectionDomain(span)
+      expect(domain.ranges.length).toBe(1)
+      expect(domain.orientation).toBe(Orientation.MINUS)
+    })
+
+    it('accepts plain object with ranges property (e.g., from JSON)', () => {
+      // Simulating what happens when annotation.span is a plain object
+      const plainObj = { ranges: [{ start: 10, end: 20, orientation: Orientation.MINUS }] }
+      const domain = new SelectionDomain(plainObj)
+      expect(domain.ranges.length).toBe(1)
+      expect(domain.orientation).toBe(Orientation.MINUS)
+    })
+
+    it('parses minus strand notation from string', () => {
+      const domain = new SelectionDomain('(10..20)')
+      expect(domain.ranges.length).toBe(1)
+      expect(domain.orientation).toBe(Orientation.MINUS)
+    })
   })
 
   describe('contains', () => {

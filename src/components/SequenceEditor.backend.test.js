@@ -1291,11 +1291,16 @@ describe('SequenceEditor backend', () => {
       const svg = wrapper.find('svg.editor-svg')
       await svg.trigger('keydown', { key: 'A' })
       await wrapper.vm.$nextTick()
+      await wrapper.vm.$nextTick()
+
+      // Verify modal is visible
+      expect(wrapper.find('.modal-overlay').exists()).toBe(true)
 
       // touchingAnnotations should be empty for replacements
       // This is tested via the computed property in the component
       // We verify by checking the InsertModal receives empty array
       const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      expect(insertModal.exists()).toBe(true)
       expect(insertModal.props('touchingAnnotations')).toEqual([])
     })
 

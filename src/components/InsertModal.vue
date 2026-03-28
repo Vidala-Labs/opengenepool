@@ -29,6 +29,14 @@ const props = defineProps({
   affectedAnnotationCount: {
     type: Number,
     default: 0
+  },
+  touchingAnnotations: {
+    type: Array,
+    default: () => []
+  },
+  orientation: {
+    type: Number,
+    default: 1  // 1 = plus strand, -1 = minus strand
   }
 })
 
@@ -38,6 +46,7 @@ const inputRef = ref(null)
 const text = ref('')
 const includeAnnotations = ref(true)
 const preserveAnnotations = ref(false)
+const extendSelections = ref([])  // Array of keys like 'ann1:start', 'ann2:end'
 
 // Computed: current text length matches selection length (equal-length replace)
 const isEqualLengthReplace = computed(() => {
@@ -62,6 +71,7 @@ watch(() => props.visible, (visible) => {
   if (visible) {
     includeAnnotations.value = true
     preserveAnnotations.value = false
+    extendSelections.value = []
   }
 })
 
@@ -91,7 +101,7 @@ function handleSubmit() {
     } else if (showRadioButtons.value || (props.overlayAnnotationCount > 0 && includeAnnotations.value)) {
       annotationMode = 'include'
     }
-    emit('submit', value, annotationMode)
+    emit('submit', value, annotationMode, extendSelections.value)
   }
   text.value = ''
 }
@@ -129,6 +139,10 @@ function handleKeyDown(event) {
       <div class="modal-hint">
         Valid characters: A, T, C, G, N, R, Y, S, W, K, M, B, D, H, V
       </div>
+      <!-- Warning for reverse complement replacement -->
+      <div v-if="isReplace && orientation === -1" class="reverse-complement-warning">
+        This sequence will be inserted as a reverse complement.
+      </div>
       <!-- Radio buttons for equal-length replace with overlay annotations -->
       <div v-if="showRadioButtons" class="annotation-options">
         <label class="annotation-radio">
@@ -150,6 +164,14 @@ function handleKeyDown(event) {
         <input type="checkbox" v-model="preserveAnnotations" />
         <span>Preserve existing annotations</span>
       </label>
+      <!-- Checkboxes for extending annotations at insertion point (disciplined inserts) -->
+      <div v-if="!isReplace && touchingAnnotations.length > 0" class="extend-annotations">
+        <div class="extend-label">Extend annotations to include insert:</div>
+        <label v-for="ann in touchingAnnotations" :key="ann.key" class="annotation-checkbox">
+          <input type="checkbox" v-model="extendSelections" :value="ann.key" />
+          <span class="annotation-name">{{ ann.label }}</span>
+        </label>
+      </div>
       <div class="modal-buttons">
         <button class="btn btn-cancel" @click="handleCancel">Cancel</button>
         <button class="btn btn-submit" @click="handleSubmit">
@@ -212,6 +234,13 @@ function handleKeyDown(event) {
 .modal-hint {
   font-size: 11px;
   color: #888;
+  margin-top: 6px;
+}
+
+.reverse-complement-warning {
+  font-size: 11px;
+  font-style: italic;
+  color: #996600;
   margin-top: 6px;
 }
 
@@ -285,5 +314,40 @@ function handleKeyDown(event) {
   width: 16px;
   height: 16px;
   cursor: pointer;
+}
+
+.extend-annotations {
+  margin-top: 12px;
+  padding: 8px;
+  background: #f8f8f8;
+  border-radius: 4px;
+}
+
+.extend-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.annotation-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.annotation-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.annotation-name {
+  font-family: monospace;
+  font-size: 12px;
 }
 </style>
