@@ -68,7 +68,7 @@ describe('InsertModal', () => {
       await wrapper.find('.btn-submit').trigger('click')
       expect(wrapper.emitted('submit')).toHaveLength(1)
       // Emits [text, annotationMode]
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default', []])
     })
 
     it('emits submit on Enter key', async () => {
@@ -79,7 +79,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('textarea').trigger('keydown', { key: 'Enter' })
       expect(wrapper.emitted('submit')).toHaveLength(1)
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default', []])
     })
 
     it('filters out invalid characters', async () => {
@@ -90,7 +90,7 @@ describe('InsertModal', () => {
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
       // Only valid IUPAC codes should remain: X and Z are not valid, Y is valid
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATGY', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATGY', 'default', []])
     })
 
     it('does not emit submit with empty text', async () => {
@@ -146,7 +146,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATCG', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATCG', 'default', []])
     })
 
     it('accepts N wildcard', async () => {
@@ -156,7 +156,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATNGC', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATNGC', 'default', []])
     })
 
     it('accepts two-letter IUPAC codes', async () => {
@@ -166,7 +166,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['RYSWKM', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['RYSWKM', 'default', []])
     })
 
     it('accepts three-letter IUPAC codes', async () => {
@@ -176,7 +176,7 @@ describe('InsertModal', () => {
       await nextTick()
       await nextTick()
       await wrapper.find('.btn-submit').trigger('click')
-      expect(wrapper.emitted('submit')[0]).toEqual(['BDHV', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['BDHV', 'default', []])
     })
   })
 
@@ -225,7 +225,7 @@ describe('InsertModal', () => {
 
       await wrapper.find('.btn-submit').trigger('click')
       // When unchecked, we don't include overlay annotations -> 'default' mode
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'default', []])
     })
 
     it('emits include mode when toggle is checked', async () => {
@@ -238,7 +238,7 @@ describe('InsertModal', () => {
       // Toggle is checked by default
       await wrapper.find('.btn-submit').trigger('click')
       // When checked, we include overlay annotations -> 'include' mode
-      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'include'])
+      expect(wrapper.emitted('submit')[0]).toEqual(['ATG', 'include', []])
     })
 
     it('resets toggle to checked when modal reopens', async () => {
@@ -260,6 +260,30 @@ describe('InsertModal', () => {
       checkbox = wrapper.find('.annotation-toggle input[type="checkbox"]')
       // Toggle should be checked again
       expect(checkbox.element.checked).toBe(true)
+    })
+  })
+
+  describe('reverse complement warning', () => {
+    it('does not show warning for plus strand replace', () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, isReplace: true, orientation: 1 }
+      })
+      expect(wrapper.find('.reverse-complement-warning').exists()).toBe(false)
+    })
+
+    it('shows warning for minus strand replace', () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, isReplace: true, orientation: -1 }
+      })
+      expect(wrapper.find('.reverse-complement-warning').exists()).toBe(true)
+      expect(wrapper.find('.reverse-complement-warning').text()).toContain('reverse complement')
+    })
+
+    it('does not show warning for insert mode even with minus orientation', () => {
+      const wrapper = mount(InsertModal, {
+        props: { visible: true, isReplace: false, orientation: -1 }
+      })
+      expect(wrapper.find('.reverse-complement-warning').exists()).toBe(false)
     })
   })
 })

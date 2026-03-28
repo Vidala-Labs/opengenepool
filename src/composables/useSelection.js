@@ -22,6 +22,9 @@ export class SelectionDomain {
     } else if (typeof spec === 'string') {
       const span = Span.parse(spec)
       this.ranges = span.ranges
+    } else if (spec.ranges && Array.isArray(spec.ranges)) {
+      // Plain object with ranges property (e.g., from JSON or annotation.span)
+      this.ranges = spec.ranges.map(r => new Range(r.start, r.end, r.orientation))
     } else {
       this.ranges = []
     }
