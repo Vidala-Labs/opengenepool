@@ -8,6 +8,17 @@ describe('SequenceEditor keyboard', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
+  // Helper to confirm delete in the confirmation dialog (teleported to body)
+  async function confirmDelete(wrapper) {
+    await wrapper.vm.$nextTick()
+    // The dialog is teleported to body, so we need to query from document
+    const confirmBtn = document.querySelector('.confirm-dialog .btn-danger')
+    if (confirmBtn) {
+      confirmBtn.click()
+      await wrapper.vm.$nextTick()
+    }
+  }
+
   describe('keyboard input', () => {
     it('opens insert modal on DNA base keypress', async () => {
       const wrapper = mount(SequenceEditor, {
@@ -38,6 +49,11 @@ describe('SequenceEditor keyboard', () => {
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
+      await wrapper.vm.$nextTick()
+
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
+
       // 'ATCGATCG' with positions 2-4 deleted = 'AT' + 'ATCG' = 'ATATCG'
       expect(wrapper.vm.getSequence()).toBe('ATATCG')
     })
@@ -68,6 +84,11 @@ describe('SequenceEditor keyboard', () => {
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
+      await wrapper.vm.$nextTick()
+
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
+
       // 'ATCGATCG' with positions 1-3 deleted = 'A' + 'GATCG' = 'AGATCG'
       expect(wrapper.vm.getSequence()).toBe('AGATCG')
     })

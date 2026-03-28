@@ -246,6 +246,36 @@ describe('Range', () => {
     })
   })
 
+  describe('toGenBank', () => {
+    it('converts fenced to GenBank format (1-based)', () => {
+      // Fenced 10..20 (0-based, half-open) = GenBank 11..20 (1-based, inclusive)
+      expect(new Range(10, 20).toGenBank()).toBe('11..20')
+    })
+
+    it('converts fenced start of 0 correctly', () => {
+      // Fenced 0..10 = GenBank 1..10
+      expect(new Range(0, 10).toGenBank()).toBe('1..10')
+    })
+
+    it('formats minus strand with complement()', () => {
+      expect(new Range(10, 20, Orientation.MINUS).toGenBank()).toBe('complement(11..20)')
+    })
+
+    it('formats single positions', () => {
+      expect(new Range(15, 15).toGenBank()).toBe('16')
+    })
+
+    it('handles indefinite markers', () => {
+      const range = new Range(10, 20, Orientation.PLUS, true, true)
+      expect(range.toGenBank()).toBe('<11..>20')
+    })
+
+    it('handles indefinite with complement', () => {
+      const range = new Range(10, 20, Orientation.MINUS, true, false)
+      expect(range.toGenBank()).toBe('complement(<11..20)')
+    })
+  })
+
   describe('indefinite locations', () => {
     describe('constructor', () => {
       it('defaults indefinite flags to false', () => {
@@ -457,6 +487,49 @@ describe('Span', () => {
     it('handles empty span', () => {
       const span = new Span()
       expect(span.contains(10)).toBe(false)
+    })
+  })
+
+  describe('toGenBank', () => {
+    it('returns empty string for empty span', () => {
+      const span = new Span()
+      expect(span.toGenBank()).toBe('')
+    })
+
+    it('returns simple range for single-range span', () => {
+      const span = new Span([new Range(10, 20)])
+      expect(span.toGenBank()).toBe('11..20')
+    })
+
+    it('returns join() for multi-range span', () => {
+      const span = new Span([new Range(10, 20), new Range(30, 40)])
+      expect(span.toGenBank()).toBe('join(11..20,31..40)')
+    })
+
+    it('returns complement(join()) for all-minus multi-range span', () => {
+      const span = new Span([
+        new Range(10, 20, Orientation.MINUS),
+        new Range(30, 40, Orientation.MINUS)
+      ])
+      expect(span.toGenBank()).toBe('complement(join(11..20,31..40))')
+    })
+
+    it('returns join with individual complements for mixed orientations', () => {
+      const span = new Span([
+        new Range(10, 20, Orientation.PLUS),
+        new Range(30, 40, Orientation.MINUS)
+      ])
+      expect(span.toGenBank()).toBe('join(11..20,complement(31..40))')
+    })
+
+    it('converts test CDS coordinates correctly', () => {
+      // The exact coordinates from our integration test
+      const span = new Span([
+        new Range(2455, 2916),
+        new Range(2984, 3681),
+        new Range(3744, 4132)
+      ])
+      expect(span.toGenBank()).toBe('join(2456..2916,2985..3681,3745..4132)')
     })
   })
 })

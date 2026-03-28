@@ -44,6 +44,41 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
       expect(wrapper.emitted('ready')).toBeTruthy()
     })
+
+    it('shows Insert sequence option in context menu when no sequence loaded', async () => {
+      const wrapper = mount(SequenceEditor)
+      await wrapper.vm.$nextTick()
+
+      // Right-click on the background rect
+      const background = wrapper.find('.svg-background')
+      await background.trigger('contextmenu', { clientX: 100, clientY: 100 })
+      await wrapper.vm.$nextTick()
+
+      // Should have Insert sequence option
+      const menuItems = wrapper.findAll('.menu-item')
+      const insertItem = menuItems.find(item => item.text().includes('Insert sequence'))
+      expect(insertItem).toBeTruthy()
+    })
+
+    it('opens insert modal when clicking Insert sequence with no sequence loaded', async () => {
+      const wrapper = mount(SequenceEditor)
+      await wrapper.vm.$nextTick()
+
+      // Right-click on the background rect
+      const background = wrapper.find('.svg-background')
+      await background.trigger('contextmenu', { clientX: 100, clientY: 100 })
+      await wrapper.vm.$nextTick()
+
+      // Click Insert sequence
+      const menuItems = wrapper.findAll('.menu-item')
+      const insertItem = menuItems.find(item => item.text().includes('Insert sequence'))
+      await insertItem.trigger('click')
+      await wrapper.vm.$nextTick()
+
+      // Insert modal should be open
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      expect(insertModal.props('visible')).toBe(true)
+    })
   })
 
   describe('setSequence', () => {

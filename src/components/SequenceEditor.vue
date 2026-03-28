@@ -18,6 +18,7 @@ import InsertModal from './InsertModal.vue'
 import MetadataModal from './MetadataModal.vue'
 import AnnotationModal from './AnnotationModal.vue'
 import ExtendModal from './ExtendModal.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const props = defineProps({
   /** DNA sequence string to display */
@@ -128,6 +129,56 @@ const affectedAnnotationCount = computed(() => {
   return count
 })
 
+// Compute annotations that touch the insertion point (for disciplined inserts)
+// Only applies to pure inserts, not replacements
+// Returns flat list with separate entries for left (end touches) and right (start touches)
+const touchingAnnotations = computed(() => {
+  if (insertModalIsReplace.value) return []
+  if (!localAnnotations.value || localAnnotations.value.length === 0) return []
+  const pos = insertModalPosition.value
+
+  const result = []
+  for (const ann of localAnnotations.value) {
+    if (!ann.span || typeof ann.span !== 'string') continue
+    const span = Span.parse(ann.span)
+    const name = ann.caption || ann.type || ann.id
+    const type = ann.type || 'feature'
+
+    // Check each range for touching the insertion point
+    for (const range of span.ranges) {
+      // Arrow direction based on strand: → for plus, ← for minus
+      const isMinus = range.orientation === Orientation.MINUS
+      const arrow = isMinus ? '←' : '→'
+      // Format range in GenBank style: complement(...) for minus strand
+      const rangeStr = isMinus
+        ? `complement(${range.start}..${range.end})`
+        : `${range.start}..${range.end}`
+
+      if (range.end === pos) {
+        // This range ends at the insertion point - insert goes RIGHT (after)
+        // Arrow goes on the right side of the range
+        result.push({
+          key: `${ann.id}:end`,
+          id: ann.id,
+          side: 'end',
+          label: `${name} (${type}) ${rangeStr} ${arrow}`
+        })
+      }
+      if (range.start === pos) {
+        // This range starts at the insertion point - insert goes LEFT (before)
+        // Arrow goes on the left side of the range
+        result.push({
+          key: `${ann.id}:start`,
+          id: ann.id,
+          side: 'start',
+          label: `${name} (${type}) ${arrow} ${rangeStr}`
+        })
+      }
+    }
+  }
+  return result
+})
+
 // Annotation modal state
 const annotationModalOpen = ref(false)
 const annotationModalSpan = ref('0..0')
@@ -138,6 +189,10 @@ const extendModalVisible = ref(false)
 const extendModalDirection = ref('positive')
 const extendModalRangeIndex = ref(0)
 const extendModalHandleType = ref('end')  // 'start' or 'end'
+
+// Delete confirmation dialog state
+const deleteConfirmVisible = ref(false)
+const deleteConfirmLength = ref(0)
 
 // Computed max bases for extend modal
 const extendModalMaxBases = computed(() => {
@@ -624,16 +679,21 @@ function handleTitleKeydown(event) {
 // Annotation creation modal
 function openAnnotationModal() {
   const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return
 
-  // Don't open if any range is zero-length
-  if (!domain.ranges.every(r => r.start !== r.end)) return
+  // Check if we have a valid selection with non-zero length ranges
+  const hasValidSelection = domain && domain.ranges.length > 0 &&
+                           domain.ranges.every(r => r.start !== r.end)
 
-  // Build span string from all ranges (join with +)
-  const spanStr = domain.ranges
-    .map(r => new Range(r.start, r.end, r.orientation).toString())
-    .join(' + ')
-  annotationModalSpan.value = spanStr
+  if (hasValidSelection) {
+    // Build span string from all ranges (join with +)
+    const spanStr = domain.ranges
+      .map(r => new Range(r.start, r.end, r.orientation).toString())
+      .join(' + ')
+    annotationModalSpan.value = spanStr
+  } else {
+    // No selection or zero-length selection - open with blank fields
+    annotationModalSpan.value = ''
+  }
   annotationModalOpen.value = true
 }
 
@@ -984,6 +1044,21 @@ function buildContextMenuItems(context) {
   const items = []
   const isSelected = selection.isSelected.value
   const domain = selection.domain.value
+  const hasSequence = editorState.sequenceLength.value > 0
+
+  // Special case: no sequence loaded - show Insert sequence option
+  if (!hasSequence && !props.readonly) {
+    items.push({
+      label: 'Insert sequence...',
+      action: () => {
+        insertModalIsReplace.value = false
+        insertModalPosition.value = 0
+        insertModalText.value = ''
+        insertModalVisible.value = true
+      }
+    })
+    return items
+  }
 
   // Group 1: Copy / Select none / Select all
   if (isSelected && domain && domain.ranges.length > 0) {
@@ -1057,24 +1132,22 @@ function buildContextMenuItems(context) {
   }
 
   // Group 3: Create / Edit / Delete Annotation
-  const hasAnnotationActions = (isSelected && domain && domain.ranges.length > 0 &&
-                                domain.ranges.every(r => r.start !== r.end) && !props.readonly) ||
+  // Show separator before annotation actions if not readonly
+  const hasAnnotationActions = !props.readonly ||
                                (context.source === 'annotation' && context.annotation && !props.readonly)
   if (hasAnnotationActions) {
     items.push({ separator: true })
   }
 
-  // Create annotation option when all ranges have non-zero length
-  if (isSelected && domain && domain.ranges.length > 0) {
-    const allRangesNonZero = domain.ranges.every(r => r.start !== r.end)
-    if (allRangesNonZero && !props.readonly) {
-      items.push({
-        label: 'Create Annotation',
-        action: () => {
-          openAnnotationModal()
-        }
-      })
-    }
+  // Create annotation option - always available when not readonly
+  // If there's a selection with non-zero ranges, use those; otherwise open with blank fields
+  if (!props.readonly) {
+    items.push({
+      label: 'Create Annotation',
+      action: () => {
+        openAnnotationModal()
+      }
+    })
   }
 
   // Annotation-specific items when right-clicking on an annotation
@@ -1575,7 +1648,7 @@ function handleAnnotationHover(data) {
     }
 
     if (annotation.span) {
-      parts.push(annotation.span.toString())
+      parts.push(annotation.span.toGenBank())
     }
 
     // Add attributes (except translation which is too long)
@@ -1698,6 +1771,14 @@ function handleContextMenu(event, lineIndex) {
     line: lineIndex,
     selection: selection.domain.value?.ranges[0] ?? null
   })
+}
+
+function handleBackgroundContextMenu(event) {
+  event.preventDefault()
+
+  // Show context menu (e.g., for empty state with no sequence)
+  const context = { source: 'background' }
+  showContextMenu(event, context)
 }
 
 function getPositionFromEvent(event, lineIndex) {
@@ -1888,15 +1969,30 @@ function deleteSelectedRange() {
 }
 
 function handleBackspace() {
-  if (deleteSelectedRange()) {
-    emit('edit', { type: 'backspace' })
-  }
+  handleDelete()
 }
 
 function handleDelete() {
+  // Calculate total length to delete for confirmation message
+  const domain = selection.domain.value
+  if (!domain || domain.ranges.length === 0) return
+
+  const totalLength = domain.ranges.reduce((sum, r) => sum + (r.end - r.start), 0)
+  if (totalLength === 0) return
+
+  deleteConfirmLength.value = totalLength
+  deleteConfirmVisible.value = true
+}
+
+function confirmDelete() {
+  deleteConfirmVisible.value = false
   if (deleteSelectedRange()) {
     emit('edit', { type: 'delete' })
   }
+}
+
+function cancelDelete() {
+  deleteConfirmVisible.value = false
 }
 
 // Insert/Replace modal functions
@@ -1915,24 +2011,57 @@ function showInsertModal(initialChar) {
 
 /**
  * Adjust annotations for a pure insertion at a position.
- * Algorithm: if start > site, start += length; if end > site, end += length
+ *
+ * Algorithm (disciplined inserts):
+ * - By default, annotations touching the insertion point do NOT auto-extend
+ * - Annotations starting at site: shift both start and end (insert goes before)
+ * - Annotations ending at site: no change (insert goes after)
+ * - extendStartIds: annotations to extend at their start (keep start, shift end)
+ * - extendEndIds: annotations to extend at their end (shift end to include insert)
+ *
+ * @param {number} insertionSite - The position where insertion occurred
+ * @param {number} insertionLength - The length of the inserted sequence
+ * @param {Array<string>} extendStartIds - IDs of annotations to extend at their start boundary
+ * @param {Array<string>} extendEndIds - IDs of annotations to extend at their end boundary
  */
-function adjustAnnotationsForInsert(insertionSite, insertionLength) {
+function adjustAnnotationsForInsert(insertionSite, insertionLength, extendStartIds = [], extendEndIds = []) {
   if (localAnnotations.value.length === 0) return
 
   const updatedAnnotations = localAnnotations.value.map(ann => {
     const span = Span.parse(ann.span)
     let modified = false
+    const shouldExtendStart = extendStartIds.includes(ann.id)
+    const shouldExtendEnd = extendEndIds.includes(ann.id)
 
     for (let i = 0; i < span.ranges.length; i++) {
       const range = span.ranges[i]
       let newStart = range.start
       let newEnd = range.end
 
-      if (range.start > insertionSite) {
-        newStart += insertionLength
+      // Annotation starts at insertion site
+      if (range.start === insertionSite) {
+        if (shouldExtendStart) {
+          // Keep start, shift end -> expands to include insert
+          newEnd += insertionLength
+        } else {
+          // Shift both -> insert goes before annotation
+          newStart += insertionLength
+          newEnd += insertionLength
+        }
       }
-      if (range.end > insertionSite) {
+      // Annotation ends at insertion site
+      else if (range.end === insertionSite) {
+        if (shouldExtendEnd) {
+          // Shift end -> expands to include insert
+          newEnd += insertionLength
+        }
+        // else: no change (insert goes after annotation)
+      }
+      // Standard cases (not touching insertion site)
+      else if (range.start > insertionSite) {
+        newStart += insertionLength
+        newEnd += insertionLength
+      } else if (range.end > insertionSite) {
         newEnd += insertionLength
       }
 
@@ -2018,13 +2147,13 @@ function adjustAnnotationsForReplace(selStart, selEnd, insertionLength) {
   emit('annotations-update', updatedAnnotations)
 }
 
-function handleInsertSubmit(text) {
+function handleInsertSubmit(text, extendStartIds = [], extendEndIds = []) {
   const insertionSite = insertModalPosition.value
   const editId = crypto.randomUUID()
 
   // 1. Apply locally (optimistic UI)
   editorState.insertAt(insertionSite, text)
-  adjustAnnotationsForInsert(insertionSite, text.length)
+  adjustAnnotationsForInsert(insertionSite, text.length, extendStartIds, extendEndIds)
 
   // 2. Send to backend if connected
   if (effectiveBackend.value?.insert) {
@@ -2109,8 +2238,12 @@ function handleReplaceSubmit(text, preserveAnnotations = false) {
     })
   }
 
-  // 3. Update selection to cover the newly inserted text
-  selection.select(`${selStart}..${selStart + insertText.length}`)
+  // 3. Update selection to cover the newly inserted text, preserving orientation
+  const newEnd = selStart + insertText.length
+  const selectionStr = insertModalOrientation.value === Orientation.MINUS
+    ? `(${selStart}..${newEnd})`
+    : `${selStart}..${newEnd}`
+  selection.select(selectionStr)
 
   // 4. Emit for standalone mode / parent components
   emit('edit', { type: 'replace', text: insertText })
@@ -2122,7 +2255,7 @@ function handleReplaceSubmit(text, preserveAnnotations = false) {
   }
 }
 
-function handleModalSubmit(text, annotationMode = 'default') {
+function handleModalSubmit(text, annotationMode = 'default', extendSelections = []) {
   insertModalVisible.value = false
   if (!text) {
     // Clear pending overlay if modal submitted with no text
@@ -2139,7 +2272,18 @@ function handleModalSubmit(text, annotationMode = 'default') {
   if (insertModalIsReplace.value) {
     handleReplaceSubmit(text, annotationMode === 'preserve')
   } else {
-    handleInsertSubmit(text)
+    // Parse extend selections (keys like 'ann1:start', 'ann2:end') into separate arrays
+    const extendStartIds = []
+    const extendEndIds = []
+    for (const key of extendSelections) {
+      const [id, side] = key.split(':')
+      if (side === 'start') {
+        extendStartIds.push(id)
+      } else if (side === 'end') {
+        extendEndIds.push(id)
+      }
+    }
+    handleInsertSubmit(text, extendStartIds, extendEndIds)
   }
 
   svgRef.value?.focus()
@@ -2597,7 +2741,7 @@ defineExpose({
           :height="svgHeight"
           class="svg-background"
           @mousedown="handleBackgroundClick"
-          @contextmenu.prevent
+          @contextmenu="handleBackgroundContextMenu"
         />
 
         <!-- Hidden text for measuring font metrics (50 chars like OGP) -->
@@ -2756,9 +2900,11 @@ defineExpose({
       :initial-text="insertModalText"
       :is-replace="insertModalIsReplace"
       :position="insertModalPosition"
+      :orientation="insertModalOrientation"
       :overlay-annotation-count="pendingOverlayAnnotations?.length || 0"
       :selection-length="insertModalSelectionEnd - insertModalPosition"
       :affected-annotation-count="affectedAnnotationCount"
+      :touching-annotations="touchingAnnotations"
       @submit="handleModalSubmit"
       @cancel="handleInsertCancel"
     />
@@ -2791,6 +2937,16 @@ defineExpose({
       :max-bases="extendModalMaxBases"
       @submit="handleExtendSubmit"
       @cancel="handleExtendCancel"
+    />
+
+    <!-- Delete Confirmation Dialog -->
+    <ConfirmDialog
+      :visible="deleteConfirmVisible"
+      title="Delete Sequence"
+      :message="`Are you sure you want to delete ${deleteConfirmLength.toLocaleString()} bp?`"
+      confirm-label="Delete"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
     />
 
     <!-- Extension panels/overlays -->

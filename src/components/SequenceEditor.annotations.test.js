@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import SequenceEditor from './SequenceEditor.vue'
 import { Annotation } from '../utils/annotation.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
@@ -8,6 +10,17 @@ describe('SequenceEditor annotations', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEY)
   })
+
+  // Helper to confirm delete in the confirmation dialog (teleported to body)
+  async function confirmDelete(wrapper) {
+    await wrapper.vm.$nextTick()
+    // The dialog is teleported to body, so we need to query from document
+    const confirmBtn = document.querySelector('.confirm-dialog .btn-danger')
+    if (confirmBtn) {
+      confirmBtn.click()
+      await wrapper.vm.$nextTick()
+    }
+  }
 
   describe('annotations', () => {
     it('renders AnnotationLayer when annotations provided', async () => {
@@ -488,7 +501,7 @@ describe('SequenceEditor annotations', () => {
       expect(updatedAnnotations[2].span).toBe('52..62')
     })
 
-    it('expands annotation when inserting at its start position', async () => {
+    it('shifts annotation when inserting at its start position by default (disciplined inserts)', async () => {
       const annotations = [
         { id: 'ann1', caption: 'Test', type: 'gene', span: '10..30' }
       ]
@@ -503,16 +516,18 @@ describe('SequenceEditor annotations', () => {
       await setupInsertAtPosition(wrapper, 10)
 
       const insertModal = wrapper.findComponent({ name: 'InsertModal' })
-      insertModal.vm.$emit('submit', 'AAA')  // 3 characters
+      // With disciplined inserts, we emit with empty extendAnnotationIds by default
+      insertModal.vm.$emit('submit', 'AAA', 'default', [])  // 3 characters, no extend
       await wrapper.vm.$nextTick()
 
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
 
-      // start=10, not > 10, so stays 10; end=30 > 10, so becomes 33
-      // Result: annotation expands to include inserted text
+      // With disciplined inserts: annotation starting at insert position shifts entirely
+      // start=10 -> 13, end=30 -> 33
+      // Result: annotation shifts to make room for inserted text
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span).toBe('10..33')
+      expect(updatedAnnotations[0].span).toBe('13..33')
     })
 
     it('does not expand annotation when inserting at its end position', async () => {
@@ -617,7 +632,7 @@ describe('SequenceEditor annotations', () => {
       expect(updatedFragment.annotation.span.ranges[0].end).toBe(251)
     })
 
-    it('INTEGRATION: inserting at exact start position expands annotation', async () => {
+    it('INTEGRATION: inserting at exact start position shifts annotation (disciplined inserts)', async () => {
       const annotations = [
         { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: '100..150' }
       ]
@@ -632,14 +647,16 @@ describe('SequenceEditor annotations', () => {
       await setupInsertAtPosition(wrapper, 100)
 
       const insertModal = wrapper.findComponent({ name: 'InsertModal' })
-      insertModal.vm.$emit('submit', 'GGG')
+      // With disciplined inserts, we emit with empty extendAnnotationIds by default
+      insertModal.vm.$emit('submit', 'GGG', 'default', [])
       await wrapper.vm.$nextTick()
 
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
 
-      // Start stays 100, end becomes 150 + 3 = 153
-      expect(emitted[0][0][0].span).toBe('100..153')
+      // With disciplined inserts: annotation starting at insert position shifts entirely
+      // Start becomes 103, end becomes 153
+      expect(emitted[0][0][0].span).toBe('103..153')
     })
 
     it('INTEGRATION: inserting 1 base before start shifts entire annotation', async () => {
@@ -954,6 +971,9 @@ describe('SequenceEditor annotations', () => {
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
 
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
+
       // Check that annotations-update was emitted
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
@@ -978,6 +998,57 @@ describe('SequenceEditor annotations', () => {
 
   describe('annotation CRUD operations', () => {
     describe('create annotation', () => {
+      it('shows Create Annotation option in context menu without selection', async () => {
+        const wrapper = mount(SequenceEditor, {
+          props: { initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Ensure no selection
+        expect(wrapper.vm.selection.isSelected.value).toBe(false)
+
+        // Right-click without selection
+        const overlay = wrapper.find('.sequence-overlay')
+        await overlay.trigger('contextmenu', { clientX: 100, clientY: 20 })
+        await wrapper.vm.$nextTick()
+
+        // Should have Create Annotation option
+        const menuItems = wrapper.findAll('.menu-item')
+        const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
+        expect(createItem).toBeTruthy()
+      })
+
+      it('opens annotation modal with blank fields when creating without selection', async () => {
+        const wrapper = mount(SequenceEditor, {
+          props: { initialZoom: 100 }
+        })
+        wrapper.vm.setSequence('A'.repeat(100))
+        await wrapper.vm.$nextTick()
+
+        // Ensure no selection
+        expect(wrapper.vm.selection.isSelected.value).toBe(false)
+
+        // Right-click without selection
+        const overlay = wrapper.find('.sequence-overlay')
+        await overlay.trigger('contextmenu', { clientX: 100, clientY: 20 })
+        await wrapper.vm.$nextTick()
+
+        // Click Create Annotation
+        const menuItems = wrapper.findAll('.menu-item')
+        const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
+        await createItem.trigger('click')
+        await wrapper.vm.$nextTick()
+
+        // Modal should be open
+        const annotationModal = wrapper.findComponent({ name: 'AnnotationModal' })
+        expect(annotationModal.props('open')).toBe(true)
+        // Span should be blank (empty string or default value)
+        expect(annotationModal.props('span')).toBe('')
+        // No annotation should be passed (create mode)
+        expect(annotationModal.props('annotation')).toBeNull()
+      })
+
       it('adds annotation to local state when created via modal', async () => {
         const wrapper = mount(SequenceEditor, {
           props: { initialZoom: 100 }
@@ -1846,6 +1917,105 @@ describe('SequenceEditor annotations', () => {
         expect(domain.ranges[0].start).toBe(5)
         expect(domain.ranges[0].end).toBe(10)
       })
+    })
+  })
+
+  describe('CDS translation integration', () => {
+    it('creates CDS with no internal stop codons for multi-range annotation', async () => {
+      // Load sequence from the empty.gb GenBank file
+      const gbPath = join(__dirname, '../../testfile/empty.gb')
+      const gbContent = readFileSync(gbPath, 'utf-8')
+
+      // Extract sequence from GenBank ORIGIN section
+      const originMatch = gbContent.match(/ORIGIN\s+([\s\S]+?)\/\//)
+      const sequenceLines = originMatch[1].trim().split('\n')
+      const sequence = sequenceLines
+        .map(line => line.replace(/^\s*\d+\s*/, '').replace(/\s/g, ''))
+        .join('')
+        .toUpperCase()
+
+      const wrapper = mount(SequenceEditor, {
+        props: { initialZoom: 100 }
+      })
+      wrapper.vm.setSequence(sequence)
+      await wrapper.vm.$nextTick()
+
+      // Open annotation modal (with no selection, which now works)
+      const background = wrapper.find('.svg-background')
+      await background.trigger('contextmenu', { clientX: 100, clientY: 100 })
+      await wrapper.vm.$nextTick()
+
+      const menuItems = wrapper.findAll('.menu-item')
+      const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
+      await createItem.trigger('click')
+      await wrapper.vm.$nextTick()
+
+      // Get the modal and fill in the form fields with GenBank values
+      const modal = wrapper.findComponent({ name: 'AnnotationModal' })
+      expect(modal.props('open')).toBe(true)
+
+      // Fill caption
+      await modal.find('#annotation-caption').setValue('Test CDS')
+
+      // Fill type as CDS
+      await modal.find('#annotation-type').setValue('CDS')
+
+      // The modal starts with one range row from the empty span
+      // Set the first range: 2456..2916 (GenBank 1-based values)
+      const rangeRows = modal.findAll('.range-row')
+      const firstRowInputs = rangeRows[0].findAll('input[type="number"]')
+      await firstRowInputs[0].setValue('2456')  // start
+      await firstRowInputs[1].setValue('2916')  // end
+
+      // Add second range: 2985..3681
+      await modal.find('.btn-add-range').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      let updatedRows = modal.findAll('.range-row')
+      const secondRowInputs = updatedRows[1].findAll('input[type="number"]')
+      await secondRowInputs[0].setValue('2985')
+      await secondRowInputs[1].setValue('3681')
+
+      // Add third range: 3745..4132
+      await modal.find('.btn-add-range').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      updatedRows = modal.findAll('.range-row')
+      const thirdRowInputs = updatedRows[2].findAll('input[type="number"]')
+      await thirdRowInputs[0].setValue('3745')
+      await thirdRowInputs[1].setValue('4132')
+
+      // Submit the form via form submission
+      await modal.find('form').trigger('submit')
+      await wrapper.vm.$nextTick()
+
+      // Check the emitted annotation
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+
+      const annotations = emitted[emitted.length - 1][0]
+      const cds = annotations.find(a => a.type === 'CDS')
+      expect(cds).toBeTruthy()
+
+      // Check the translation has no internal stop codons
+      // Stop codons are represented as '*' in the translation
+      const translation = cds.attributes.translation
+      expect(translation).toBeTruthy()
+
+      // The translation should only have a stop codon at the very end (if at all)
+      // Internal stop codons would indicate a problem
+      const stopCodonPositions = []
+      for (let i = 0; i < translation.length; i++) {
+        if (translation[i] === '*') {
+          stopCodonPositions.push(i)
+        }
+      }
+
+      // Either no stop codons, or only at the last position
+      if (stopCodonPositions.length > 0) {
+        expect(stopCodonPositions).toHaveLength(1)
+        expect(stopCodonPositions[0]).toBe(translation.length - 1)
+      }
     })
   })
 })

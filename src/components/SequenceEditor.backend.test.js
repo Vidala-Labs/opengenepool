@@ -163,6 +163,17 @@ describe('SequenceEditor backend', () => {
   })
 
   describe('delete operations', () => {
+    // Helper to confirm delete in the confirmation dialog (teleported to body)
+    async function confirmDelete(wrapper) {
+      await wrapper.vm.$nextTick()
+      // The dialog is teleported to body, so we need to query from document
+      const confirmBtn = document.querySelector('.confirm-dialog .btn-danger')
+      if (confirmBtn) {
+        confirmBtn.click()
+        await wrapper.vm.$nextTick()
+      }
+    }
+
     it('calls backend.delete when user deletes selection via Backspace', async () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
@@ -180,6 +191,9 @@ describe('SequenceEditor backend', () => {
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
       await wrapper.vm.$nextTick()
+
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
 
       expect(mockBackend.delete).toHaveBeenCalledTimes(1)
       const call = mockBackend.delete.mock.calls[0][0]
@@ -206,6 +220,9 @@ describe('SequenceEditor backend', () => {
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
+
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
 
       expect(mockBackend.delete).toHaveBeenCalledTimes(1)
       const call = mockBackend.delete.mock.calls[0][0]
@@ -269,6 +286,9 @@ describe('SequenceEditor backend', () => {
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
 
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
+
       // Sequence should be updated immediately
       expect(wrapper.vm.getSequence()).toBe('ATTCG')
     })
@@ -291,6 +311,9 @@ describe('SequenceEditor backend', () => {
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
+
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
 
       // For contiguous selection, cursor is left at deletion point
       expect(selectionLayer.vm.selection.isSelected.value).toBe(true)
@@ -317,12 +340,14 @@ describe('SequenceEditor backend', () => {
       await wrapper.vm.$nextTick()
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
+      await confirmDelete(wrapper)
 
       // Second delete
       selectionLayer.vm.selection.select('5..7')
       await wrapper.vm.$nextTick()
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
+      await confirmDelete(wrapper)
 
       expect(mockBackend.delete).toHaveBeenCalledTimes(2)
       const id1 = mockBackend.delete.mock.calls[0][0].id
@@ -347,6 +372,9 @@ describe('SequenceEditor backend', () => {
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
+
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
 
       // Should emit two delete calls
       expect(mockBackend.delete).toHaveBeenCalledTimes(2)
@@ -380,6 +408,9 @@ describe('SequenceEditor backend', () => {
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
 
+      // Confirm the delete in the dialog
+      await confirmDelete(wrapper)
+
       // Original: ATCGATCGATCGATCG
       // ATCGATCGATCGATCG = A T C G A T C G A T C G A T C G
       //                    0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
@@ -406,6 +437,9 @@ describe('SequenceEditor backend', () => {
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
         await wrapper.vm.$nextTick()
 
+        // Confirm the delete in the dialog
+        await confirmDelete(wrapper)
+
         // Should leave cursor at position 5 (zero-length selection)
         const domain = selectionLayer.vm.selection.domain.value
         expect(domain).not.toBeNull()
@@ -429,6 +463,9 @@ describe('SequenceEditor backend', () => {
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
         await wrapper.vm.$nextTick()
+
+        // Confirm the delete in the dialog
+        await confirmDelete(wrapper)
 
         // Should leave cursor at position 5 (start of leftmost range)
         const domain = selectionLayer.vm.selection.domain.value
@@ -454,6 +491,9 @@ describe('SequenceEditor backend', () => {
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
         await wrapper.vm.$nextTick()
 
+        // Confirm the delete in the dialog
+        await confirmDelete(wrapper)
+
         // Should clear selection (no cursor)
         const domain = selectionLayer.vm.selection.domain.value
         expect(domain).toBeNull()
@@ -475,6 +515,9 @@ describe('SequenceEditor backend', () => {
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
         await wrapper.vm.$nextTick()
+
+        // Confirm the delete in the dialog
+        await confirmDelete(wrapper)
 
         // Should leave cursor at position 0 (start of leftmost range)
         const domain = selectionLayer.vm.selection.domain.value
@@ -500,6 +543,9 @@ describe('SequenceEditor backend', () => {
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
         await wrapper.vm.$nextTick()
+
+        // Confirm the delete in the dialog
+        await confirmDelete(wrapper)
 
         // Should clear selection (gaps present, not a valid wrap-around)
         const domain = selectionLayer.vm.selection.domain.value
@@ -764,6 +810,76 @@ describe('SequenceEditor backend', () => {
       const newSeq = wrapper.vm.getSequence()
       expect(newSeq).toBe('ATCGRYATATCG')
     })
+
+    it('should preserve minus strand orientation in selection after replace', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG', // 12 bases
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on minus strand
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      await wrapper.vm.$nextTick()
+
+      // Verify initial selection is minus strand
+      expect(selectionLayer.vm.selection.domain.value.orientation).toBe(-1) // Orientation.MINUS
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit replacement text 'AAAA'
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'AAAA', 'default')
+      await wrapper.vm.$nextTick()
+
+      // After replacement, selection should still be minus strand
+      const domain = selectionLayer.vm.selection.domain.value
+      expect(domain).toBeTruthy()
+      expect(domain.ranges.length).toBe(1)
+      expect(domain.orientation).toBe(-1) // Should still be Orientation.MINUS
+    })
+
+    it('should preserve plus strand orientation in selection after replace', async () => {
+      const mockBackend = createMockBackend()
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'ATCGATCGATCG', // 12 bases
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select positions 4..8 on plus strand
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      await wrapper.vm.$nextTick()
+
+      // Verify initial selection is plus strand
+      expect(selectionLayer.vm.selection.domain.value.orientation).toBe(1) // Orientation.PLUS
+
+      // Trigger insert modal
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // Submit replacement text 'AAAA'
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'AAAA', 'default')
+      await wrapper.vm.$nextTick()
+
+      // After replacement, selection should still be plus strand
+      const domain = selectionLayer.vm.selection.domain.value
+      expect(domain).toBeTruthy()
+      expect(domain.ranges.length).toBe(1)
+      expect(domain.orientation).toBe(1) // Should still be Orientation.PLUS
+    })
   })
 
   describe('preserveAnnotations option', () => {
@@ -917,6 +1033,334 @@ describe('SequenceEditor backend', () => {
       // Annotation should NOT be updated (preserved at original position)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeFalsy()
+    })
+  })
+
+  describe('disciplined inserts', () => {
+    it('should call backend.insert when inserting at annotation boundary', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 10 (start of annotation)
+      await setupInsertAtPosition(wrapper, 10)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      insertModal.vm.$emit('submit', 'GGG', 'default', [])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called with correct position
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+      const call = mockBackend.insert.mock.calls[0][0]
+      expect(call.position).toBe(10)
+      expect(call.text).toBe('GGG')
+      expect(call.id).toBeDefined()
+    })
+
+    it('should not extend annotation starting at insert position by default', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 10 (start of annotation)
+      await setupInsertAtPosition(wrapper, 10)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Submit with empty extendAnnotationIds - annotation should shift entirely
+      insertModal.vm.$emit('submit', 'GGG', 'default', [])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // Annotation should shift entirely: 10..30 -> 13..33 (3-char insert)
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      expect(emitted[0][0][0].span).toBe('13..33')
+    })
+
+    it('should extend annotation starting at insert position when checked', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 10 (start of annotation)
+      await setupInsertAtPosition(wrapper, 10)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Submit with ann1:start in extendSelections - annotation should expand at start
+      insertModal.vm.$emit('submit', 'GGG', 'default', ['ann1:start'])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // Annotation should expand: 10..30 -> 10..33 (start stays, end shifts)
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      expect(emitted[0][0][0].span).toBe('10..33')
+    })
+
+    it('should not extend annotation ending at insert position by default', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 30 (end of annotation)
+      await setupInsertAtPosition(wrapper, 30)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Submit with empty extendAnnotationIds - annotation should NOT change
+      insertModal.vm.$emit('submit', 'GGG', 'default', [])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+      const call = mockBackend.insert.mock.calls[0][0]
+      expect(call.position).toBe(30)
+
+      // Annotation should NOT be updated (insert goes after)
+      const emitted = wrapper.emitted('annotations-update')
+      // No changes means annotations-update not emitted OR annotation unchanged
+      if (emitted) {
+        expect(emitted[0][0][0].span).toBe('10..30')
+      }
+    })
+
+    it('should extend annotation ending at insert position when checked', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 30 (end of annotation)
+      await setupInsertAtPosition(wrapper, 30)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Submit with ann1:end in extendSelections - annotation should expand at end
+      insertModal.vm.$emit('submit', 'GGG', 'default', ['ann1:end'])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // Annotation should expand: 10..30 -> 10..33
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      expect(emitted[0][0][0].span).toBe('10..33')
+    })
+
+    it('should handle multiple annotations touching same insert position', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..30' },
+        { id: 'ann2', caption: 'Gene2', type: 'gene', span: '30..50' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 30 (end of ann1, start of ann2)
+      await setupInsertAtPosition(wrapper, 30)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Only extend ann1 at its end, not ann2
+      insertModal.vm.$emit('submit', 'GGG', 'default', ['ann1:end'])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // ann1 should expand: 10..30 -> 10..33
+      // ann2 should shift: 30..50 -> 33..53
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      const updatedAnns = emitted[0][0]
+      const ann1 = updatedAnns.find(a => a.id === 'ann1')
+      const ann2 = updatedAnns.find(a => a.id === 'ann2')
+      expect(ann1.span).toBe('10..33')
+      expect(ann2.span).toBe('33..53')
+    })
+
+    it('should handle extending both annotations at same position', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..30' },
+        { id: 'ann2', caption: 'Gene2', type: 'gene', span: '30..50' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 30 (end of ann1, start of ann2)
+      await setupInsertAtPosition(wrapper, 30)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Extend both annotations: ann1 at its end, ann2 at its start
+      insertModal.vm.$emit('submit', 'GGG', 'default', ['ann1:end', 'ann2:start'])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // ann1 should expand: 10..30 -> 10..33
+      // ann2 should expand: 30..50 -> 30..53 (start stays at 30, end shifts)
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      const updatedAnns = emitted[0][0]
+      const ann1 = updatedAnns.find(a => a.id === 'ann1')
+      const ann2 = updatedAnns.find(a => a.id === 'ann2')
+      expect(ann1.span).toBe('10..33')
+      expect(ann2.span).toBe('30..53')
+    })
+
+    it('should not show extend options for replacements', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Select a range (makes it a replacement)
+      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+      selectionLayer.vm.selection.select('10..15')
+      await wrapper.vm.$nextTick()
+
+      // Trigger insert modal (which becomes replace modal due to selection)
+      const svg = wrapper.find('svg.editor-svg')
+      await svg.trigger('keydown', { key: 'A' })
+      await wrapper.vm.$nextTick()
+
+      // touchingAnnotations should be empty for replacements
+      // This is tested via the computed property in the component
+      // We verify by checking the InsertModal receives empty array
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      expect(insertModal.props('touchingAnnotations')).toEqual([])
+    })
+
+    it('should handle multi-range annotations with one range touching', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..20 + 30..40' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 20 (end of first range)
+      await setupInsertAtPosition(wrapper, 20)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Extend the annotation at its end (position 20)
+      insertModal.vm.$emit('submit', 'GGG', 'default', ['ann1:end'])
+      await wrapper.vm.$nextTick()
+
+      // Backend should be called
+      expect(mockBackend.insert).toHaveBeenCalledTimes(1)
+
+      // First range should expand: 10..20 -> 10..23
+      // Second range should shift: 30..40 -> 33..43
+      const emitted = wrapper.emitted('annotations-update')
+      expect(emitted).toBeTruthy()
+      expect(emitted[0][0][0].span).toBe('10..23 + 33..43')
+    })
+
+    it('should still emit edit event with insert type', async () => {
+      const mockBackend = createMockBackend()
+      const annotations = [
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+      ]
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: 'A'.repeat(100),
+          annotations,
+          backend: mockBackend
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Insert at position 10 (start of annotation)
+      await setupInsertAtPosition(wrapper, 10)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      // Extend at start position
+      insertModal.vm.$emit('submit', 'GGG', 'default', ['ann1:start'])
+      await wrapper.vm.$nextTick()
+
+      // Edit event should still be emitted
+      const editEvents = wrapper.emitted('edit')
+      expect(editEvents).toBeTruthy()
+      expect(editEvents[0][0]).toEqual({
+        type: 'insert',
+        position: 10,
+        text: 'GGG'
+      })
     })
   })
 })

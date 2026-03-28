@@ -229,6 +229,30 @@ export class Range {
       default: return content
     }
   }
+
+  /**
+   * GenBank format representation (1-based, inclusive coordinates)
+   * @returns {string} GenBank location string
+   */
+  toGenBank() {
+    // Convert fenced (0-based, half-open) to GenBank (1-based, inclusive)
+    const gbStart = this.start + 1
+    const gbEnd = this.end  // end stays same: fenced exclusive == GenBank inclusive
+
+    let content
+    if (this.start === this.end) {
+      content = `${gbStart}`
+    } else {
+      const startStr = this.startIndefinite ? `<${gbStart}` : `${gbStart}`
+      const endStr = this.endIndefinite ? `>${gbEnd}` : `${gbEnd}`
+      content = `${startStr}..${endStr}`
+    }
+
+    if (this.orientation === Orientation.MINUS) {
+      return `complement(${content})`
+    }
+    return content
+  }
 }
 
 /**
@@ -333,6 +357,35 @@ export class Span {
    */
   toString() {
     return this.ranges.map(r => r.toString()).join(' + ')
+  }
+
+  /**
+   * GenBank format representation (1-based, inclusive coordinates)
+   * Uses join() for multiple ranges, complement() for minus strand
+   * @returns {string} GenBank location string
+   */
+  toGenBank() {
+    if (this.ranges.length === 0) return ''
+    if (this.ranges.length === 1) return this.ranges[0].toGenBank()
+
+    // Check if all ranges have the same orientation
+    const allMinus = this.ranges.every(r => r.orientation === Orientation.MINUS)
+
+    if (allMinus) {
+      // For all-minus ranges, wrap in complement(join(...))
+      const innerParts = this.ranges.map(r => {
+        const gbStart = r.start + 1
+        const gbEnd = r.end
+        const startStr = r.startIndefinite ? `<${gbStart}` : `${gbStart}`
+        const endStr = r.endIndefinite ? `>${gbEnd}` : `${gbEnd}`
+        return `${startStr}..${endStr}`
+      })
+      return `complement(join(${innerParts.join(',')}))`
+    }
+
+    // Mixed or all-plus: use join with individual complement() as needed
+    const parts = this.ranges.map(r => r.toGenBank())
+    return `join(${parts.join(',')})`
   }
 }
 
