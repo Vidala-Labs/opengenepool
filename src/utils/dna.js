@@ -433,3 +433,101 @@ export function* iterateSequence(span, sequence) {
     }
   }
 }
+
+/**
+ * Nearest-neighbor thermodynamic parameters for Tm calculation.
+ * Values from SantaLucia 1998 (unified parameters).
+ * ΔH in kcal/mol, ΔS in cal/mol·K
+ */
+const NN_PARAMS = {
+  'AA': { dH: -7.9, dS: -22.2 },
+  'TT': { dH: -7.9, dS: -22.2 },
+  'AT': { dH: -7.2, dS: -20.4 },
+  'TA': { dH: -7.2, dS: -21.3 },
+  'CA': { dH: -8.5, dS: -22.7 },
+  'TG': { dH: -8.5, dS: -22.7 },
+  'GT': { dH: -8.4, dS: -22.4 },
+  'AC': { dH: -8.4, dS: -22.4 },
+  'CT': { dH: -7.8, dS: -21.0 },
+  'AG': { dH: -7.8, dS: -21.0 },
+  'GA': { dH: -8.2, dS: -22.2 },
+  'TC': { dH: -8.2, dS: -22.2 },
+  'CG': { dH: -10.6, dS: -27.2 },
+  'GC': { dH: -9.8, dS: -24.4 },
+  'GG': { dH: -8.0, dS: -19.9 },
+  'CC': { dH: -8.0, dS: -19.9 }
+}
+
+// Initiation parameters
+const INIT_PARAMS = {
+  // Terminal A/T penalty
+  AT_TERM: { dH: 2.3, dS: 4.1 },
+  // Terminal G/C (no penalty)
+  GC_TERM: { dH: 0, dS: 0 }
+}
+
+/**
+ * Calculate melting temperature using nearest-neighbor method.
+ * @param {string} sequence - DNA sequence (A, T, G, C only)
+ * @param {Object} options - Calculation options
+ * @param {number} [options.oligoConc=50e-9] - Oligo concentration in M (default 50 nM)
+ * @param {number} [options.saltConc=0.05] - Salt concentration in M (default 50 mM)
+ * @returns {number|null} Tm in °C, or null if sequence contains non-ATGC bases
+ */
+export function calculateTm(sequence, options = {}) {
+  const { oligoConc = 50e-9, saltConc = 0.05 } = options
+
+  if (!sequence || sequence.length < 2) {
+    return null
+  }
+
+  const seq = sequence.toUpperCase()
+
+  // Validate sequence (only A, T, G, C allowed for accurate Tm)
+  if (!/^[ATGC]+$/.test(seq)) {
+    return null
+  }
+
+  // Sum nearest-neighbor contributions
+  let dH = 0  // kcal/mol
+  let dS = 0  // cal/mol·K
+
+  for (let i = 0; i < seq.length - 1; i++) {
+    const dinuc = seq[i] + seq[i + 1]
+    const params = NN_PARAMS[dinuc]
+    if (!params) {
+      return null  // Unknown dinucleotide
+    }
+    dH += params.dH
+    dS += params.dS
+  }
+
+  // Add terminal penalties
+  const firstBase = seq[0]
+  const lastBase = seq[seq.length - 1]
+
+  if (firstBase === 'A' || firstBase === 'T') {
+    dH += INIT_PARAMS.AT_TERM.dH
+    dS += INIT_PARAMS.AT_TERM.dS
+  }
+  if (lastBase === 'A' || lastBase === 'T') {
+    dH += INIT_PARAMS.AT_TERM.dH
+    dS += INIT_PARAMS.AT_TERM.dS
+  }
+
+  // Convert dH to cal/mol (dS is already in cal/mol·K)
+  const dH_cal = dH * 1000
+
+  // Gas constant
+  const R = 1.987  // cal/mol·K
+
+  // Salt correction (SantaLucia 1998)
+  const saltCorrectedDS = dS + 0.368 * (seq.length - 1) * Math.log(saltConc)
+
+  // Tm calculation: Tm = ΔH / (ΔS + R·ln(Ct/4)) - 273.15
+  // For self-complementary: Ct/4, for non-self-complementary: Ct
+  // We assume non-self-complementary (typical case)
+  const Tm = (dH_cal / (saltCorrectedDS + R * Math.log(oligoConc))) - 273.15
+
+  return Math.round(Tm * 10) / 10  // Round to 1 decimal place
+}

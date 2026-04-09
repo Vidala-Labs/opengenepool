@@ -4,7 +4,8 @@ import {
   Range,
   Span,
   Orientation,
-  iterateSequence
+  iterateSequence,
+  calculateTm
 } from './dna.js'
 
 /**
@@ -617,5 +618,47 @@ describe('iterateSequence', () => {
       expect(bases.map(b => b.letter)).toEqual(['A', 'T', 'G', 'C', 'A', 'T', 'G'])
       expect(bases.map(b => b.direction)).toEqual([true, true, true, false, false, false, false])
     })
+  })
+})
+
+describe('calculateTm', () => {
+  it('returns null for empty or single-base sequences', () => {
+    expect(calculateTm('')).toBeNull()
+    expect(calculateTm('A')).toBeNull()
+  })
+
+  it('returns null for sequences with non-ATGC bases', () => {
+    expect(calculateTm('ATCGN')).toBeNull()
+    expect(calculateTm('ATCGX')).toBeNull()
+    expect(calculateTm('ATCGR')).toBeNull()
+  })
+
+  it('calculates Tm for a simple sequence', () => {
+    // 20-mer with mixed composition
+    const tm = calculateTm('ATCGATCGATCGATCGATCG')
+    expect(tm).toBeTypeOf('number')
+    // Should be in reasonable range for a 20-mer (typically 40-65°C)
+    expect(tm).toBeGreaterThan(40)
+    expect(tm).toBeLessThan(70)
+  })
+
+  it('GC-rich sequences have higher Tm', () => {
+    const atRich = calculateTm('AATTAATTAATTAATTAATT')  // 20bp, 0% GC
+    const gcRich = calculateTm('GCGCGCGCGCGCGCGCGCGC')  // 20bp, 100% GC
+    expect(gcRich).toBeGreaterThan(atRich)
+  })
+
+  it('longer sequences have higher Tm', () => {
+    const short = calculateTm('ATCGATCG')              // 8bp
+    const long = calculateTm('ATCGATCGATCGATCGATCG')   // 20bp
+    expect(long).toBeGreaterThan(short)
+  })
+
+  it('is case insensitive', () => {
+    const upper = calculateTm('ATCGATCG')
+    const lower = calculateTm('atcgatcg')
+    const mixed = calculateTm('AtCgAtCg')
+    expect(upper).toBe(lower)
+    expect(upper).toBe(mixed)
   })
 })
