@@ -107,10 +107,10 @@ watch(() => props.open, (isOpen) => {
         ? props.annotation.span
         : props.annotation.span?.toString() || props.span
       ranges.value = parseSpan(spanStr)
-      // Pre-fill attributes
+      // Pre-fill attributes (filter underscore-prefixed keys from display)
       const attrs = props.annotation.attributes || {}
       attributes.value = { ...attrs }
-      visibleFields.value = Object.keys(attrs)
+      visibleFields.value = Object.keys(attrs).filter(key => !key.startsWith('_'))
     } else {
       // Create mode - use span prop and reset fields
       ranges.value = parseSpan(props.span)
@@ -259,9 +259,11 @@ function close() {
 function handleSubmit() {
   if (!isValid.value) return
 
-  // Build final attributes (only non-empty values)
+  // Build final attributes (only non-empty values, exclude underscore-prefixed internal attrs)
   const finalAttrs = {}
   for (const [key, value] of Object.entries(attributes.value)) {
+    // Skip internal attributes (underscore prefix = one-way from backend)
+    if (key.startsWith('_')) continue
     if (value && value.trim()) {
       finalAttrs[key] = value.trim()
     }
