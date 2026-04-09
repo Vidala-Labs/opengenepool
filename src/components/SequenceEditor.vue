@@ -6,7 +6,7 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span, Range, Orientation, iterateSequence, reverseComplement } from '../utils/dna.js'
+import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
 import { InformationCircleIcon, Cog6ToothIcon, QuestionMarkCircleIcon, CheckIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import AnnotationLayer from './AnnotationLayer.vue'
@@ -372,7 +372,20 @@ const selectionStatusText = computed(() => {
   }
 
   const baseWord = totalLength === 1 ? 'base' : 'bases'
-  return `selected: ${genbankStr} (${totalLength} ${baseWord})`
+  let statusText = `selected: ${genbankStr} (${totalLength} ${baseWord})`
+
+  // Add Tm for selections under 80bp (single contiguous range only)
+  if (totalLength >= 2 && totalLength <= 80 && nonCursorRanges.length === 1) {
+    const range = nonCursorRanges[0]
+    const seq = editorState.sequence.value
+    const selectedSeq = seq.slice(range.start, range.end)
+    const tm = calculateTm(selectedSeq)
+    if (tm !== null) {
+      statusText += ` · Tm: ${tm}°C`
+    }
+  }
+
+  return statusText
 })
 
 // Set initial zoom from localStorage (fallback to prop)
@@ -2429,10 +2442,10 @@ function setSelection(spec) {
     const annotation = localAnnotations.value.find(ann => ann.id === annotationId)
     if (annotation && annotation.span) {
       selection.select(annotation.span)
-      // Scroll to annotation start
-      const startMatch = annotation.span.match(/^(\d+)/)
-      if (startMatch) {
-        scrollToPosition(parseInt(startMatch[1], 10))
+      // Scroll to annotation start using span's bounds
+      const bounds = annotation.span.bounds
+      if (bounds) {
+        scrollToPosition(bounds.start)
       }
     }
     return

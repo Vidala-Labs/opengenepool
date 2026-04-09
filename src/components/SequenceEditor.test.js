@@ -1744,6 +1744,47 @@ describe('SequenceEditor', () => {
       expect(sel).toBeNull()
     })
 
+    it('setSelection with a:<id> calls scrollTo on editor container', async () => {
+      // This test verifies setSelection scrolls to the annotation
+      // Bug: annotation.span is a Span object, but code called .match() on it (string method)
+      // Must use Annotation class to reproduce the bug (constructor converts span to Span object)
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 50,
+          annotations: [
+            new Annotation({ id: 'ann-far', span: '350..400', caption: 'Far Gene', type: 'gene' })
+          ]
+        }
+      })
+      // Long sequence so annotation at 350 is many lines down
+      wrapper.vm.setSequence('ATCG'.repeat(125)) // 500bp
+      await wrapper.vm.$nextTick()
+
+      // Get editor container and spy on scrollTo
+      const container = wrapper.find('.editor-container')
+      expect(container.exists()).toBe(true)
+
+      let scrollToCalled = false
+      let scrollToArgs = null
+      container.element.scrollTo = (args) => {
+        scrollToCalled = true
+        scrollToArgs = args
+      }
+
+      // Select annotation by ID - should trigger scrollTo
+      wrapper.vm.setSelection('a:ann-far')
+      await wrapper.vm.$nextTick()
+
+      // Verify selection is set
+      const sel = wrapper.vm.getSelection()
+      expect(sel).toEqual({ start: 350, end: 400 })
+
+      // Verify scrollTo was called (this is the bug - it currently doesn't get called)
+      expect(scrollToCalled).toBe(true)
+      expect(scrollToArgs).toBeDefined()
+      expect(scrollToArgs.top).toBeGreaterThan(0)
+    })
+
     it('setCursor sets a zero-width selection at position', async () => {
       const wrapper = mount(SequenceEditor, {
         props: { initialZoom: 100 }
@@ -2392,6 +2433,82 @@ describe('SequenceEditor', () => {
       const newAnnotation = lastUpdate.find(a => a.caption === 'Test CDS')
       expect(newAnnotation).toBeDefined()
       expect(newAnnotation.type).toBe('CDS')
+    })
+  })
+
+  describe('melting temperature display', () => {
+    it('shows Tm in status box for selection under 80bp', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { initialZoom: 50 }
+      })
+      // 20bp sequence
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      // Select 10bp (positions 0-10)
+      wrapper.vm.setSelection('0..10')
+      await wrapper.vm.$nextTick()
+
+      // Find selection status element
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).toContain('Tm:')
+      expect(statusBox.text()).toContain('°C')
+    })
+
+    it('hides Tm for selection over 80bp', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { initialZoom: 50 }
+      })
+      // 100bp sequence
+      wrapper.vm.setSequence('ATCG'.repeat(25))
+      await wrapper.vm.$nextTick()
+
+      // Select all 100bp
+      wrapper.vm.setSelection('0..100')
+      await wrapper.vm.$nextTick()
+
+      // Find selection status element
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).toContain('selected')
+      expect(statusBox.text()).not.toContain('Tm:')
+    })
+
+    it('shows Tm at exactly 80bp boundary', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { initialZoom: 50 }
+      })
+      // 80bp sequence
+      wrapper.vm.setSequence('ATCG'.repeat(20))
+      await wrapper.vm.$nextTick()
+
+      // Select exactly 80bp
+      wrapper.vm.setSelection('0..80')
+      await wrapper.vm.$nextTick()
+
+      // Should show Tm (80bp is the max)
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).toContain('Tm:')
+    })
+
+    it('hides Tm at 81bp (just over boundary)', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { initialZoom: 50 }
+      })
+      // 81bp sequence
+      wrapper.vm.setSequence('ATCG'.repeat(20) + 'A')
+      await wrapper.vm.$nextTick()
+
+      // Select 81bp
+      wrapper.vm.setSelection('0..81')
+      await wrapper.vm.$nextTick()
+
+      // Should NOT show Tm (81bp exceeds limit)
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).not.toContain('Tm:')
     })
   })
 })
