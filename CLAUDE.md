@@ -173,6 +173,61 @@ mcp__playwright__browser_snapshot()
 mcp__playwright__browser_click({ ref: 'E123', element: 'Search button' })
 ```
 
+## Customization Points
+
+### Custom Tm Calculator
+
+The `tmCalculator` prop accepts a function to customize melting temperature display:
+
+```javascript
+<SequenceEditor
+  :tm-calculator="myTmCalculator"
+/>
+
+// Function signature: (sequence: string) => string | null
+function myTmCalculator(sequence) {
+  if (!sequence || sequence.length < 10) return null
+  const tm = calculateTm(sequence, { salt: 0.05, mg: 0.002 })
+  return `Tm (Q5): ${tm}°C`
+}
+```
+
+Return `null` to hide Tm display, or a formatted string to show.
+
+### Custom Config Panel Sections
+
+The `#config` slot injects content into the gear menu config panel:
+
+```vue
+<SequenceEditor>
+  <template #config>
+    <div class="config-section">
+      <span class="config-header">My Setting</span>
+      <div class="config-types">
+        <label class="type-row">
+          <input type="radio" name="setting" value="a">
+          <span class="type-name">Option A</span>
+        </label>
+      </div>
+    </div>
+  </template>
+</SequenceEditor>
+```
+
+Use OGP's existing CSS classes (`config-section`, `config-header`, `config-types`, `type-row`, `type-name`) for consistent styling.
+
+### Custom Toolbar Buttons
+
+The `#toolbar` slot adds buttons to the main toolbar:
+
+```vue
+<SequenceEditor>
+  <template #toolbar>
+    <button class="toolbar-button" @click="handleSave">Save</button>
+  </template>
+</SequenceEditor>
+```
+
 ## Backend Adapter Protocol
 
 Backend adapters must implement these methods (all optional):
