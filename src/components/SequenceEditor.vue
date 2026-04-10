@@ -65,6 +65,11 @@ const props = defineProps({
   extensions: {
     type: Array,
     default: () => []
+  },
+  /** Custom Tm calculator function. Receives sequence string, returns display string (e.g., "Tm: 58.2°C") or null to hide. */
+  tmCalculator: {
+    type: Function,
+    default: null
   }
 })
 
@@ -82,6 +87,15 @@ const emit = defineEmits([
 // Effective backend - returns null when readonly to prevent any edits
 // This is a safety measure in addition to UI disabling
 const effectiveBackend = computed(() => props.readonly ? null : props.backend)
+
+// Default Tm calculator - uses built-in SantaLucia 1998 method
+// Returns display string (e.g., "Tm: 58.2°C") or null to hide
+function defaultTmCalculator(sequence) {
+  if (!sequence || sequence.length < 2 || sequence.length > 80) return null
+  const tm = calculateTm(sequence)
+  if (tm === null) return null
+  return `Tm: ${tm}°C`
+}
 
 // Valid DNA bases for input (IUPAC codes)
 // A, T, C, G - standard bases
@@ -374,14 +388,15 @@ const selectionStatusText = computed(() => {
   const baseWord = totalLength === 1 ? 'base' : 'bases'
   let statusText = `selected: ${genbankStr} (${totalLength} ${baseWord})`
 
-  // Add Tm for selections under 80bp (single contiguous range only)
-  if (totalLength >= 2 && totalLength <= 80 && nonCursorRanges.length === 1) {
+  // Add Tm for single contiguous selections (calculator handles length limits)
+  if (nonCursorRanges.length === 1) {
     const range = nonCursorRanges[0]
     const seq = editorState.sequence.value
     const selectedSeq = seq.slice(range.start, range.end)
-    const tm = calculateTm(selectedSeq)
-    if (tm !== null) {
-      statusText += ` · Tm: ${tm}°C`
+    const calculator = props.tmCalculator || defaultTmCalculator
+    const tmDisplay = calculator(selectedSeq)
+    if (tmDisplay) {
+      statusText += ` · ${tmDisplay}`
     }
   }
 

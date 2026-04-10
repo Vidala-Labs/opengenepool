@@ -2510,5 +2510,70 @@ describe('SequenceEditor', () => {
       expect(statusBox.exists()).toBe(true)
       expect(statusBox.text()).not.toContain('Tm:')
     })
+
+    it('uses custom tmCalculator when provided', async () => {
+      const customCalculator = (seq) => `Custom: ${seq.length}bp`
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 50,
+          tmCalculator: customCalculator
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      wrapper.vm.setSelection('0..10')
+      await wrapper.vm.$nextTick()
+
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).toContain('Custom: 10bp')
+      expect(statusBox.text()).not.toContain('°C')
+    })
+
+    it('hides Tm when custom calculator returns null', async () => {
+      const customCalculator = () => null
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 50,
+          tmCalculator: customCalculator
+        }
+      })
+      wrapper.vm.setSequence('ATCGATCGATCGATCGATCG')
+      await wrapper.vm.$nextTick()
+
+      wrapper.vm.setSelection('0..10')
+      await wrapper.vm.$nextTick()
+
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).toContain('selected')
+      expect(statusBox.text()).not.toContain('Tm:')
+      expect(statusBox.text()).not.toContain('°C')
+    })
+
+    it('custom tmCalculator can allow longer sequences', async () => {
+      // Custom calculator that allows up to 100bp
+      const customCalculator = (seq) => {
+        if (seq.length > 100) return null
+        return `Long Tm: works`
+      }
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          initialZoom: 50,
+          tmCalculator: customCalculator
+        }
+      })
+      wrapper.vm.setSequence('ATCG'.repeat(25))
+      await wrapper.vm.$nextTick()
+
+      // Select 90bp - would be hidden by default, but custom allows it
+      wrapper.vm.setSelection('0..90')
+      await wrapper.vm.$nextTick()
+
+      const statusBox = wrapper.find('.selection-status')
+      expect(statusBox.exists()).toBe(true)
+      expect(statusBox.text()).toContain('Long Tm: works')
+    })
   })
 })
