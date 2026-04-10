@@ -2709,6 +2709,9 @@ defineExpose({
             >
             <span>Translation</span>
           </label>
+
+          <!-- Slot for custom config sections -->
+          <slot name="config"></slot>
         </div>
       </div>
     </div>
