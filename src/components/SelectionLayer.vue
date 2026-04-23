@@ -8,6 +8,27 @@ const props = defineProps({
   handleRadius: {
     type: Number,
     default: 5
+  },
+  /** Alignment mode: null (normal), 'target', or 'query' */
+  alignmentMode: {
+    type: String,
+    default: null,
+    validator: (v) => v === null || v === 'target' || v === 'query'
+  },
+  /** Height of each alignment block (3 rows) */
+  alignmentBlockHeight: {
+    type: Number,
+    default: 0
+  },
+  /** Line height for calculating query row offset */
+  lineHeight: {
+    type: Number,
+    default: 0
+  },
+  /** Optional custom ranges to display instead of injected selection */
+  ranges: {
+    type: Array,
+    default: null
   }
 })
 
@@ -27,12 +48,36 @@ const dragLimits = ref({ low: 0, high: 0 })
 // Pending drag for overlapping handles (direction-based selection)
 const pendingDrag = ref(null) // { startX, touchPoint, handles: [{rangeIndex, type}, ...] }
 
+// Helper to get Y position for a line (handles alignment mode)
+function getLineYForSelection(lineIndex) {
+  if (props.alignmentMode) {
+    // Target row is at top (offset 0), query row is 2 lines down
+    const rowOffset = props.alignmentMode === 'query' ? props.lineHeight * 2 : 0
+    return lineIndex * props.alignmentBlockHeight + rowOffset
+  }
+  return graphics.getLineY(lineIndex)
+}
+
+// Helper to get line index from Y position (inverse of getLineYForSelection)
+function getLineIndexFromYForSelection(y) {
+  if (props.alignmentMode) {
+    // Subtract the row offset, then divide by block height
+    const rowOffset = props.alignmentMode === 'query' ? props.lineHeight * 2 : 0
+    return Math.max(0, Math.floor((y - rowOffset) / props.alignmentBlockHeight))
+  }
+  return graphics.pixelToLineIndex(y, editorState.lineCount.value)
+}
+
+// Check if we're in query mode (handles at bottom, tags below)
+const isQueryMode = computed(() => props.alignmentMode === 'query')
+
 // Compute selection paths for rendering
 const selectionPaths = computed(() => {
-  if (!selection.isSelected.value || !selection.domain.value) return []
+  // Use prop ranges if provided, otherwise use injected selection
+  const ranges = props.ranges ?? (selection.domain.value?.ranges ?? [])
+  if (ranges.length === 0) return []
 
   const paths = []
-  const ranges = selection.domain.value.ranges
   const zoom = editorState.zoomLevel.value
   const m = graphics.metrics.value
   const lineHeight = graphics.lineHeight.value
@@ -47,19 +92,65 @@ const selectionPaths = computed(() => {
     const firstFrag = fragments[0]
     const lastFrag = fragments[fragments.length - 1]
 
+    // Alignment mode: generate separate rectangular paths per fragment
+    if (props.alignmentMode && fragments.length > 1) {
+      for (let f = 0; f < fragments.length; f++) {
+        const frag = fragments[f]
+        const isFirstFrag = f === 0
+        const isLastFrag = f === fragments.length - 1
+
+        // Calculate pixel positions for this fragment
+        const fragX1 = m.lmargin + frag.start * m.charWidth
+        const fragX2 = m.lmargin + frag.end * m.charWidth
+        const fragY1 = getLineYForSelection(frag.line)
+        const fragY2 = fragY1 + lineHeight
+
+        // Simple rectangle for each fragment
+        const fragPathD = `M ${fragX1},${fragY1} H ${fragX2} V ${fragY2} H ${fragX1} Z`
+
+        // Handle positions for this fragment
+        let handleStartX = null, handleStartY = null
+        let handleEndX = null, handleEndY = null
+
+        if (isFirstFrag) {
+          // Start handle on first fragment
+          handleStartX = fragX1
+          handleStartY = isQueryMode.value ? fragY2 : fragY1
+        }
+        if (isLastFrag) {
+          // End handle on last fragment
+          handleEndX = fragX2
+          handleEndY = isQueryMode.value ? fragY2 : fragY1
+        }
+
+        paths.push({
+          index: i,
+          path: fragPathD,
+          cssClass: getCssClass(range),
+          handleStart: handleStartX !== null ? { x: handleStartX, y: handleStartY } : null,
+          handleEnd: handleEndX !== null ? { x: handleEndX, y: handleEndY } : null,
+          range,
+          isQuery: isQueryMode.value,
+          isFirstFragment: isFirstFrag,
+          fragmentIndex: f
+        })
+      }
+      continue
+    }
+
+    // Normal mode (single fragment or non-alignment multi-line)
     // Calculate pixel positions
     const x1 = m.lmargin + firstFrag.start * m.charWidth
     const x2 = m.lmargin + lastFrag.end * m.charWidth
 
-    // Get the extra height for annotations above each line
-    const firstLineExtra = graphics.lineExtraHeight.value.get(firstFrag.line) || 0
-    const lastLineExtra = graphics.lineExtraHeight.value.get(lastFrag.line) || 0
-    const topMargin = editorState.settings.value.linetopmargin || 0
+    // Get the extra height for annotations above each line (not used in alignment mode)
+    const firstLineExtra = props.alignmentMode ? 0 : (graphics.lineExtraHeight.value.get(firstFrag.line) || 0)
+    const lastLineExtra = props.alignmentMode ? 0 : (graphics.lineExtraHeight.value.get(lastFrag.line) || 0)
+    const topMargin = props.alignmentMode ? 0 : (editorState.settings.value.linetopmargin || 0)
 
-    // y1 is the top of the row (including annotation space and top margin)
-    // getLineY returns the baseline position (after topMargin + extra height), so subtract both
-    const y1 = graphics.getLineY(firstFrag.line) - firstLineExtra - topMargin
-    const y2 = graphics.getLineY(lastFrag.line) + lineHeight
+    // y1 is the top of the row
+    const y1 = getLineYForSelection(firstFrag.line) - firstLineExtra - topMargin
+    const y2 = getLineYForSelection(lastFrag.line) + lineHeight
 
     let pathD
     if (fragments.length === 1) {
@@ -69,8 +160,8 @@ const selectionPaths = computed(() => {
       // Multi-line - wrap around path
       const rightEdge = m.lmargin + m.lineWidth
       const leftEdge = m.lmargin
-      const startLineBottom = graphics.getLineY(firstFrag.line) + lineHeight
-      const lastLineTop = graphics.getLineY(lastFrag.line) - lastLineExtra - topMargin
+      const startLineBottom = getLineYForSelection(firstFrag.line) + lineHeight
+      const lastLineTop = getLineYForSelection(lastFrag.line) - lastLineExtra - topMargin
 
       pathD = `M ${x1},${y1} ` +
               `H ${rightEdge} ` +
@@ -82,11 +173,21 @@ const selectionPaths = computed(() => {
               `H ${x1} Z`
     }
 
-    // Handle positions - at the very top of the selection
+    // Handle positions
     const handleStartX = x1
-    const handleStartY = y1  // Top of the selection (includes margin)
     const handleEndX = x2
-    const handleEndY = graphics.getLineY(lastFrag.line) - lastLineExtra - topMargin  // Top of the last line's row
+
+    let handleStartY, handleEndY
+    if (isQueryMode.value) {
+      // Query mode: handles at the bottom of each line
+      // Start handle at bottom of first line, end handle at bottom of last line
+      handleStartY = getLineYForSelection(firstFrag.line) + lineHeight  // Bottom of first line
+      handleEndY = y2    // Bottom of last line (same as selection bottom)
+    } else {
+      // Normal/target mode: handles at the top of each line
+      handleStartY = y1  // Top of the selection (includes margin)
+      handleEndY = getLineYForSelection(lastFrag.line) - lastLineExtra - topMargin  // Top of the last line's row
+    }
 
     paths.push({
       index: i,
@@ -94,7 +195,10 @@ const selectionPaths = computed(() => {
       cssClass: getCssClass(range),
       handleStart: { x: handleStartX, y: handleStartY },
       handleEnd: { x: handleEndX, y: handleEndY },
-      range
+      range,
+      isQuery: isQueryMode.value,
+      isFirstFragment: true,
+      fragmentIndex: 0
     })
   }
 
@@ -102,7 +206,9 @@ const selectionPaths = computed(() => {
 })
 
 // Compute merge bubbles for touching range pairs
+// Only show merge bubbles for injected selection, not custom ranges
 const mergeBubbles = computed(() => {
+  if (props.ranges) return []  // Disable merge for custom ranges
   if (!selection.isSelected.value || !selection.domain.value) return []
 
   const ranges = selection.domain.value.ranges
@@ -204,7 +310,7 @@ function getHandleCssClass(range) {
 
 // Generate a "post-it tab arrow" path - rounded rectangle on top, triangle pointing down
 // x, y is the junction between the rectangle and triangle
-function getTrianglePath(x, y, width = 10, height = 8) {
+function getTrianglePathDown(x, y, width = 10, height = 8) {
   const halfWidth = width / 2
   const radius = 2  // Corner radius for rounded top
   const rectHeight = width  // Square: height equals width
@@ -224,6 +330,35 @@ function getTrianglePath(x, y, width = 10, height = 8) {
          `V ${top + radius} ` +                    // Left edge up to corner
          `Q ${left},${top} ${left + radius},${top} ` +  // Top-left corner
          `Z`
+}
+
+// Generate a "post-it tab arrow" path pointing UP - rounded rectangle on bottom, triangle pointing up
+// x, y is the junction between the rectangle and triangle (at the top of the rectangle)
+function getTrianglePathUp(x, y, width = 10, height = 8) {
+  const halfWidth = width / 2
+  const radius = 2  // Corner radius for rounded bottom
+  const rectHeight = width  // Square: height equals width
+
+  // Rectangle is below y, triangle points up from y
+  const bottom = y + rectHeight
+  const left = x - halfWidth
+  const right = x + halfWidth
+  const top = y - height  // Triangle tip (pointing up)
+
+  return `M ${x},${top} ` +                        // Start at triangle tip
+         `L ${right},${y} ` +                      // Right side of triangle
+         `V ${bottom - radius} ` +                 // Right edge down to corner
+         `Q ${right},${bottom} ${right - radius},${bottom} ` +  // Bottom-right corner
+         `H ${left + radius} ` +                   // Bottom edge
+         `Q ${left},${bottom} ${left},${bottom - radius} ` +  // Bottom-left corner
+         `V ${y} ` +                               // Left edge up to triangle junction
+         `L ${x},${top} ` +                        // Left side of triangle to tip
+         `Z`
+}
+
+// Get the appropriate triangle path based on direction
+function getTrianglePath(x, y, pointUp = false) {
+  return pointUp ? getTrianglePathUp(x, y) : getTrianglePathDown(x, y)
 }
 
 // Handle dragging
@@ -361,8 +496,8 @@ function handleDragMove(event) {
   const y = event.clientY - rect.top
   const x = event.clientX - rect.left
 
-  // Convert to sequence position
-  const lineIndex = graphics.pixelToLineIndex(y, editorState.lineCount.value)
+  // Convert to sequence position (use alignment-aware helper for Y)
+  const lineIndex = getLineIndexFromYForSelection(y)
   const linePos = graphics.pixelToLinePosition(x)
   let pos = editorState.lineToPosition(lineIndex, linePos)
 
@@ -478,7 +613,7 @@ defineExpose({
 <template>
   <g class="selection-layer">
     <!-- Selection paths -->
-    <g v-for="sel in selectionPaths" :key="`sel-${sel.index}`">
+    <g v-for="sel in selectionPaths" :key="`sel-${sel.index}-${sel.fragmentIndex ?? 0}`">
       <!-- Selection fill path -->
       <path
         :d="sel.path"
@@ -488,28 +623,30 @@ defineExpose({
         @contextmenu="handlePathContextMenu($event, sel.index)"
       />
 
-      <!-- Start handle - soft triangle pointing down -->
+      <!-- Start handle - triangle pointing toward selection (only on first fragment) -->
       <path
-        :d="getTrianglePath(sel.handleStart.x, sel.handleStart.y)"
+        v-if="sel.handleStart"
+        :d="getTrianglePath(sel.handleStart.x, sel.handleStart.y, sel.isQuery)"
         :class="getHandleCssClass(sel.range)"
         @mousedown="startHandleDrag($event, sel.index, 'start')"
         @click="handleHandleClick($event, sel.index, 'start')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'start')"
       />
 
-      <!-- End handle - soft triangle pointing down -->
+      <!-- End handle - triangle pointing toward selection (only on last fragment) -->
       <path
-        :d="getTrianglePath(sel.handleEnd.x, sel.handleEnd.y)"
+        v-if="sel.handleEnd"
+        :d="getTrianglePath(sel.handleEnd.x, sel.handleEnd.y, sel.isQuery)"
         :class="getHandleCssClass(sel.range)"
         @mousedown="startHandleDrag($event, sel.index, 'end')"
         @click="handleHandleClick($event, sel.index, 'end')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'end')"
       />
 
-      <!-- Tag for multi-range selection -->
+      <!-- Tag for multi-range selection (only on first fragment) -->
       <g
-        v-if="selectionPaths.length > 1"
-        :transform="`translate(${sel.handleStart.x}, ${sel.handleStart.y - 15})`"
+        v-if="sel.isFirstFragment && selectionPaths.filter(p => p.isFirstFragment).length > 1"
+        :transform="`translate(${sel.handleStart?.x ?? 0}, ${sel.isQuery ? (sel.handleStart?.y ?? 0) + 25 : (sel.handleStart?.y ?? 0) - 15})`"
         class="sel_tag"
       >
         <rect

@@ -207,6 +207,30 @@ describe('SelectionLayer', () => {
     })
   })
 
+  describe('multi-line selection paths', () => {
+    it('generates single connected wrap-around path in normal mode', async () => {
+      const wrapper = createWrapper()
+      const selection = wrapper.vm.selection
+
+      // Create a selection that spans multiple lines (positions 0-150 at zoom 100)
+      // At zoom 100, line 0 is 0-99, line 1 is 100-199
+      selection.select('0..150')
+
+      await wrapper.vm.$nextTick()
+
+      // Should have exactly 1 selection path element (connected wrap-around)
+      const selectionPaths = wrapper.findAll('.selection')
+      expect(selectionPaths.length).toBe(1)
+
+      // The path should have wrap-around shape (more complex than a simple rectangle)
+      const pathD = selectionPaths[0].attributes('d')
+      // Wrap-around path has 8 commands: M, H, V, H, V, H, V, H, Z
+      // Count H commands - should have 4 for wrap-around (vs 2 for simple rectangle)
+      const hCommands = (pathD.match(/H /g) || []).length
+      expect(hCommands).toBe(4)
+    })
+  })
+
   describe('handle rendering', () => {
     it('renders post-it tab arrow handles', async () => {
       const wrapper = createWrapper()
