@@ -2,6 +2,12 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
+
+// Helper to create a SequenceDocument for tests
+function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
+  return new SequenceDocument({ sequence, annotations, circular, backend })
+}
 
 describe('SequenceEditor backend', () => {
   beforeEach(() => {
@@ -49,8 +55,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -73,8 +78,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -95,8 +99,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -117,8 +120,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -145,8 +147,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -178,8 +179,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -207,8 +207,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -234,8 +233,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -251,8 +249,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -272,8 +269,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -297,8 +293,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -327,8 +322,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -359,8 +353,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -394,8 +387,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG', // 16 chars
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend) // 16 chars
         }
       })
       await wrapper.vm.$nextTick()
@@ -423,7 +415,7 @@ describe('SequenceEditor backend', () => {
       it('leaves cursor at deletion point for single range', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCG' // 12 chars
+            sequence: createDoc('ATCGATCGATCG') // 12 chars
           }
         })
         await wrapper.vm.$nextTick()
@@ -451,7 +443,7 @@ describe('SequenceEditor backend', () => {
       it('leaves cursor for adjacent ranges', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCG' // 16 chars
+            sequence: createDoc('ATCGATCGATCGATCG') // 16 chars
           }
         })
         await wrapper.vm.$nextTick()
@@ -478,7 +470,7 @@ describe('SequenceEditor backend', () => {
       it('clears selection for non-adjacent ranges', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCGATCG' // 20 chars
+            sequence: createDoc('ATCGATCGATCGATCGATCG') // 20 chars
           }
         })
         await wrapper.vm.$nextTick()
@@ -502,8 +494,7 @@ describe('SequenceEditor backend', () => {
       it('leaves cursor for circular wrap-around selection', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCGATCG', // 20 chars
-            metadata: { circular: true }
+            sequence: createDoc('ATCGATCGATCGATCGATCG', [], true) // 20 chars, circular
           }
         })
         await wrapper.vm.$nextTick()
@@ -530,8 +521,7 @@ describe('SequenceEditor backend', () => {
       it('clears selection for non-contiguous circular selection', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCGATCG', // 20 chars
-            metadata: { circular: true }
+            sequence: createDoc('ATCGATCGATCGATCGATCG', [], true) // 20 chars, circular
           }
         })
         await wrapper.vm.$nextTick()
@@ -559,8 +549,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -582,7 +571,7 @@ describe('SequenceEditor backend', () => {
     it('works without backend prop', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG'
+          sequence: createDoc('ATCGATCG')
         }
       })
       await wrapper.vm.$nextTick()
@@ -600,7 +589,7 @@ describe('SequenceEditor backend', () => {
     it('emits edit event even without backend', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG'
+          sequence: createDoc('ATCGATCG')
         }
       })
       await wrapper.vm.$nextTick()
@@ -629,9 +618,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -653,7 +640,7 @@ describe('SequenceEditor backend', () => {
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
       // Annotation should expand: 10..50 -> 10..54 (4 chars inserted)
-      expect(emitted[0][0][0].span).toBe('10..54')
+      expect(emitted[0][0][0].span.toString()).toBe('10..54')
     })
 
     it('calls backend.insert before annotation shifts it', async () => {
@@ -663,9 +650,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -686,7 +671,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should shift: 20..40 -> 23..43
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('23..43')
+      expect(emitted[0][0][0].span.toString()).toBe('23..43')
     })
   })
 
@@ -695,8 +680,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(50),
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(50), [], false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -723,8 +707,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
@@ -754,8 +737,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
@@ -784,8 +766,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -815,8 +796,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
@@ -850,8 +830,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
@@ -890,9 +869,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -930,9 +907,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -961,7 +936,7 @@ describe('SequenceEditor backend', () => {
       expect(emitted).toBeTruthy()
       // For equal length replace within annotation, the annotation remains 10..30
       // (since net change is 0 and it contains the selection, end adjusts by 0)
-      expect(emitted[0][0][0].span).toBe('10..30')
+      expect(emitted[0][0][0].span.toString()).toBe('10..30')
     })
 
     it('should collapse annotation when selection contains it and annotationMode is default', async () => {
@@ -971,9 +946,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -998,7 +971,7 @@ describe('SequenceEditor backend', () => {
       expect(emitted).toBeTruthy()
       // Annotation that was contained by selection gets collapsed to zero-width at selStart
       // Zero-width spans serialize as just the position (e.g., "10" not "10..10")
-      expect(emitted[0][0][0].span).toBe('10')
+      expect(emitted[0][0][0].span.toString()).toBe('10')
     })
 
     it('should keep annotation when selection contains it and annotationMode is preserve', async () => {
@@ -1008,9 +981,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1044,9 +1015,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1073,9 +1042,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1094,7 +1061,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should shift entirely: 10..30 -> 13..33 (3-char insert)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('13..33')
+      expect(emitted[0][0][0].span.toString()).toBe('13..33')
     })
 
     it('should extend annotation starting at insert position when checked', async () => {
@@ -1104,9 +1071,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1125,7 +1090,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should expand: 10..30 -> 10..33 (start stays, end shifts)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('10..33')
+      expect(emitted[0][0][0].span.toString()).toBe('10..33')
     })
 
     it('should not extend annotation ending at insert position by default', async () => {
@@ -1135,9 +1100,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1159,7 +1122,7 @@ describe('SequenceEditor backend', () => {
       const emitted = wrapper.emitted('annotations-update')
       // No changes means annotations-update not emitted OR annotation unchanged
       if (emitted) {
-        expect(emitted[0][0][0].span).toBe('10..30')
+        expect(emitted[0][0][0].span.toString()).toBe('10..30')
       }
     })
 
@@ -1170,9 +1133,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1191,7 +1152,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should expand: 10..30 -> 10..33
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('10..33')
+      expect(emitted[0][0][0].span.toString()).toBe('10..33')
     })
 
     it('should handle multiple annotations touching same insert position', async () => {
@@ -1202,9 +1163,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1227,8 +1186,8 @@ describe('SequenceEditor backend', () => {
       const updatedAnns = emitted[0][0]
       const ann1 = updatedAnns.find(a => a.id === 'ann1')
       const ann2 = updatedAnns.find(a => a.id === 'ann2')
-      expect(ann1.span).toBe('10..33')
-      expect(ann2.span).toBe('33..53')
+      expect(ann1.span.toString()).toBe('10..33')
+      expect(ann2.span.toString()).toBe('33..53')
     })
 
     it('should handle extending both annotations at same position', async () => {
@@ -1239,9 +1198,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1264,8 +1221,8 @@ describe('SequenceEditor backend', () => {
       const updatedAnns = emitted[0][0]
       const ann1 = updatedAnns.find(a => a.id === 'ann1')
       const ann2 = updatedAnns.find(a => a.id === 'ann2')
-      expect(ann1.span).toBe('10..33')
-      expect(ann2.span).toBe('30..53')
+      expect(ann1.span.toString()).toBe('10..33')
+      expect(ann2.span.toString()).toBe('30..53')
     })
 
     it('should not show extend options for replacements', async () => {
@@ -1275,9 +1232,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1311,9 +1266,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1333,7 +1286,7 @@ describe('SequenceEditor backend', () => {
       // Second range should shift: 30..40 -> 33..43
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('10..23 + 33..43')
+      expect(emitted[0][0][0].span.toString()).toBe('10..23 + 33..43')
     })
 
     it('should still emit edit event with insert type', async () => {
@@ -1343,9 +1296,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()

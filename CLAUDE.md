@@ -228,6 +228,53 @@ The `#toolbar` slot adds buttons to the main toolbar:
 </SequenceEditor>
 ```
 
+### Sequence Alignment Mode
+
+The `alignmentSequence` prop triggers alignment mode with Smith-Waterman local alignment:
+
+```vue
+<SequenceEditor
+  :sequence="targetSequence"
+  :alignment-sequence="querySequence"
+  alignment-label="Query"
+  :alignment-annotations="queryAnnotations"
+/>
+```
+
+Props:
+- `alignmentSequence` (String): When set, switches to alignment view comparing this sequence to the main sequence
+- `alignmentLabel` (String, default: "Query"): Label for the alignment sequence
+- `alignmentAnnotations` (Array): Annotations to display on the alignment sequence
+
+The alignment view shows:
+- Side-by-side sequence comparison with gaps
+- Color-coded matches (green), mismatches (red), and gaps (gray)
+- Match line with `|` for identical bases
+- Statistics (score, identity percentage, length)
+- Annotations from both sequences mapped through gap positions
+
+To use the alignment function directly:
+
+```javascript
+import { align } from 'opengenepool'
+
+const result = align('ATCGATCG', 'ATCGAATCG', {
+  match: 2,       // Score for matching bases (default: 2)
+  mismatch: -1,   // Penalty for mismatches (default: -1)
+  gapOpen: -3,    // Gap opening penalty (default: -3)
+  gapExtend: -1   // Gap extension penalty (default: -1)
+})
+
+// result = {
+//   score: 12,
+//   queryStart: 0, queryEnd: 8,
+//   targetStart: 0, targetEnd: 9,
+//   queryAligned: 'ATCG-ATCG',
+//   targetAligned: 'ATCGAATCG',
+//   identity: 88.9
+// }
+```
+
 ## Backend Adapter Protocol
 
 Backend adapters must implement these methods (all optional):

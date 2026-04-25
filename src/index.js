@@ -10,6 +10,7 @@ export { default as AnnotationLayer } from './components/AnnotationLayer.vue'
 // Composables
 export { useEditorState } from './composables/useEditorState.js'
 export { useGraphics } from './composables/useGraphics.js'
+export { SequenceDocument } from './composables/SequenceDocument.js'
 
 // Utilities
 export {
@@ -25,6 +26,15 @@ export {
   ANNOTATION_COLORS,
   getAnnotationColor
 } from './utils/annotation.js'
+
+export {
+  align,
+  scoreMatch,
+  buildCoordinateMap,
+  mapCoordinate,
+  buildReverseCoordinateMap,
+  mapAnnotationThroughAlignment
+} from './utils/alignment.js'
 
 // Extensions
 export { SearchExtension } from './extensions/SearchExtension/index.js'

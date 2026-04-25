@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import SequenceEditor from '../src/components/SequenceEditor.vue'
+import { SequenceDocument } from '../src/composables/SequenceDocument.js'
 import Sidebar from './Sidebar.vue'
-import { ArrowDownTrayIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
+import { ArrowDownTrayIcon, DocumentDuplicateIcon, InformationCircleIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
 import { pUC19 } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
@@ -15,11 +16,42 @@ import { RestrictionExtension } from '../src/extensions/RestrictionExtension/ind
 // List of sequences for sidebar
 const sequences = ref([])
 
-// Currently selected sequence
+// Currently selected sequence (raw data from DB)
 const selectedId = ref(null)
-const currentSequence = ref(null)
+const currentSequenceData = ref(null)
 
 const editorRef = ref(null)
+
+// Alignment mode state
+const alignmentSequenceData = ref(null)
+
+// Create SequenceDocument instances
+const targetDoc = computed(() => {
+  if (!currentSequenceData.value) return null
+  return new SequenceDocument({
+    sequence: currentSequenceData.value.sequence,
+    annotations: currentSequenceData.value.annotations || [],
+    circular: currentSequenceData.value.metadata?.circular || false
+  })
+})
+
+const queryDoc = computed(() => {
+  if (!alignmentSequenceData.value) return null
+  return new SequenceDocument({
+    sequence: alignmentSequenceData.value.sequence,
+    annotations: alignmentSequenceData.value.annotations || [],
+    circular: alignmentSequenceData.value.metadata?.circular || false
+  })
+})
+
+// Compute the sequence prop for SequenceEditor
+const sequenceProp = computed(() => {
+  if (!targetDoc.value) return null
+  if (queryDoc.value) {
+    return { target: targetDoc.value, query: queryDoc.value }
+  }
+  return targetDoc.value
+})
 
 // Load sequences on mount, seed if empty
 onMounted(async () => {
@@ -42,7 +74,7 @@ onMounted(async () => {
     const seq = await getSequence(hash)
     if (seq) {
       selectedId.value = hash
-      currentSequence.value = seq
+      currentSequenceData.value = seq
     }
   }
 })
@@ -57,27 +89,32 @@ function selectSequence(id) {
   window.location.reload()
 }
 
+// Edit handling - now handled by SequenceDocument
 function handleEdit(data) {
-  // Edits are not auto-saved; use "Save As" to persist
+  // Edits are now handled by SequenceDocument methods internally
+  // This event is just for logging/analytics
+  console.log('Edit event:', data)
 }
 
 async function saveAs() {
-  if (!currentSequence.value || !editorRef.value) {
+  if (!currentSequenceData.value || !editorRef.value) {
     console.error('saveAs: no current sequence or editor ref')
     return
   }
 
-  const name = prompt('Save as:', `${currentSequence.value.name || 'Untitled'} (copy)`)
+  const name = prompt('Save as:', `${currentSequenceData.value.name || 'Untitled'} (copy)`)
   if (!name) return
 
+  // Get current state from the document
+  const doc = editorRef.value.targetDoc.value
+
   // Create new sequence entry with current editor state
-  // Use JSON parse/stringify to strip Vue reactive proxies
   const newSequence = JSON.parse(JSON.stringify({
     id: crypto.randomUUID(),
     name,
-    sequence: editorRef.value.getSequence(),
-    annotations: currentSequence.value.annotations || [],
-    metadata: currentSequence.value.metadata || {},
+    sequence: doc.sequence,
+    annotations: doc.annotations,
+    metadata: { ...currentSequenceData.value.metadata, circular: doc.circular },
     createdAt: new Date().toISOString()
   }))
 
@@ -96,26 +133,26 @@ function handleSelect(data) {
 }
 
 async function handleAnnotationsUpdate(updatedAnnotations) {
-  if (!currentSequence.value) return
+  if (!currentSequenceData.value) return
 
   // Update the current sequence's annotations
-  currentSequence.value.annotations = updatedAnnotations
+  currentSequenceData.value.annotations = updatedAnnotations
 
   // Persist to IndexedDB (deep clone to strip Vue proxies)
-  const plainData = JSON.parse(JSON.stringify(currentSequence.value))
+  const plainData = JSON.parse(JSON.stringify(currentSequenceData.value))
   await saveSequence(plainData)
 }
 
 function downloadSequence() {
-  if (!currentSequence.value) return
+  if (!currentSequenceData.value) return
 
-  const genbank = toGenBank(currentSequence.value)
+  const genbank = toGenBank(currentSequenceData.value)
   const blob = new Blob([genbank], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
 
   const a = document.createElement('a')
   a.href = url
-  a.download = `${currentSequence.value.name || 'sequence'}.gb`
+  a.download = `${currentSequenceData.value.name || 'sequence'}.gb`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -129,7 +166,7 @@ async function handleDelete(id) {
   // If we deleted the currently selected sequence, clear the view
   if (selectedId.value === id) {
     selectedId.value = null
-    currentSequence.value = null
+    currentSequenceData.value = null
   }
 }
 
@@ -157,6 +194,27 @@ async function handleUpload(file) {
     alert('Failed to parse file. Please ensure it is a valid GenBank format.')
   }
 }
+
+async function handleAlign(sequenceId) {
+  // Get the sequence to align with
+  const seqToAlign = await getSequence(sequenceId)
+  if (!seqToAlign) return
+
+  // Set alignment mode
+  alignmentSequenceData.value = seqToAlign
+}
+
+function clearAlignment() {
+  alignmentSequenceData.value = null
+}
+
+// Computed for title display
+const displayTitle = computed(() => currentSequenceData.value?.name || 'Untitled')
+const sequenceLength = computed(() => targetDoc.value?.sequence?.length || 0)
+const hasMetadata = computed(() => {
+  const m = currentSequenceData.value?.metadata
+  return m && (m.molecule_type || m.definition)
+})
 </script>
 
 <template>
@@ -167,9 +225,10 @@ async function handleUpload(file) {
       @select="selectSequence"
       @upload="handleUpload"
       @delete="handleDelete"
+      @align="handleAlign"
     />
     <main class="main-content">
-      <div v-if="!currentSequence" class="placeholder">
+      <div v-if="!currentSequenceData" class="placeholder">
         <p class="placeholder-desktop">Please select a sequence on the left</p>
         <p class="placeholder-mobile">Please select a sequence above</p>
         <p class="mobile-note">Note: Some features may not have a good user experience on mobile devices.</p>
@@ -177,17 +236,30 @@ async function handleUpload(file) {
       <SequenceEditor
         v-else
         ref="editorRef"
-        :key="currentSequence.id"
-        :sequence="currentSequence.sequence"
-        :title="currentSequence.name"
-        :annotations="currentSequence.annotations || []"
-        :metadata="currentSequence.metadata || {}"
+        :key="currentSequenceData.id"
+        :sequence="sequenceProp"
         :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"
       >
+        <!-- Title slot - provide custom title/info display -->
+        <template #title>
+          <strong class="title-display">{{ displayTitle }}</strong>
+          &mdash; {{ sequenceLength.toLocaleString() }} bp
+          <button
+            v-if="hasMetadata"
+            class="info-button"
+            title="Sequence info"
+          >
+            <InformationCircleIcon class="icon-toolbar" />
+          </button>
+        </template>
+
         <template #toolbar>
+          <button v-if="alignmentSequenceData" class="toolbar-icon-btn close-alignment-btn" @click="clearAlignment" title="Close alignment view">
+            ✕
+          </button>
           <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
             <DocumentDuplicateIcon class="toolbar-icon" />
           </button>
@@ -277,6 +349,34 @@ html, body, #app {
   }
 }
 
+.title-display {
+  cursor: default;
+}
+
+.info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.info-button:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.icon-toolbar {
+  width: 16px;
+  height: 16px;
+}
+
 .toolbar-icon-btn {
   display: flex;
   align-items: center;
@@ -298,5 +398,15 @@ html, body, #app {
 .toolbar-icon {
   width: 18px;
   height: 18px;
+}
+
+.close-alignment-btn {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.close-alignment-btn:hover {
+  background: #fde8e8;
+  border-color: #e74c3c;
 }
 </style>

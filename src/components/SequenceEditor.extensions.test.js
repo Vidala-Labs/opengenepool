@@ -3,6 +3,12 @@ import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { Annotation } from '../utils/annotation.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
+
+// Helper to create a SequenceDocument for tests
+function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
+  return new SequenceDocument({ sequence, annotations, circular, backend })
+}
 
 describe('SequenceEditor extension context menu API', () => {
   beforeEach(() => {
@@ -91,12 +97,11 @@ describe('SequenceEditor extension context menu API', () => {
 
       const wrapper = mount(SequenceEditor, {
         props: {
+          sequence: createDoc('A'.repeat(100), [annotation]),
           initialZoom: 100,
-          annotations: [annotation],
           extensions: [extension]
         }
       })
-      wrapper.vm.setSequence('A'.repeat(100))
       await wrapper.vm.$nextTick()
 
       // Right-click on annotation
@@ -129,12 +134,11 @@ describe('SequenceEditor extension context menu API', () => {
 
       const wrapper = mount(SequenceEditor, {
         props: {
+          sequence: createDoc('ATGATGATGATGATGATGATGATGATGATG', [annotation]),
           initialZoom: 100,
-          annotations: [annotation],
           extensions: [extension]
         }
       })
-      wrapper.vm.setSequence('ATGATGATGATGATGATGATGATGATGATG')
       await wrapper.vm.$nextTick()
 
       // Right-click on translation

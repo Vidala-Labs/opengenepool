@@ -13,6 +13,11 @@ const showAnnotations = inject('showAnnotations', ref(true))
 const visible = computed(() => showAnnotations.value)
 
 const props = defineProps({
+  /** SequenceDocument for edit operations (delete, update annotations) */
+  document: {
+    type: Object,
+    default: null
+  },
   /** Array of Annotation objects to render */
   annotations: {
     type: Array,
@@ -40,7 +45,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['click', 'contextmenu', 'hover'])
+const emit = defineEmits(['click', 'contextmenu', 'hover', 'edit-annotation', 'delete-annotation'])
 
 // Inject from parent SequenceEditor
 const editorState = inject('editorState')
@@ -297,6 +302,28 @@ function getElementOpacity(element) {
   return 0.7
 }
 
+/**
+ * Delete an annotation by ID.
+ * If document is provided, calls document.deleteAnnotation directly.
+ * Otherwise, emits 'delete-annotation' event for parent to handle.
+ * @param {string} id - The annotation ID to delete
+ */
+function deleteAnnotation(id) {
+  if (props.document) {
+    props.document.deleteAnnotation(id)
+  } else {
+    emit('delete-annotation', { id })
+  }
+}
+
+/**
+ * Request editing an annotation (opens modal in parent).
+ * @param {Object} annotation - The annotation to edit
+ */
+function requestEditAnnotation(annotation) {
+  emit('edit-annotation', { annotation })
+}
+
 // Expose for testing and visibility control
 defineExpose({
   showAnnotations,
@@ -305,7 +332,9 @@ defineExpose({
   fragmentsByLine,
   getFragmentX,
   getFragmentWidth,
-  annotationDeltaYByLine
+  annotationDeltaYByLine,
+  deleteAnnotation,
+  requestEditAnnotation
 })
 </script>
 

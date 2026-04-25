@@ -4,6 +4,20 @@ import { ref } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
 import AlignmentTicksLayer from './AlignmentTicksLayer.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
+
+// Helper to create a SequenceDocument for tests
+function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
+  return new SequenceDocument({ sequence, annotations, circular, backend })
+}
+
+// Helper to create alignment mode documents
+function createAlignmentDocs(targetSeq, querySeq, targetAnnotations = [], queryAnnotations = []) {
+  return {
+    target: createDoc(targetSeq, targetAnnotations),
+    query: createDoc(querySeq, queryAnnotations)
+  }
+}
 
 // Mock graphics provider for AlignmentTicksLayer tests
 function createMockGraphics(textMode = true) {
@@ -26,7 +40,7 @@ describe('SequenceLayer styling integration', () => {
   it('renders sequence-text with correct CSS class', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -52,7 +66,7 @@ describe('SequenceLayer styling integration', () => {
     // Mount and verify the element renders without inline style conflicts
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -69,7 +83,7 @@ describe('SequenceLayer styling integration', () => {
   it('sequence text has letter-spacing style applied when in text mode', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -95,10 +109,10 @@ describe('SequenceLayer styling integration', () => {
   })
 
   it('alignment mode renders target text with correct class when in text mode', async () => {
+    const seq = 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createAlignmentDocs(seq, seq),
         initialZoom: 50
       }
     })
@@ -189,8 +203,7 @@ describe('SequenceEditor Alignment Mode', () => {
 
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: sequence,
-        alignmentSequence: sequence
+        sequence: createAlignmentDocs(sequence, sequence)
       }
     })
 
@@ -243,8 +256,7 @@ describe('SequenceEditor Alignment Mode', () => {
 
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: target,
-        alignmentSequence: query
+        sequence: createAlignmentDocs(target, query)
       }
     })
 
@@ -278,8 +290,7 @@ describe('SequenceEditor Alignment Mode', () => {
 
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: target,
-        alignmentSequence: query
+        sequence: createAlignmentDocs(target, query)
       }
     })
 
@@ -320,8 +331,7 @@ describe('Alignment Selection', () => {
   it('uses unified selection composable in alignment mode', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -335,8 +345,7 @@ describe('Alignment Selection', () => {
   it('creates selection using selection composable in alignment mode', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -354,8 +363,7 @@ describe('Alignment Selection', () => {
   it('shows selection path with correct orientation', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -374,8 +382,7 @@ describe('Alignment Selection', () => {
   it('can select reverse direction', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -394,8 +401,7 @@ describe('Alignment Selection', () => {
   it('SelectionLayer receives selection from composable', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -415,8 +421,7 @@ describe('Alignment Selection', () => {
   it('query row selection is independent from target row', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'GGGGAAAACCCC'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'GGGGAAAACCCC')
       }
     })
 
@@ -462,8 +467,7 @@ describe('Alignment Selection', () => {
   it('target row selection has handles at the top pointing down', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -519,8 +523,7 @@ describe('Alignment Selection', () => {
   it('query row selection has handles at the bottom pointing up', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -582,8 +585,7 @@ describe('Alignment Selection', () => {
   it('query row multi-selection has tags below handles', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCG')
       }
     })
 
@@ -629,8 +631,7 @@ describe('Alignment Selection', () => {
     const wrapper = mount(SequenceEditor, {
       props: {
         // Long sequence to ensure multi-line at zoom 50
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -688,8 +689,7 @@ describe('Alignment Selection', () => {
     const wrapper = mount(SequenceEditor, {
       props: {
         // Long sequence to ensure multi-line at zoom 50
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -743,8 +743,7 @@ describe('Alignment Selection', () => {
     const wrapper = mount(SequenceEditor, {
       props: {
         // Long sequence to ensure multi-line at zoom 50
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -823,8 +822,7 @@ describe('Alignment Selection', () => {
     const wrapper = mount(SequenceEditor, {
       props: {
         // Long sequence to ensure multi-line at zoom 50
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -870,8 +868,7 @@ describe('Alignment Selection', () => {
     const wrapper = mount(SequenceEditor, {
       props: {
         // Long sequence to ensure multi-line at zoom 50
-        sequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG',
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
         initialZoom: 50
       }
     })
@@ -900,8 +897,7 @@ describe('Alignment Selection', () => {
   it('target row multi-selection has tags above handles', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCGATCGATCG', 'ATCGATCGATCGATCGATCG')
       }
     })
 
@@ -949,20 +945,31 @@ describe('Alignment Annotations', () => {
 
   it('renders target annotations ABOVE target row', async () => {
     const { Annotation } = await import('../utils/annotation.js')
+    const targetAnns = [
+      new Annotation({ id: 'ann1', span: '0..6', type: 'gene', label: 'Test Gene' })
+    ]
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG',
-        annotations: [
-          new Annotation({ id: 'ann1', span: '0..6', type: 'gene', label: 'Test Gene' })
-        ]
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG', targetAnns)
       }
     })
 
     await wrapper.vm.$nextTick()
 
+    // Debug: check alignment mode and targetDoc
+    expect(wrapper.vm.isAlignmentMode).toBe(true)
+    expect(wrapper.vm.hasAlignment).toBe(true)
+    expect(wrapper.vm.targetDoc).toBeDefined()
+    expect(wrapper.vm.targetDoc.annotations.length).toBe(1)
+
+    // Debug alignment result
+    const alignResult = wrapper.vm.alignmentResult
+    console.log('alignmentResult:', alignResult)
+    console.log('targetStart:', alignResult.targetStart, 'targetEnd:', alignResult.targetEnd)
+
     // Check that aligned target annotations are computed
     const targetAnnotations = wrapper.vm.alignedTargetAnnotations
+    console.log('alignedTargetAnnotations:', targetAnnotations)
     expect(targetAnnotations).toBeDefined()
     expect(targetAnnotations.length).toBe(1)
   })
@@ -970,33 +977,32 @@ describe('Alignment Annotations', () => {
   it('maps annotation coordinates through alignment gaps', async () => {
     const { Annotation } = await import('../utils/annotation.js')
     // Create an alignment with a gap
+    const inputAnnotations = [
+      new Annotation({ id: 'ann1', span: '0..4', type: 'gene', label: 'Test Gene' })
+    ]
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGAATCGATCG', // Has extra A
-        alignmentSequence: 'ATCGATCGATCG',
-        annotations: [
-          new Annotation({ id: 'ann1', span: '0..4', type: 'gene', label: 'Test Gene' })
-        ]
+        sequence: createAlignmentDocs('ATCGAATCGATCG', 'ATCGATCGATCG', inputAnnotations)
       }
     })
 
     await wrapper.vm.$nextTick()
 
     // The annotation coordinates should be mapped through the alignment
-    const targetAnnotations = wrapper.vm.alignedTargetAnnotations
-    expect(targetAnnotations).toBeDefined()
+    const alignedAnnotations = wrapper.vm.alignedTargetAnnotations
+    expect(alignedAnnotations).toBeDefined()
     // Annotation positions should account for gaps in alignment
   })
 
   it('renders query annotations BELOW query row', async () => {
     const { Annotation } = await import('../utils/annotation.js')
+    const queryAnns = [
+      new Annotation({ id: 'qann1', span: '0..6', type: 'gene', label: 'Query Gene' })
+    ]
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG',
-        alignmentAnnotations: [
-          new Annotation({ id: 'qann1', span: '0..6', type: 'gene', label: 'Query Gene' })
-        ]
+        // Query annotations are passed as 4th parameter to createAlignmentDocs
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG', [], queryAnns)
       }
     })
 
@@ -1010,14 +1016,14 @@ describe('Alignment Annotations', () => {
 
   it('stacks query annotations downward (descending)', async () => {
     const { Annotation } = await import('../utils/annotation.js')
+    const queryAnns = [
+      new Annotation({ id: 'qann1', span: '0..6', type: 'gene', label: 'Gene 1' }),
+      new Annotation({ id: 'qann2', span: '2..8', type: 'gene', label: 'Gene 2' })
+    ]
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG',
-        alignmentAnnotations: [
-          new Annotation({ id: 'qann1', span: '0..6', type: 'gene', label: 'Gene 1' }),
-          new Annotation({ id: 'qann2', span: '2..8', type: 'gene', label: 'Gene 2' })
-        ]
+        // Query annotations are passed as 4th parameter to createAlignmentDocs
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG', [], queryAnns)
       }
     })
 
@@ -1038,8 +1044,7 @@ describe('Alignment Copy', () => {
   it('copies target sequence (no gaps) when target row selected', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCG-ATCGATCG'  // Query has a gap
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')  // Same sequences
       }
     })
 
@@ -1059,8 +1064,7 @@ describe('Alignment Copy', () => {
   it('copies query sequence (no gaps) when query row selected', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -1079,8 +1083,7 @@ describe('Alignment Copy', () => {
   it('copies reverse complement when target row selected with minus orientation', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -1101,8 +1104,7 @@ describe('Alignment Copy', () => {
   it('copies reverse complement when query row selected with minus orientation', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -1128,8 +1130,7 @@ describe('Alignment Status Text', () => {
   it('shows alignment score and identity when in alignment mode', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -1144,8 +1145,7 @@ describe('Alignment Status Text', () => {
   it('shows selection info when target row is selected', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 
@@ -1164,8 +1164,7 @@ describe('Alignment Status Text', () => {
   it('shows selection info when query row is selected', async () => {
     const wrapper = mount(SequenceEditor, {
       props: {
-        sequence: 'ATCGATCGATCG',
-        alignmentSequence: 'ATCGATCGATCG'
+        sequence: createAlignmentDocs('ATCGATCGATCG', 'ATCGATCGATCG')
       }
     })
 

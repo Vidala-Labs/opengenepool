@@ -95,6 +95,7 @@ export function useSelection(editorState, graphics, eventBus) {
   // Selection state
   const isSelected = ref(false)
   const domain = ref(null)
+  const source = ref(null)  // 'target' | 'query' | null - which sequence the selection is from
 
   // Drag state
   const anchor = ref(0)
@@ -106,13 +107,15 @@ export function useSelection(editorState, graphics, eventBus) {
    * Create a new selection at position.
    * @param {number} pos - Position to start selection
    * @param {boolean} extend - Whether to extend existing selection
+   * @param {string|null} selectionSource - Which sequence: 'target', 'query', or null
    */
-  function startSelection(pos, extend = false) {
+  function startSelection(pos, extend = false, selectionSource = null) {
     if (!isSelected.value || !extend) {
       // New selection
       unselect()
       domain.value = new SelectionDomain(`${pos}..${pos}`)
       isSelected.value = true
+      source.value = selectionSource
     } else if (domain.value.contains(pos)) {
       // Clicked inside existing selection, do nothing
       return
@@ -195,6 +198,7 @@ export function useSelection(editorState, graphics, eventBus) {
   function unselect() {
     isSelected.value = false
     domain.value = null
+    source.value = null
     isDragging.value = false
   }
 
@@ -613,6 +617,7 @@ export function useSelection(editorState, graphics, eventBus) {
     // State
     isSelected,
     domain,
+    source,
     isDragging,
     anchor,
 

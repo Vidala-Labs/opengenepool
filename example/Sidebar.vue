@@ -12,7 +12,13 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['select', 'upload', 'delete'])
+const emit = defineEmits(['select', 'upload', 'delete', 'align'])
+
+// Context menu state
+const contextMenuVisible = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+const contextMenuSequenceId = ref(null)
 
 const fileInput = ref(null)
 
@@ -47,6 +53,32 @@ function handleFileChange(event) {
     // Reset input so same file can be uploaded again
     event.target.value = ''
   }
+}
+
+function handleContextMenu(event, id) {
+  // Don't show context menu for the currently selected sequence
+  if (id === props.selectedId) return
+
+  event.preventDefault()
+  contextMenuSequenceId.value = id
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuVisible.value = true
+
+  // Close menu when clicking elsewhere
+  document.addEventListener('click', closeContextMenu, { once: true })
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false
+  contextMenuSequenceId.value = null
+}
+
+function alignWithCurrent() {
+  if (contextMenuSequenceId.value) {
+    emit('align', contextMenuSequenceId.value)
+  }
+  closeContextMenu()
 }
 </script>
 
@@ -121,6 +153,7 @@ function handleFileChange(event) {
         :key="seq.id"
         :class="{ selected: seq.id === props.selectedId }"
         @click="selectSequence(seq.id)"
+        @contextmenu="handleContextMenu($event, seq.id)"
       >
         <span class="seq-name">{{ seq.name }}</span>
         <button
@@ -134,6 +167,17 @@ function handleFileChange(event) {
     </ul>
     <div v-if="props.sequences.length === 0" class="empty-state">
       No sequences stored
+    </div>
+
+    <!-- Context Menu -->
+    <div
+      v-if="contextMenuVisible"
+      class="context-menu"
+      :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+    >
+      <div class="context-menu-item" @click="alignWithCurrent">
+        Align with current
+      </div>
     </div>
   </aside>
 </template>
@@ -345,5 +389,26 @@ h2 {
   padding: 16px;
   color: #888;
   font-size: 14px;
+}
+
+/* Context Menu */
+.context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 150px;
+}
+
+.context-menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.context-menu-item:hover {
+  background: #f0f0f0;
 }
 </style>

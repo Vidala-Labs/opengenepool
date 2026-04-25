@@ -5,41 +5,38 @@ import { useGraphics } from '../composables/useGraphics.js'
 import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
+import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment } from '../utils/alignment.js'
 import { iterateCodons } from '../utils/translation.js'
-import { InformationCircleIcon, Cog6ToothIcon, QuestionMarkCircleIcon, CheckIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { Cog6ToothIcon, QuestionMarkCircleIcon } from '@heroicons/vue/24/outline'
 import AnnotationLayer from './AnnotationLayer.vue'
 import TranslationLayer from './TranslationLayer.vue'
 import SelectionLayer from './SelectionLayer.vue'
 import CircularView from './CircularView.vue'
 import ContextMenu from './ContextMenu.vue'
 import InsertModal from './InsertModal.vue'
-import MetadataModal from './MetadataModal.vue'
 import AnnotationModal from './AnnotationModal.vue'
 import ExtendModal from './ExtendModal.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import SequenceLayer from './SequenceLayer.vue'
+import AlignmentTicksLayer from './AlignmentTicksLayer.vue'
 
 const props = defineProps({
-  /** DNA sequence string to display */
+  /**
+   * SequenceDocument or alignment mode object.
+   * Standard mode: SequenceDocument instance
+   * Alignment mode: { target: SequenceDocument, query: SequenceDocument }
+   */
   sequence: {
-    type: String,
-    default: ''
-  },
-  /** Title for the sequence */
-  title: {
-    type: String,
-    default: ''
+    type: [Object, SequenceDocument],
+    default: null
   },
   /** Initial zoom level (bases per line) */
   initialZoom: {
     type: Number,
     default: 100
-  },
-  /** Array of Annotation objects to display */
-  annotations: {
-    type: Array,
-    default: () => []
   },
   /** Whether to show annotation captions */
   showAnnotationCaptions: {
@@ -51,13 +48,12 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Sequence metadata (molecule_type, definition, etc.) */
-  metadata: {
-    type: Object,
-    default: () => ({})
-  },
-  /** Backend adapter for server communication (LiveView, IndexedDB, etc.) */
-  backend: {
+  /**
+   * Clipboard backend for copy/paste operations.
+   * Document-level operations (insert/delete/annotations) should use the
+   * backend passed to SequenceDocument when creating it.
+   */
+  clipboardBackend: {
     type: Object,
     default: null
   },
@@ -84,9 +80,38 @@ const emit = defineEmits([
   'annotations-update'
 ])
 
-// Effective backend - returns null when readonly to prevent any edits
-// This is a safety measure in addition to UI disabling
-const effectiveBackend = computed(() => props.readonly ? null : props.backend)
+// Effective clipboard backend - returns null when readonly to prevent copy/paste
+// For document edits, use targetDoc methods which call the document's backend
+const effectiveClipboardBackend = computed(() => props.readonly ? null : props.clipboardBackend)
+
+// ============================================
+// Document Access Computed Properties
+// ============================================
+
+// Check if we're in alignment mode (sequence prop has target/query structure)
+const isAlignmentMode = computed(() => {
+  return props.sequence && 'target' in props.sequence && 'query' in props.sequence
+})
+
+// Target document (the main sequence being viewed/edited)
+const targetDoc = computed(() => {
+  if (!props.sequence) return null
+  if (isAlignmentMode.value) {
+    return props.sequence.target
+  }
+  return props.sequence
+})
+
+// Query document (only in alignment mode)
+const queryDoc = computed(() => {
+  if (isAlignmentMode.value && props.sequence) {
+    return props.sequence.query
+  }
+  return null
+})
+
+// Is the sequence circular? (from target document)
+const isCircular = computed(() => targetDoc.value?.circular ?? false)
 
 // Default Tm calculator - uses built-in SantaLucia 1998 method
 // Returns display string (e.g., "Tm: 58.2°C") or null to hide
@@ -130,7 +155,7 @@ const affectedAnnotationCount = computed(() => {
 
   let count = 0
   for (const ann of localAnnotations.value) {
-    const span = Span.parse(ann.span)
+    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
     for (const range of span.ranges) {
       const intersects = range.end > selStart && range.start < selEnd
       const contains = range.start <= selStart && range.end >= selEnd
@@ -153,8 +178,8 @@ const touchingAnnotations = computed(() => {
 
   const result = []
   for (const ann of localAnnotations.value) {
-    if (!ann.span || typeof ann.span !== 'string') continue
-    const span = Span.parse(ann.span)
+    if (!ann.span) continue
+    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
     const name = ann.caption || ann.type || ann.id
     const type = ann.type || 'feature'
 
@@ -218,10 +243,10 @@ const extendModalMaxBases = computed(() => {
   const range = domain.ranges[extendModalRangeIndex.value]
   const seqLen = editorState.sequenceLength.value
   const direction = extendModalDirection.value
-  const isCircular = props.metadata?.circular === true
+  const docIsCircular = isCircular.value
 
   if (direction === 'negative') {
-    if (isCircular) {
+    if (docIsCircular) {
       // Circular: can wrap around, limited by nearest range end (going backwards)
       // Start from range.start, go backwards wrapping at 0 to seqLen
       let limit = seqLen  // max possible (full circle minus current selection)
@@ -256,7 +281,7 @@ const extendModalMaxBases = computed(() => {
       return limit
     }
   } else {
-    if (isCircular) {
+    if (docIsCircular) {
       // Circular: can wrap around, limited by nearest range start (going forwards)
       let limit = seqLen  // max possible (full circle minus current selection)
 
@@ -292,17 +317,12 @@ const extendModalMaxBases = computed(() => {
   }
 })
 
-// Title editing state
-const editingTitle = ref(false)
-const editTitleValue = ref('')
-const titleInputRef = ref(null)
-
 // View mode state ('linear' | 'circular')
 // Only circular sequences can switch to circular view
 const viewMode = ref('linear')
 
 // Computed: whether to show the view mode toggle
-const showViewModeToggle = computed(() => props.metadata?.circular === true)
+const showViewModeToggle = computed(() => isCircular.value && !isAlignmentMode.value)
 
 // Initialize composables
 const editorState = useEditorState()
@@ -311,6 +331,182 @@ const eventBus = createEventBus()
 
 // Selection is owned here and provided to children (single source of truth)
 const selection = useSelection(editorState, graphics, eventBus)
+
+// Alignment computation (must be after editorState is initialized)
+const alignmentResult = computed(() => {
+  if (!isAlignmentMode.value || !editorState.sequence.value || !queryDoc.value) return null
+  return align(queryDoc.value.sequence, editorState.sequence.value)
+})
+
+// Check if alignment found a match
+const hasAlignment = computed(() => {
+  return alignmentResult.value && alignmentResult.value.score > 0
+})
+
+// Aligned sequences with gaps inserted
+const alignedQuerySequence = computed(() => {
+  if (!hasAlignment.value) return ''
+  return alignmentResult.value.queryAligned
+})
+
+const alignedTargetSequence = computed(() => {
+  if (!hasAlignment.value) return ''
+  return alignmentResult.value.targetAligned
+})
+
+// Build match line (| for match, space for mismatch/gap)
+const alignmentMatchLine = computed(() => {
+  if (!hasAlignment.value) return ''
+  const query = alignedQuerySequence.value
+  const target = alignedTargetSequence.value
+  let line = ''
+  for (let i = 0; i < query.length; i++) {
+    const q = query[i].toUpperCase()
+    const t = target[i].toUpperCase()
+    if (q === '-' || t === '-') {
+      line += ' '
+    } else if (q === t) {
+      line += '|'
+    } else {
+      line += ' '
+    }
+  }
+  return line
+})
+
+// Position mapping: aligned index -> original position for query
+const queryPositionMap = computed(() => {
+  if (!hasAlignment.value) return []
+  const map = []
+  let origPos = alignmentResult.value.queryStart
+  for (let i = 0; i < alignedQuerySequence.value.length; i++) {
+    if (alignedQuerySequence.value[i] !== '-') {
+      map.push(origPos)
+      origPos++
+    } else {
+      map.push(null) // Gap position
+    }
+  }
+  return map
+})
+
+// Position mapping: aligned index -> original position for target
+const targetPositionMap = computed(() => {
+  if (!hasAlignment.value) return []
+  const map = []
+  let origPos = alignmentResult.value.targetStart
+  for (let i = 0; i < alignedTargetSequence.value.length; i++) {
+    if (alignedTargetSequence.value[i] !== '-') {
+      map.push(origPos)
+      origPos++
+    } else {
+      map.push(null) // Gap position
+    }
+  }
+  return map
+})
+
+// Alignment lines - similar to editorState.lines but for alignment mode
+const alignmentLines = computed(() => {
+  if (!hasAlignment.value) return []
+
+  const zoomLevel = editorState.zoomLevel.value
+  const querySeq = alignedQuerySequence.value
+  const targetSeq = alignedTargetSequence.value
+  const matchLine = alignmentMatchLine.value
+  const lines = []
+
+  for (let i = 0; i < querySeq.length; i += zoomLevel) {
+    const end = Math.min(i + zoomLevel, querySeq.length)
+
+    // Find the first non-gap position for the label
+    let queryLabelPos = null
+    let targetLabelPos = null
+    for (let j = i; j < end; j++) {
+      if (queryLabelPos === null && queryPositionMap.value[j] !== null) {
+        queryLabelPos = queryPositionMap.value[j]
+      }
+      if (targetLabelPos === null && targetPositionMap.value[j] !== null) {
+        targetLabelPos = targetPositionMap.value[j]
+      }
+      if (queryLabelPos !== null && targetLabelPos !== null) break
+    }
+
+    lines.push({
+      index: lines.length,
+      start: i,
+      end: end,
+      queryText: querySeq.slice(i, end),
+      targetText: targetSeq.slice(i, end),
+      matchText: matchLine.slice(i, end),
+      queryPosition: queryLabelPos,
+      targetPosition: targetLabelPos
+    })
+  }
+
+  return lines
+})
+
+// Reverse coordinate maps for mapping annotations through alignment
+const targetReverseMap = computed(() => {
+  if (!hasAlignment.value) return {}
+  return buildReverseCoordinateMap(alignedTargetSequence.value, alignmentResult.value.targetStart)
+})
+
+const queryReverseMap = computed(() => {
+  if (!hasAlignment.value) return {}
+  return buildReverseCoordinateMap(alignedQuerySequence.value, alignmentResult.value.queryStart)
+})
+
+// Local copy of annotations for optimistic UI updates
+// This allows us to adjust annotation positions locally before server confirmation
+const localAnnotations = computed(() => targetDoc.value?.annotations ?? [])
+
+// Aligned target annotations - map main sequence annotations through alignment
+const alignedTargetAnnotations = computed(() => {
+  if (!hasAlignment.value || !localAnnotations.value) return []
+
+  const result = alignmentResult.value
+  const mapped = []
+
+  for (const ann of localAnnotations.value) {
+    const mappedAnn = mapAnnotationThroughAlignment(
+      ann,
+      targetReverseMap.value,
+      result.targetStart,
+      result.targetEnd
+    )
+    if (mappedAnn) {
+      mapped.push(mappedAnn)
+    }
+  }
+
+  return mapped
+})
+
+// Aligned query annotations - map alignment sequence annotations through alignment
+const alignedQueryAnnotations = computed(() => {
+  const queryAnnotations = queryDoc.value?.annotations
+  if (!hasAlignment.value || !queryAnnotations) return []
+
+  const result = alignmentResult.value
+  const mapped = []
+
+  for (const ann of queryAnnotations) {
+    const mappedAnn = mapAnnotationThroughAlignment(
+      ann,
+      queryReverseMap.value,
+      result.queryStart,
+      result.queryEnd
+    )
+    if (mappedAnn) {
+      mapped.push(mappedAnn)
+    }
+  }
+
+  return mapped
+})
+
 
 // Helper to convert a range to GenBank notation (1-based)
 function rangeToGenBank(range) {
@@ -331,6 +527,26 @@ function rangeToGenBank(range) {
 
 // Computed property for selection status text displayed in lower right corner
 const selectionStatusText = computed(() => {
+  // Alignment mode status
+  if (isAlignmentMode.value && hasAlignment.value) {
+    const result = alignmentResult.value
+
+    // Check for selection in alignment mode (uses unified selection composable)
+    if (selection.isSelected.value && selection.domain.value?.ranges?.length > 0) {
+      const range = selection.domain.value.ranges[0]
+      if (range.start !== range.end) {
+        const selectedText = getSelectedAlignmentSequenceText()
+        const length = selectedText.length
+        const baseWord = length === 1 ? 'base' : 'bases'
+        const rowLabel = selection.source.value === 'target' ? 'Target' : 'Query'
+        return `${rowLabel} selected: ${range.start + 1}..${range.end} (${length} ${baseWord}) · Score: ${result.score} · Identity: ${result.identity}%`
+      }
+    }
+
+    return `Score: ${result.score} · Identity: ${result.identity}% · Aligned: ${result.targetAligned.length} positions`
+  }
+
+  // Normal mode
   if (!selection.isSelected.value || !selection.domain.value) {
     return null
   }
@@ -412,30 +628,14 @@ watch(editorState.zoomLevel, (newZoom) => {
   saveZoom(newZoom)
 })
 
-// Watch for sequence prop changes to initialize/update the editor
-watch(() => props.sequence, (newSeq) => {
-  if (newSeq) {
-    editorState.setSequence(newSeq, props.title)
+// Watch for document changes to initialize/update the editor
+watch(() => targetDoc.value?.sequence, (newSeq) => {
+  if (newSeq !== undefined) {
+    editorState.setSequence(newSeq, '')  // Title is now provided via slot
     // Re-apply persisted zoom now that sequence is loaded (setZoom clamps based on length)
     editorState.setZoom(getInitialZoom())
   }
 }, { immediate: true })
-
-// Watch for title changes
-watch(() => props.title, (newTitle) => {
-  if (editorState.sequence.value) {
-    editorState.title.value = newTitle
-  }
-})
-
-// Local copy of annotations for optimistic UI updates
-// This allows us to adjust annotation positions locally before server confirmation
-const localAnnotations = ref([...props.annotations])
-
-// Watch for annotation prop changes (from server)
-watch(() => props.annotations, (newAnnotations) => {
-  localAnnotations.value = [...newAnnotations]
-}, { deep: true })
 
 // Annotation filtering state with localStorage persistence
 const HIDDEN_TYPES_KEY = 'opengenepool-hidden-annotation-types'
@@ -648,62 +848,6 @@ const cdsAnnotations = computed(() => {
   return annotationInstances.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
 })
 
-// Metadata display helpers
-const hasMetadata = computed(() => {
-  const m = props.metadata
-  return m && (m.molecule_type || m.definition)
-})
-
-const metadataModalOpen = ref(false)
-
-function openMetadataModal() {
-  metadataModalOpen.value = true
-}
-
-function closeMetadataModal() {
-  metadataModalOpen.value = false
-}
-
-// Title editing
-function startEditingTitle() {
-  if (props.readonly) return
-  editTitleValue.value = editorState.title.value || ''
-  editingTitle.value = true
-  // Focus input after DOM update
-  nextTick(() => {
-    titleInputRef.value?.focus()
-    titleInputRef.value?.select()
-  })
-}
-
-function cancelEditingTitle() {
-  editingTitle.value = false
-  editTitleValue.value = ''
-}
-
-function confirmEditingTitle() {
-  const newTitle = editTitleValue.value.trim()
-  if (newTitle && newTitle !== editorState.title.value) {
-    editorState.title.value = newTitle
-    effectiveBackend.value?.titleUpdate?.({
-      id: crypto.randomUUID(),
-      title: newTitle
-    })
-  }
-  editingTitle.value = false
-  editTitleValue.value = ''
-}
-
-function handleTitleKeydown(event) {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    confirmEditingTitle()
-  } else if (event.key === 'Escape') {
-    event.preventDefault()
-    cancelEditingTitle()
-  }
-}
-
 // Annotation creation modal
 function openAnnotationModal() {
   const domain = selection.domain.value
@@ -743,22 +887,16 @@ function openAnnotationModalForEdit(annotation) {
 function handleAnnotationUpdate(data) {
   const annotationId = editingAnnotation.value.id
 
-  effectiveBackend.value?.annotationUpdate?.({
-    id: crypto.randomUUID(),
-    annotationId,
+  // Update annotation in document (handles backend notification)
+  targetDoc.value.updateAnnotation({
+    id: annotationId,
     caption: data.caption,
     type: data.type,
     span: data.span,
     attributes: data.attributes
   })
 
-  // Update local state for optimistic UI
-  localAnnotations.value = localAnnotations.value.map(ann =>
-    ann.id === annotationId
-      ? { ...ann, caption: data.caption, type: data.type, span: data.span, attributes: data.attributes }
-      : ann
-  )
-  // Emit for parent components (standalone mode)
+  // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 
   annotationModalOpen.value = false
@@ -795,23 +933,12 @@ function mergeAnnotationRanges(annotation, leftIndex, rightIndex) {
   // Create new span string
   const newSpanStr = newRanges.map(r => r.toString()).join(' + ')
 
-  // Send update to backend
-  effectiveBackend.value?.annotationUpdate?.({
-    id: crypto.randomUUID(),
-    annotationId: annotation.id,
-    caption: annotation.caption,
-    type: annotation.type,
-    span: newSpanStr,
-    attributes: annotation.attributes
+  // Update annotation in document (handles backend notification)
+  targetDoc.value.updateAnnotation({
+    id: annotation.id,
+    span: newSpanStr
   })
-
-  // Update local state for optimistic UI
-  localAnnotations.value = localAnnotations.value.map(ann =>
-    ann.id === annotation.id
-      ? { ...ann, span: newSpanStr }
-      : ann
-  )
-  // Emit for parent components (standalone mode)
+  // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 }
 
@@ -851,25 +978,12 @@ function splitAnnotationAtPosition(annotation, rangeIndex, position) {
 
   const newSpanStr = newRanges.map(r => r.toString()).join(' + ')
 
-  // Update backend
-  effectiveBackend.value?.annotationUpdate?.({
-    id: crypto.randomUUID(),
-    annotationId: annotation.id,
-    caption: annotation.caption,
-    type: annotation.type,
-    span: newSpanStr,
-    attributes: annotation.attributes
+  // Update annotation in document (handles backend notification)
+  targetDoc.value.updateAnnotation({
+    id: annotation.id,
+    span: newSpanStr
   })
-
-  // Update local state
-  const updatedAnnotations = localAnnotations.value.map(a => {
-    if (a.id === annotation.id) {
-      return { ...a, span: newSpanStr }
-    }
-    return a
-  })
-  localAnnotations.value = updatedAnnotations
-  emit('annotations-update', updatedAnnotations)
+  emit('annotations-update', localAnnotations.value)
 }
 
 function handleAnnotationCreate(data) {
@@ -896,12 +1010,9 @@ function handleAnnotationCreate(data) {
     attributes
   }
 
-  // Send to backend
-  effectiveBackend.value?.annotationCreated?.(newAnnotation)
-
-  // Update local state for optimistic UI
-  localAnnotations.value = [...localAnnotations.value, newAnnotation]
-  // Emit for parent components (standalone mode)
+  // Add annotation to document (handles backend notification)
+  targetDoc.value.addAnnotation(newAnnotation)
+  // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 
   annotationModalOpen.value = false
@@ -1002,8 +1113,25 @@ const availableZooms = computed(() => {
 
 // SVG dimensions
 const svgHeight = computed(() => {
+  if (isAlignmentMode.value && hasAlignment.value) {
+    // In alignment mode: each block has query + match + target rows
+    // Plus space for annotations
+    const lineHeight = graphics.lineHeight.value
+    const blockHeight = lineHeight * 3 + 40 // 3 rows + annotation space
+    return alignmentLines.value.length * blockHeight + 40 // padding
+  }
   return graphics.getTotalHeight(editorState.lineCount.value)
 })
+
+// Alignment block height (query + match + target + annotation space)
+const alignmentBlockHeight = computed(() => {
+  return graphics.lineHeight.value * 3 + 40
+})
+
+// Alignment mode state - provided for SequenceLayer and AlignmentTicksLayer
+provide('isAlignmentMode', isAlignmentMode)
+provide('alignmentLines', alignmentLines)
+provide('alignmentBlockHeight', alignmentBlockHeight)
 
 // Cursor position helpers
 const cursorLine = computed(() => {
@@ -1037,10 +1165,6 @@ function handleResize() {
   graphics.setContainerSize(rect.width, rect.height)
 }
 
-// Selection state
-const isDragging = ref(false)
-const dragStart = ref(null)
-
 // Context menu state
 const contextMenuVisible = ref(false)
 const contextMenuX = ref(0)
@@ -1052,6 +1176,7 @@ const tooltipVisible = ref(false)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
 const tooltipContent = ref('')
+
 
 // Get context menu items from extensions
 function getExtensionContextMenuItems(context) {
@@ -1190,14 +1315,9 @@ function buildContextMenuItems(context) {
     items.push({
       label: 'Delete Annotation',
       action: () => {
-        effectiveBackend.value?.annotationDeleted?.({
-          id: crypto.randomUUID(),
-          annotationId: annotation.id
-        })
-
-        // Update local state for optimistic UI
-        localAnnotations.value = localAnnotations.value.filter(ann => ann.id !== annotation.id)
-        // Emit for parent components (standalone mode)
+        // Delete annotation from document (handles backend notification)
+        targetDoc.value.deleteAnnotation(annotation.id)
+        // Emit for parent components
         emit('annotations-update', localAnnotations.value)
       }
     })
@@ -1388,69 +1508,46 @@ function handleBackgroundClick(event) {
   selection.unselect()
 }
 
-function handleMouseDown(event, lineIndex) {
-  if (event.button !== 0) return // Left click only
-
-  // Prevent native text selection
-  event.preventDefault()
-  clearNativeSelection()
-
-  const pos = getPositionFromEvent(event, lineIndex)
-  if (pos === null) return
-
-  isDragging.value = true
-  dragStart.value = pos
-
-  // Shift-click extends existing selection to position
-  if (event.shiftKey && selection.isSelected.value) {
-    selection.extendToPosition(pos)
-    return  // Don't start a new drag
-  }
-
-  // Start a new selection (or add range with Ctrl)
-  selection.startSelection(pos, event.ctrlKey)
-
-  window.addEventListener('mousemove', handleMouseMove)
-  window.addEventListener('mouseup', handleMouseUp)
+// Adapter for SequenceLayer context menu events
+function handleSequenceLayerContextMenu(data) {
+  handleContextMenu(data.event, data.lineIndex)
 }
 
-function handleMouseMove(event) {
-  if (!isDragging.value || dragStart.value === null) return
+// Get selected sequence text from alignment row (handles orientation)
+// For target row, extracts from main sequence; for query row, extracts from alignmentSequence
+function getSelectedAlignmentSequenceText() {
+  if (!isAlignmentMode.value || !hasAlignment.value) return ''
+  if (!selection.source.value) return ''
 
-  // Clear any native text selection that the browser creates
-  clearNativeSelection()
-
-  // Find which line we're over
-  const svgRect = svgRef.value.getBoundingClientRect()
-  const y = event.clientY - svgRect.top
-  const lineIndex = graphics.pixelToLineIndex(y, editorState.lineCount.value)
-
-  const pos = getPositionFromEvent(event, lineIndex)
-  if (pos !== null) {
-    selection.updateSelection(pos)
-  }
-}
-
-function handleMouseUp() {
-  isDragging.value = false
-  window.removeEventListener('mousemove', handleMouseMove)
-  window.removeEventListener('mouseup', handleMouseUp)
-
-  selection.endSelection()
-
-  // Emit select event if there's a non-zero selection
   const domain = selection.domain.value
-  if (domain && domain.ranges.length > 0) {
-    const range = domain.ranges[0]
-    if (range.start !== range.end) {
-      const seq = editorState.sequence.value.slice(range.start, range.end)
-      emit('select', { start: range.start, end: range.end, sequence: seq })
-    }
+  if (!domain || domain.ranges.length === 0) return ''
+
+  const range = domain.ranges[0]
+  if (range.start === range.end) return ''
+
+  // Get the appropriate sequence based on source
+  const seq = selection.source.value === 'query'
+    ? queryDoc.value?.sequence
+    : editorState.sequence.value
+  if (!seq) return ''
+
+  // Extract the selected portion
+  const start = Math.max(0, range.start)
+  const end = Math.min(seq.length, range.end)
+  let text = seq.slice(start, end)
+
+  // Handle reverse complement for minus orientation
+  if (range.orientation === Orientation.MINUS) {
+    text = reverseComplement(text)
   }
+
+  return text
 }
 
 // Selection layer event handlers
 function handleSelectionChange(data) {
+  // selection.source is now set automatically by SequenceLayer when starting selection
+
   // Focus the appropriate container so keyboard shortcuts work
   if (viewMode.value === 'circular') {
     circularContainerRef.value?.focus()
@@ -1489,12 +1586,28 @@ function handleSelectionMouseDown(data) {
   // Start a new range (extend=true to add to existing selection)
   selection.startSelection(pos, true)
 
-  // Set up drag handling
-  isDragging.value = true
-  dragStart.value = pos
+  // Local handlers for this drag operation
+  function onMove(e) {
+    window.getSelection()?.removeAllRanges()
+    const rect = svgRef.value.getBoundingClientRect()
+    const moveY = e.clientY - rect.top
+    const moveX = e.clientX - rect.left
+    const moveLine = graphics.pixelToLineIndex(moveY, editorState.lineCount.value)
+    const moveLinePos = graphics.pixelToLinePosition(moveX)
+    const movePos = editorState.lineToPosition(moveLine, moveLinePos)
+    if (movePos !== null) {
+      selection.updateSelection(movePos)
+    }
+  }
 
-  window.addEventListener('mousemove', handleMouseMove)
-  window.addEventListener('mouseup', handleMouseUp)
+  function onUp() {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    selection.endSelection()
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
 }
 
 // Handle context menu on selection handles (for extend functionality)
@@ -1561,13 +1674,13 @@ function handleExtendSubmit(bases) {
 
   const range = domain.ranges[rangeIndex]
   const seqLen = editorState.sequenceLength.value
-  const isCircular = props.metadata?.circular === true
+  const docIsCircular = isCircular.value
 
   if (direction === 'negative') {
     // Extend leftward - decrease start
     const newStart = range.start - bases
 
-    if (newStart < 0 && isCircular) {
+    if (newStart < 0 && docIsCircular) {
       // Wrapping around origin - create two ranges
       const overflow = -newStart  // how much we went past 0
       range.start = 0  // Current range now starts at 0
@@ -1585,7 +1698,7 @@ function handleExtendSubmit(bases) {
     // Extend rightward - increase end
     const newEnd = range.end + bases
 
-    if (newEnd > seqLen && isCircular) {
+    if (newEnd > seqLen && docIsCircular) {
       // Wrapping around origin - create two ranges
       const overflow = newEnd - seqLen  // how much we went past seqLen
       range.end = seqLen  // Current range now ends at seqLen
@@ -1705,6 +1818,28 @@ function handleAnnotationHover(data) {
 
   // Also emit for parent components
   emit('annotation-hover', data)
+}
+
+/**
+ * Handle request to edit an annotation (opens modal).
+ * Called from AnnotationLayer when user wants to edit an annotation.
+ */
+function handleEditAnnotation(data) {
+  const { annotation } = data
+  editingAnnotation.value = annotation
+  annotationModalSpan.value = annotation.span?.toString?.() || annotation.span || '0..0'
+  annotationModalOpen.value = true
+}
+
+/**
+ * Handle annotation deletion from AnnotationLayer.
+ * This is a fallback when AnnotationLayer doesn't have a document.
+ * Normally, AnnotationLayer calls document.deleteAnnotation directly.
+ */
+function handleDeleteAnnotation(data) {
+  const { id } = data
+  targetDoc.value.deleteAnnotation(id)
+  emit('annotations-update', localAnnotations.value)
 }
 
 function handleTranslationHover(data) {
@@ -1847,6 +1982,16 @@ function getSelectedSequenceText() {
 }
 
 async function handleCopy() {
+  // In alignment mode with query row selected, extract from query sequence
+  if (isAlignmentMode.value && selection.source.value === 'query') {
+    const alignmentSeq = getSelectedAlignmentSequenceText()
+    if (alignmentSeq) {
+      await navigator.clipboard.writeText(alignmentSeq)
+      return
+    }
+  }
+
+  // Normal copy (handles orientation/reverse complement correctly)
   const selectedSeq = getSelectedSequenceText()
   if (!selectedSeq) return
 
@@ -1860,24 +2005,15 @@ async function handleCopy() {
     saveOverlay(selectedSeq, overlappingAnnotations)
   }
 
-  if (effectiveBackend.value?.copy) {
+  if (effectiveClipboardBackend.value?.copy) {
     // Backend handles copy (may do additional processing)
-    await effectiveBackend.value.copy({
+    await effectiveClipboardBackend.value.copy({
       text: selectedSeq,
       selection: selection.domain.value
     })
   } else {
     // Default: write to system clipboard
     await navigator.clipboard.writeText(selectedSeq)
-  }
-}
-
-async function handleCut() {
-  const selectedSeq = getSelectedSequenceText()
-  if (selectedSeq && selection.isSelected.value) {
-    await handleCopy()  // Use the copy logic (backend or default)
-    deleteSelectedRange()
-    emit('edit', { type: 'cut', text: selectedSeq })
   }
 }
 
@@ -1889,9 +2025,9 @@ async function handlePaste() {
   try {
     let clipboardText
 
-    if (effectiveBackend.value?.paste) {
+    if (effectiveClipboardBackend.value?.paste) {
       // Backend provides paste content (may transform or fetch from server)
-      clipboardText = await effectiveBackend.value.paste()
+      clipboardText = await effectiveClipboardBackend.value.paste()
     } else {
       // Default: read from system clipboard
       clipboardText = await navigator.clipboard.readText()
@@ -1921,7 +2057,7 @@ async function handlePaste() {
 
 /**
  * Delete the currently selected ranges (if non-zero).
- * Sends delete operations to backend for each range and clears selection.
+ * In alignment mode, routes deletion to the correct document based on selection.source.
  * Ranges are deleted from highest position first to avoid shifting issues.
  */
 function deleteSelectedRange() {
@@ -1936,11 +2072,15 @@ function deleteSelectedRange() {
 
   if (rangesToDelete.length === 0) return false
 
+  // Determine which document to modify
+  const isQueryEdit = isAlignmentMode.value && selection.source.value === 'query'
+
   // Check if ranges are contiguous/adjacent (for cursor placement after deletion)
-  // Sort ascending to check adjacency
   const sortedAsc = [...rangesToDelete].sort((a, b) => a.start - b.start)
-  const isCircular = props.metadata?.circular === true
-  const seqLen = editorState.sequenceLength.value
+  const docIsCircular = isCircular.value
+  const seqLen = isQueryEdit
+    ? (queryDoc.value?.sequence?.length || 0)
+    : editorState.sequenceLength.value
 
   // Check standard linear contiguity
   let isContiguous = sortedAsc.every((range, i) => {
@@ -1949,19 +2089,14 @@ function deleteSelectedRange() {
   })
 
   // For circular sequences, also check wrap-around contiguity
-  // e.g., ranges [0..10, 90..100] on a 100bp circular sequence are adjacent at the origin
-  if (!isContiguous && isCircular && sortedAsc.length >= 2) {
+  if (!isContiguous && docIsCircular && sortedAsc.length >= 2) {
     const firstRange = sortedAsc[0]
     const lastRange = sortedAsc[sortedAsc.length - 1]
 
-    // Check if ranges wrap around: first starts at 0, last ends at seqLen
     if (firstRange.start === 0 && lastRange.end === seqLen) {
-      // Check that all ranges except the wrap point are contiguous
       isContiguous = sortedAsc.every((range, i) => {
         if (i === 0) return true
-        // Skip the gap between last (by position) and first - that's the wrap point
         if (i === sortedAsc.length - 1 && sortedAsc[i - 1].end < range.start) {
-          // This is the wrap gap - allowed for circular
           return true
         }
         return sortedAsc[i - 1].end >= range.start
@@ -1971,18 +2106,18 @@ function deleteSelectedRange() {
 
   const cursorPosition = sortedAsc[0].start
 
-  for (const range of rangesToDelete) {
-    const editId = crypto.randomUUID()
+  // Determine which document to modify and apply delete
+  const doc = isQueryEdit ? queryDoc.value : targetDoc.value
 
-    // 1. Apply locally (optimistic UI)
-    editorState.deleteRange(range.start, range.end)
-
-    // 2. Adjust annotations (delete is a replace with 0-length text)
-    adjustAnnotationsForReplace(range.start, range.end, 0)
-
-    // 3. Send to backend if connected
-    if (effectiveBackend.value?.delete) {
-      effectiveBackend.value.delete({ id: editId, start: range.start, end: range.end })
+  if (doc) {
+    // Delete via document (handles sequence mutation, annotation adjustment, and backend notification)
+    doc.delete(rangesToDelete)
+    // Notify parent of annotation changes (tested by annotation tests)
+    emit('annotations-update', doc.annotations)
+  } else {
+    // For non-document mode (string sequence prop), apply to editorState directly
+    for (const range of rangesToDelete) {
+      editorState.deleteRange(range.start, range.end)
     }
   }
 
@@ -2014,8 +2149,17 @@ function handleDelete() {
 
 function confirmDelete() {
   deleteConfirmVisible.value = false
+  // Capture selection data before deleteSelectedRange() clears it
+  const sourceValue = selection.source.value
+  const domain = selection.domain.value
+  const ranges = domain?.ranges?.map(r => ({ start: r.start, end: r.end })) || []
+
   if (deleteSelectedRange()) {
-    emit('edit', { type: 'delete' })
+    emit('edit', {
+      type: 'delete',
+      ranges,
+      ...(isAlignmentMode.value && { to: sourceValue })
+    })
   }
 }
 
@@ -2056,7 +2200,7 @@ function adjustAnnotationsForInsert(insertionSite, insertionLength, extendStartI
   if (localAnnotations.value.length === 0) return
 
   const updatedAnnotations = localAnnotations.value.map(ann => {
-    const span = Span.parse(ann.span)
+    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
     let modified = false
     const shouldExtendStart = extendStartIds.includes(ann.id)
     const shouldExtendEnd = extendEndIds.includes(ann.id)
@@ -2105,10 +2249,10 @@ function adjustAnnotationsForInsert(insertionSite, insertionLength, extendStartI
     return ann
   })
 
-  // Update local state for optimistic UI
-  localAnnotations.value = updatedAnnotations
-  // Emit for parent components (standalone mode)
-  emit('annotations-update', updatedAnnotations)
+  // Update document annotations
+  targetDoc.value.setAnnotations(updatedAnnotations)
+  // Emit for parent components
+  emit('annotations-update', localAnnotations.value)
 }
 
 /**
@@ -2121,7 +2265,7 @@ function adjustAnnotationsForReplace(selStart, selEnd, insertionLength) {
   const netChange = insertionLength - deletionLength
 
   const updatedAnnotations = localAnnotations.value.map(ann => {
-    const span = Span.parse(ann.span)
+    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
     let modified = false
 
     for (let i = 0; i < span.ranges.length; i++) {
@@ -2169,27 +2313,36 @@ function adjustAnnotationsForReplace(selStart, selEnd, insertionLength) {
     return ann
   })
 
-  // Update local state for optimistic UI
-  localAnnotations.value = updatedAnnotations
-  // Emit for parent components (standalone mode)
-  emit('annotations-update', updatedAnnotations)
+  // Update document annotations
+  targetDoc.value.setAnnotations(updatedAnnotations)
+  // Emit for parent components
+  emit('annotations-update', localAnnotations.value)
 }
 
 function handleInsertSubmit(text, extendStartIds = [], extendEndIds = []) {
   const insertionSite = insertModalPosition.value
-  const editId = crypto.randomUUID()
 
-  // 1. Apply locally (optimistic UI)
-  editorState.insertAt(insertionSite, text)
-  adjustAnnotationsForInsert(insertionSite, text.length, extendStartIds, extendEndIds)
+  // Determine which document to modify
+  const isQueryEdit = isAlignmentMode.value && selection.source.value === 'query'
+  const doc = isQueryEdit ? queryDoc.value : targetDoc.value
 
-  // 2. Send to backend if connected
-  if (effectiveBackend.value?.insert) {
-    effectiveBackend.value.insert({ id: editId, position: insertionSite, text })
+  // Apply to document (handles sequence mutation, annotation adjustment, and backend notification)
+  if (doc) {
+    doc.insert(insertionSite, text, { extendStartIds, extendEndIds })
+    // Notify parent of annotation changes (tested by backend tests)
+    emit('annotations-update', doc.annotations)
+  } else {
+    // For non-document mode (string sequence prop), apply to editorState directly
+    editorState.insertAt(insertionSite, text)
   }
 
-  // 3. Emit for standalone mode / parent components
-  emit('edit', { type: 'insert', position: insertionSite, text })
+  // Emit for standalone mode / parent components
+  emit('edit', {
+    type: 'insert',
+    position: insertionSite,
+    text,
+    ...(isAlignmentMode.value && { to: selection.source.value })
+  })
 
   // 4. Create overlay annotations (rich paste)
   if (pendingOverlayAnnotations.value) {
@@ -2235,38 +2388,31 @@ function createOverlayAnnotations(pastePosition, overlayAnnotations) {
 function handleReplaceSubmit(text, preserveAnnotations = false) {
   const selStart = insertModalPosition.value
   const selEnd = insertModalSelectionEnd.value
+  // Capture source before selection.select() clears it
+  const sourceValue = selection.source.value
 
   // Reverse complement the text if selection was on minus strand
   const insertText = insertModalOrientation.value === Orientation.MINUS
     ? reverseComplement(text)
     : text
 
-  // 1. Apply locally (optimistic UI)
-  editorState.replaceRange(selStart, selEnd, insertText)
+  // Determine which document to modify
+  const isQueryEdit = isAlignmentMode.value && sourceValue === 'query'
+  const doc = isQueryEdit ? queryDoc.value : targetDoc.value
 
-  // Only adjust annotations if not preserving them
-  if (!preserveAnnotations) {
-    adjustAnnotationsForReplace(selStart, selEnd, insertText.length)
+  // Apply to document (handles sequence mutation, annotation adjustment, and backend notification)
+  if (doc) {
+    doc.replace(selStart, selEnd, insertText, { adjustAnnotations: !preserveAnnotations })
+    // Notify parent of annotation changes (only when annotations were adjusted)
+    if (!preserveAnnotations) {
+      emit('annotations-update', doc.annotations)
+    }
+  } else {
+    // For non-document mode (string sequence prop), apply to editorState directly
+    editorState.replaceRange(selStart, selEnd, insertText)
   }
 
-  // 2. Send to backend if connected (delete + insert)
-  if (effectiveBackend.value?.delete) {
-    effectiveBackend.value.delete({
-      id: crypto.randomUUID(),
-      start: selStart,
-      end: selEnd
-    })
-  }
-
-  if (effectiveBackend.value?.insert) {
-    effectiveBackend.value.insert({
-      id: crypto.randomUUID(),
-      position: selStart,
-      text: insertText
-    })
-  }
-
-  // 3. Update selection to cover the newly inserted text, preserving orientation
+  // 2. Update selection to cover the newly inserted text, preserving orientation
   const newEnd = selStart + insertText.length
   const selectionStr = insertModalOrientation.value === Orientation.MINUS
     ? `(${selStart}..${newEnd})`
@@ -2274,7 +2420,17 @@ function handleReplaceSubmit(text, preserveAnnotations = false) {
   selection.select(selectionStr)
 
   // 4. Emit for standalone mode / parent components
-  emit('edit', { type: 'replace', text: insertText })
+  emit('edit', {
+    type: 'delete',
+    ranges: [{ start: selStart, end: selEnd }],
+    ...(isAlignmentMode.value && { to: sourceValue })
+  })
+  emit('edit', {
+    type: 'insert',
+    position: selStart,
+    text: insertText,
+    ...(isAlignmentMode.value && { to: sourceValue })
+  })
 
   // Create overlay annotations (rich paste)
   if (pendingOverlayAnnotations.value) {
@@ -2343,11 +2499,6 @@ function handleKeyDown(event) {
       case 'c':
         event.preventDefault()
         handleCopy()
-        return
-      case 'x':
-        if (props.readonly) return
-        event.preventDefault()
-        handleCut()
         return
       case 'a':
         event.preventDefault()
@@ -2521,32 +2672,6 @@ onMounted(() => {
   })
 })
 
-// Selection highlight helpers
-function isLineSelected(line) {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return false
-  const sel = domain.ranges[0]
-  return sel.start < line.end && sel.end > line.start
-}
-
-function getSelectionX(line) {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return 0
-  const sel = domain.ranges[0]
-  const start = Math.max(sel.start, line.start)
-  const linePos = start - line.start
-  return graphics.metrics.value.lmargin + linePos * graphics.metrics.value.charWidth
-}
-
-function getSelectionWidth(line) {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return 0
-  const sel = domain.ranges[0]
-  const start = Math.max(sel.start, line.start)
-  const end = Math.min(sel.end, line.end)
-  return (end - start) * graphics.metrics.value.charWidth
-}
-
 // Expose public API
 defineExpose({
   setSequence,
@@ -2560,7 +2685,20 @@ defineExpose({
   editorState,
   graphics,
   eventBus,
-  openMetadataModal
+  // Document access
+  targetDoc,
+  queryDoc,
+  // Alignment mode
+  isAlignmentMode,
+  hasAlignment,
+  alignmentResult,
+  alignmentLines,
+  getSelectedAlignmentSequenceText,
+  getSelectedSequence: getSelectedSequenceText,
+  alignedTargetAnnotations,
+  alignedQueryAnnotations,
+  selectionStatusText,
+  selection
 })
 </script>
 
@@ -2581,48 +2719,12 @@ defineExpose({
         </select>
       </label>
 
+      <!-- Title slot - harness provides title/info display -->
       <span v-if="editorState.sequenceLength.value > 0" class="info">
-        <!-- Title editing mode -->
-        <span v-if="editingTitle" class="title-edit-container">
-          <input
-            ref="titleInputRef"
-            v-model="editTitleValue"
-            type="text"
-            class="title-input"
-            @keydown="handleTitleKeydown"
-            @blur="cancelEditingTitle"
-          />
-          <button
-            class="title-edit-btn title-edit-confirm"
-            @mousedown.prevent="confirmEditingTitle"
-            title="Save"
-          >
-            <CheckIcon class="icon-sm" />
-          </button>
-          <button
-            class="title-edit-btn title-edit-cancel"
-            @mousedown.prevent="cancelEditingTitle"
-            title="Cancel"
-          >
-            <XMarkIcon class="icon-sm" />
-          </button>
-        </span>
-        <!-- Title display mode -->
-        <strong
-          v-else
-          class="title-display"
-          :class="{ 'title-editable': !props.readonly }"
-          @dblclick="startEditingTitle"
-        >{{ editorState.title.value || 'Untitled' }}</strong>
-        &mdash; {{ editorState.sequenceLength.value.toLocaleString() }} bp
-        <button
-          v-if="hasMetadata"
-          class="info-button"
-          @click="openMetadataModal"
-          title="Sequence info"
-        >
-          <InformationCircleIcon class="icon-toolbar" />
-        </button>
+        <slot name="title">
+          <!-- Default: just show bp count -->
+          {{ editorState.sequenceLength.value.toLocaleString() }} bp
+        </slot>
       </span>
 
       <!-- View mode toggle (only for circular sequences) -->
@@ -2717,7 +2819,7 @@ defineExpose({
     </div>
 
     <!-- Circular View (only shown when viewMode is circular) -->
-    <div v-if="viewMode === 'circular'" class="editor-wrapper">
+    <div v-if="viewMode === 'circular' && !isAlignmentMode" class="editor-wrapper">
       <div
         ref="circularContainerRef"
         class="editor-container circular-container"
@@ -2785,7 +2887,7 @@ defineExpose({
 
         <!-- Empty state -->
         <text
-          v-if="editorState.sequenceLength.value === 0"
+          v-if="editorState.sequenceLength.value === 0 && !isAlignmentMode"
           :x="graphics.metrics.value.fullWidth / 2"
           y="50"
           text-anchor="middle"
@@ -2794,83 +2896,67 @@ defineExpose({
           No sequence loaded
         </text>
 
-        <!-- Sequence lines -->
-        <g
-          v-for="line in editorState.lines.value"
-          :key="line.index"
-          :transform="`translate(0, ${graphics.getLineY(line.index)})`"
-          class="sequence-line"
+        <!-- No alignment found state -->
+        <text
+          v-if="isAlignmentMode && !hasAlignment"
+          :x="graphics.metrics.value.fullWidth / 2"
+          y="50"
+          text-anchor="middle"
+          class="empty-state"
         >
-          <!-- Position label -->
-          <text
-            :x="graphics.metrics.value.lmargin - 8"
-            :y="graphics.lineHeight.value / 2"
-            text-anchor="end"
-            dominant-baseline="middle"
-            class="position-label"
-          >
-            {{ line.position }}
-          </text>
+          No alignment found
+        </text>
 
-          <!-- Sequence content (text or bar) -->
-          <g :transform="`translate(${graphics.metrics.value.lmargin}, 0)`">
-            <!-- Text mode -->
-            <text
-              v-if="graphics.metrics.value.textMode"
-              x="0"
-              :y="graphics.lineHeight.value / 2"
-              dominant-baseline="middle"
-              class="sequence-text"
-              :style="{ letterSpacing: `${graphics.metrics.value.charWidth - graphics.metrics.value.blockWidth}px` }"
-            >
-              {{ line.text }}
-            </text>
+        <!-- Sequence Layer - normal mode -->
+        <SequenceLayer
+          v-if="!isAlignmentMode && editorState.sequenceLength.value > 0"
+          :document="targetDoc"
+          @select="handleSelectionChange"
+          @contextmenu="handleSequenceLayerContextMenu"
+        />
 
-            <!-- Bar mode - thin bar above center (matches original proportions) -->
-            <rect
-              v-else
-              x="0"
-              :y="graphics.lineHeight.value * 3 / 8"
-              :width="(line.end - line.start) * graphics.metrics.value.charWidth"
-              :height="graphics.lineHeight.value / 4"
-              class="sequence-bar"
-            />
-
-            <!-- Invisible overlay to capture mouse events and prevent text selection -->
-            <rect
-              x="0"
-              y="0"
-              :width="(line.end - line.start) * graphics.metrics.value.charWidth"
-              :height="graphics.lineHeight.value"
-              class="sequence-overlay"
-              @mousedown="handleMouseDown($event, line.index)"
-              @contextmenu="handleContextMenu($event, line.index)"
-            />
-          </g>
-
-          <!-- Selection highlight -->
-          <rect
-            v-if="isLineSelected(line)"
-            :x="getSelectionX(line)"
-            y="0"
-            :width="getSelectionWidth(line)"
-            :height="graphics.lineHeight.value"
-            class="selection-highlight"
+        <!-- Sequence Layers - alignment mode (two separate layers for target and query) -->
+        <template v-if="isAlignmentMode && hasAlignment">
+          <SequenceLayer
+            mode="target"
+            :document="targetDoc"
+            :lines="alignmentLines"
+            :position-map="targetPositionMap"
+            :y-offset="0"
+            :block-height="alignmentBlockHeight"
+            @select="handleSelectionChange"
+            @contextmenu="handleSequenceLayerContextMenu"
           />
-        </g>
+          <SequenceLayer
+            mode="query"
+            :document="queryDoc"
+            :lines="alignmentLines"
+            :position-map="queryPositionMap"
+            :y-offset="graphics.lineHeight.value * 2"
+            :block-height="alignmentBlockHeight"
+            @select="handleSelectionChange"
+            @contextmenu="handleSequenceLayerContextMenu"
+          />
+        </template>
+
+        <!-- Alignment Ticks Layer - renders match lines in alignment mode -->
+        <AlignmentTicksLayer />
 
         <!-- Selection Layer (behind annotations) -->
         <SelectionLayer
           ref="selectionLayerRef"
+          :alignment-mode="isAlignmentMode ? selection.source.value : null"
+          :alignment-block-height="alignmentBlockHeight"
+          :line-height="graphics.lineHeight.value"
           @select="handleSelectionChange"
           @contextmenu="handleSelectionContextMenu"
           @mousedown="handleSelectionMouseDown"
           @handle-contextmenu="handleHandleContextMenu"
         />
 
-        <!-- Translation Layer (rendered below annotations, above sequence) -->
+        <!-- Translation Layer (rendered below annotations, above sequence) - hidden in alignment mode -->
         <TranslationLayer
-          v-if="cdsAnnotations.length > 0"
+          v-if="cdsAnnotations.length > 0 && !isAlignmentMode"
           ref="translationLayerRef"
           :annotations="cdsAnnotations"
           :annotation-delta-y-by-line="annotationLayerRef?.annotationDeltaYByLine"
@@ -2879,10 +2965,11 @@ defineExpose({
           @contextmenu="handleTranslationContextMenu"
         />
 
-        <!-- Annotation Layer -->
+        <!-- Annotation Layer - hidden in alignment mode for now (TODO: add alignment-specific annotations) -->
         <AnnotationLayer
-          v-if="annotationInstances.length > 0"
+          v-if="annotationInstances.length > 0 && !isAlignmentMode"
           ref="annotationLayerRef"
+          :document="targetDoc"
           :annotations="annotationInstances"
           :show-captions="showAnnotationCaptions"
           :show-translation="translationLayerRef?.visible ?? false"
@@ -2890,6 +2977,8 @@ defineExpose({
           @click="handleAnnotationClick"
           @contextmenu="handleAnnotationContextMenu"
           @hover="handleAnnotationHover"
+          @edit-annotation="handleEditAnnotation"
+          @delete-annotation="handleDeleteAnnotation"
         />
 
         <!-- Extension graphics layers -->
@@ -2938,15 +3027,6 @@ defineExpose({
       :touching-annotations="touchingAnnotations"
       @submit="handleModalSubmit"
       @cancel="handleInsertCancel"
-    />
-
-    <!-- Metadata Modal -->
-    <MetadataModal
-      :open="metadataModalOpen"
-      :metadata="props.metadata"
-      :readonly="props.readonly"
-      :backend="effectiveBackend"
-      @close="closeMetadataModal"
     />
 
     <!-- Annotation Creation/Edit Modal -->
@@ -3146,7 +3226,8 @@ defineExpose({
   cursor: text;
 }
 
-.position-label {
+/* Use :deep() to style elements inside child components (SequenceLayer, AlignmentTicksLayer) */
+:deep(.position-label) {
   font-family: "Lucida Console", Monaco, monospace;
   font-size: 10px;
   fill: #888;
@@ -3156,7 +3237,7 @@ defineExpose({
   pointer-events: none;
 }
 
-.sequence-text {
+:deep(.sequence-text) {
   font-family: "Lucida Console", Monaco, monospace;
   font-size: 16px;
   fill: #000;
@@ -3164,21 +3245,21 @@ defineExpose({
   text-anchor: start;
 }
 
-.sequence-overlay {
+:deep(.sequence-overlay) {
   fill: transparent;
   cursor: text;
 }
 
 /* Hide native browser text selection highlight */
-.sequence-text::selection {
+:deep(.sequence-text)::selection {
   background: transparent;
 }
 
-.sequence-text::-moz-selection {
+:deep(.sequence-text)::-moz-selection {
   background: transparent;
 }
 
-.sequence-bar {
+:deep(.sequence-bar) {
   fill: #333;
   stroke: #000;
   stroke-width: 1px;
@@ -3567,5 +3648,31 @@ defineExpose({
   .help-button {
     margin-right: 0;
   }
+}
+
+/* Alignment mode styles */
+.alignment-block {
+  /* Container for query + match + target rows */
+}
+
+/* Use :deep() for styles targeting elements inside SequenceLayer/AlignmentTicksLayer */
+:deep(.alignment-query-text) {
+  fill: #333;
+}
+
+:deep(.alignment-target-text) {
+  fill: #333;
+}
+
+:deep(.alignment-match-text) {
+  fill: #666;
+}
+
+.query-label {
+  fill: #666;
+}
+
+.target-label {
+  fill: #666;
 }
 </style>
