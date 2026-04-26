@@ -19,6 +19,11 @@ const letterSpacing = computed(() => {
   const m = metrics.value
   return `${m.charWidth - m.blockWidth}px`
 })
+
+// Convert spaces to non-breaking spaces to prevent SVG whitespace collapse
+function preserveSpaces(text) {
+  return text ? text.replace(/ /g, '\u00A0') : text
+}
 </script>
 
 <template>
@@ -47,7 +52,7 @@ const letterSpacing = computed(() => {
           dominant-baseline="middle"
           class="sequence-text alignment-match-text"
           :style="{ letterSpacing }"
-        >{{ line.matchText }}</text>
+        >{{ preserveSpaces(line.matchText) }}</text>
       </g>
     </g>
   </g>

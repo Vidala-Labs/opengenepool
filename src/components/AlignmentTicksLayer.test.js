@@ -84,7 +84,7 @@ describe('AlignmentTicksLayer', () => {
 
     const matchTexts = wrapper.findAll('.alignment-match-text')
     expect(matchTexts.length).toBe(2)
-    expect(matchTexts[0].text()).toBe('|||  ||')
+    expect(matchTexts[0].text()).toBe('|||\u00A0\u00A0||')
     expect(matchTexts[1].text()).toBe('||||||||')
   })
 
@@ -143,5 +143,25 @@ describe('AlignmentTicksLayer', () => {
     // First line (index 0) should be at Y = 0 * 48 + 16 = 16
     const ticksGroup = wrapper.find('.alignment-ticks')
     expect(ticksGroup.attributes('transform')).toBe('translate(0, 16)')
+  })
+
+  it('preserves whitespace in match text using non-breaking spaces', () => {
+    // Multiple consecutive spaces should not be collapsed
+    const alignmentLines = [{ index: 0, matchText: '||    ||' }]
+
+    const wrapper = mount(AlignmentTicksLayer, {
+      global: {
+        provide: {
+          graphics: createMockGraphics(true),
+          isAlignmentMode: ref(true),
+          alignmentLines: ref(alignmentLines),
+          alignmentBlockHeight: ref(48)
+        }
+      }
+    })
+
+    const matchText = wrapper.find('.alignment-match-text')
+    // Spaces are converted to non-breaking spaces (\u00A0) to prevent SVG collapse
+    expect(matchText.text()).toBe('||\u00A0\u00A0\u00A0\u00A0||')
   })
 })

@@ -48,10 +48,7 @@ function convertSingleRange(rangeStr) {
  * @returns {string} GenBank location string
  */
 function convertSpanToLocation(span) {
-  // Convert Span object to string if needed
-  const spanStr = (typeof span === 'object' && span !== null && typeof span.toString === 'function')
-    ? span.toString()
-    : String(span)
+  const spanStr = span?.toJSON?.() ?? String(span)
 
   // Check if this is a multi-range span (contains " + ")
   if (spanStr.includes(' + ')) {

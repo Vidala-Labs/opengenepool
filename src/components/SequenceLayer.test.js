@@ -318,5 +318,36 @@ describe('SequenceLayer', () => {
       const text = wrapper.find('.sequence-text')
       expect(text.exists()).toBe(false)
     })
+
+    it('preserves whitespace in aligned sequences with gaps using non-breaking spaces', () => {
+      // Aligned sequences with gaps (represented as spaces)
+      const alignmentLines = [{
+        index: 0,
+        targetText: 'ATG  ATCG',  // Multiple consecutive gaps
+        targetPosition: 1
+      }]
+
+      const wrapper = mount(SequenceLayer, {
+        props: {
+          mode: 'target',
+          lines: alignmentLines,
+          positionMap: [0, 1, 2, -1, -1, 3, 4, 5, 6],
+          yOffset: 0,
+          blockHeight: 48
+        },
+        global: {
+          provide: {
+            editorState: createMockEditorState([]),
+            graphics: createMockGraphics(true),
+            selection: createMockSelection()
+          }
+        }
+      })
+
+      const text = wrapper.find('.sequence-text')
+      expect(text.exists()).toBe(true)
+      // Spaces are converted to non-breaking spaces (\u00A0) to prevent SVG collapse
+      expect(text.text()).toBe('ATG\u00A0\u00A0ATCG')
+    })
   })
 })

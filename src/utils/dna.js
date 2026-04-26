@@ -211,9 +211,10 @@ export class Range {
   }
 
   /**
-   * String representation (fenced coordinates)
+   * Fenced coordinate representation.
+   * @returns {string}
    */
-  toString() {
+  toFencedString() {
     let content
     if (this.start === this.end) {
       content = `${this.start}`
@@ -228,6 +229,15 @@ export class Range {
       case Orientation.NONE: return `[${content}]`
       default: return content
     }
+  }
+
+  /**
+   * JSON representation for persistence and API boundaries.
+   * Uses the same fenced coordinate syntax as the text form.
+   * @returns {string}
+   */
+  toJSON() {
+    return this.toFencedString()
   }
 
   /**
@@ -353,10 +363,20 @@ export class Span {
   }
 
   /**
-   * String representation (fenced coordinates)
+   * Fenced coordinate representation.
+   * @returns {string}
    */
-  toString() {
-    return this.ranges.map(r => r.toString()).join(' + ')
+  toFencedString() {
+    return this.ranges.map(r => r.toFencedString()).join(' + ')
+  }
+
+  /**
+   * JSON representation for persistence and API boundaries.
+   * Uses the same fenced coordinate syntax as the text form.
+   * @returns {string}
+   */
+  toJSON() {
+    return this.toFencedString()
   }
 
   /**

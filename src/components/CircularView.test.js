@@ -7,6 +7,7 @@ import { useGraphics } from '../composables/useGraphics.js'
 import { useSelection } from '../composables/useSelection.js'
 import { createEventBus } from '../composables/useEventBus.js'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
 
 describe('CircularView', () => {
   function createWrapper(props = {}, options = {}) {
@@ -82,7 +83,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: '100..500'
+          span: Span.parse('100..500')
         })
       ]
 

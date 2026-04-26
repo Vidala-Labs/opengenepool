@@ -1,11 +1,13 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import SequenceEditor from '../src/components/SequenceEditor.vue'
+import AlignmentEditor from '../src/components/AlignmentEditor.vue'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
+import { Span } from '../src/utils/dna.js'
 import Sidebar from './Sidebar.vue'
 import { ArrowDownTrayIcon, DocumentDuplicateIcon, InformationCircleIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
-import { pUC19 } from './seed.js'
+import { pUC19, testAlignmentSequence } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
 import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
@@ -24,6 +26,29 @@ const editorRef = ref(null)
 
 // Alignment mode state
 const alignmentSequenceData = ref(null)
+
+function normalizeSpan(span) {
+  if (span instanceof Span) return span
+  if (typeof span === 'string') return Span.parse(span)
+  if (span?.ranges) return new Span(span.ranges)
+  return new Span()
+}
+
+function normalizeAnnotations(annotations = []) {
+  return annotations.map(annotation => ({
+    ...annotation,
+    span: normalizeSpan(annotation.span),
+    attributes: annotation.attributes || {}
+  }))
+}
+
+function normalizeSequenceData(data) {
+  if (!data) return null
+  return {
+    ...data,
+    annotations: normalizeAnnotations(data.annotations)
+  }
+}
 
 // Create SequenceDocument instances
 const targetDoc = computed(() => {
@@ -44,26 +69,24 @@ const queryDoc = computed(() => {
   })
 })
 
-// Compute the sequence prop for SequenceEditor
-const sequenceProp = computed(() => {
-  if (!targetDoc.value) return null
-  if (queryDoc.value) {
-    return { target: targetDoc.value, query: queryDoc.value }
-  }
-  return targetDoc.value
-})
+// Note: targetDoc and queryDoc are passed directly to editors
 
 // Load sequences on mount, seed if empty
 onMounted(async () => {
   const empty = await isEmpty()
   if (empty) {
-    // Seed with pUC19
+    // Seed with pUC19 and test alignment sequence
     await saveSequence(pUC19)
+    await saveSequence(testAlignmentSequence)
   } else {
-    // Always update pUC19 seed to ensure latest data
+    // Always update seed sequences to ensure latest data
     const existing = await getSequence(pUC19.id)
     if (existing) {
       await saveSequence({ ...pUC19, createdAt: existing.createdAt })
+    }
+    const existingTest = await getSequence(testAlignmentSequence.id)
+    if (!existingTest) {
+      await saveSequence(testAlignmentSequence)
     }
   }
   await refreshList()
@@ -74,7 +97,7 @@ onMounted(async () => {
     const seq = await getSequence(hash)
     if (seq) {
       selectedId.value = hash
-      currentSequenceData.value = seq
+      currentSequenceData.value = normalizeSequenceData(seq)
     }
   }
 })
@@ -201,7 +224,7 @@ async function handleAlign(sequenceId) {
   if (!seqToAlign) return
 
   // Set alignment mode
-  alignmentSequenceData.value = seqToAlign
+  alignmentSequenceData.value = normalizeSequenceData(seqToAlign)
 }
 
 function clearAlignment() {
@@ -233,17 +256,46 @@ const hasMetadata = computed(() => {
         <p class="placeholder-mobile">Please select a sequence above</p>
         <p class="mobile-note">Note: Some features may not have a good user experience on mobile devices.</p>
       </div>
-      <SequenceEditor
-        v-else
+      <!-- AlignmentEditor - used when comparing two sequences (tested in AlignmentEditor.test.js) -->
+      <AlignmentEditor
+        v-else-if="queryDoc"
         ref="editorRef"
-        :key="currentSequenceData.id"
-        :sequence="sequenceProp"
+        :key="currentSequenceData.id + '-alignment'"
+        :target="targetDoc"
+        :query="queryDoc"
         :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"
       >
-        <!-- Title slot - provide custom title/info display -->
+        <template #title>
+          <strong class="title-display">{{ displayTitle }}</strong>
+          &mdash; {{ sequenceLength.toLocaleString() }} bp (alignment)
+        </template>
+        <template #toolbar>
+          <button class="toolbar-icon-btn close-alignment-btn" @click="clearAlignment" title="Close alignment view">
+            ✕
+          </button>
+          <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
+            <DocumentDuplicateIcon class="toolbar-icon" />
+          </button>
+          <button class="toolbar-icon-btn" @click="downloadSequence" title="Download as GenBank">
+            <ArrowDownTrayIcon class="toolbar-icon" />
+          </button>
+        </template>
+      </AlignmentEditor>
+
+      <!-- SequenceEditor - for single sequence editing -->
+      <SequenceEditor
+        v-else
+        ref="editorRef"
+        :key="currentSequenceData.id"
+        :sequence="targetDoc"
+        :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
+        @edit="handleEdit"
+        @select="handleSelect"
+        @annotations-update="handleAnnotationsUpdate"
+      >
         <template #title>
           <strong class="title-display">{{ displayTitle }}</strong>
           &mdash; {{ sequenceLength.toLocaleString() }} bp
@@ -255,11 +307,7 @@ const hasMetadata = computed(() => {
             <InformationCircleIcon class="icon-toolbar" />
           </button>
         </template>
-
         <template #toolbar>
-          <button v-if="alignmentSequenceData" class="toolbar-icon-btn close-alignment-btn" @click="clearAlignment" title="Close alignment view">
-            ✕
-          </button>
           <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
             <DocumentDuplicateIcon class="toolbar-icon" />
           </button>

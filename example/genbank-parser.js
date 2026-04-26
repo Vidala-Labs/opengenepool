@@ -12,6 +12,8 @@
  * - Conversion: start - 1, end stays same (inclusive→exclusive cancels the -1)
  */
 
+import { Span } from '../src/utils/dna.js'
+
 /**
  * Convert a single GenBank range to fenced format
  * @param {string} rangeStr - Single GenBank range like "133..154" or "<133..>154"
@@ -55,7 +57,7 @@ function convertSingleLocation(rangeStr, isComplement = false) {
  * Handles simple ranges like "133..154" and "complement(317..333)"
  * Also handles join() locations and indefinite markers
  * @param {string} location - GenBank location string
- * @returns {string} Fenced range string (0-based, half-open)
+ * @returns {Span} Fenced span object (0-based, half-open)
  */
 function convertLocation(location) {
   // Handle complement wrapper
@@ -71,11 +73,11 @@ function convertLocation(location) {
     const inner = loc.slice(5, -1)  // Remove "join(" and ")"
     const parts = inner.split(',').map(p => p.trim())
     const convertedParts = parts.map(p => convertSingleLocation(p, isComplement))
-    return convertedParts.join(' + ')
+    return Span.parse(convertedParts.join(' + '))
   }
 
   // Simple range or single position
-  return convertSingleLocation(loc, isComplement)
+  return Span.parse(convertSingleLocation(loc, isComplement))
 }
 
 /**

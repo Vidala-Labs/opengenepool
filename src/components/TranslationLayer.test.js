@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref, computed } from 'vue'
 import TranslationLayer from './TranslationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
 
 // Helper to create mock providers
 function createMockProviders(options = {}) {
@@ -61,7 +62,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -78,7 +79,7 @@ describe('TranslationLayer', () => {
         id: 'gene1',
         caption: 'Test',
         type: 'gene',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -91,7 +92,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -107,7 +108,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -126,7 +127,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: '0..9' // 3 codons
+        span: Span.parse('0..9') // 3 codons
       })
 
       const wrapper = mountWithProviders(
@@ -146,7 +147,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -167,7 +168,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: '0..6'
+        span: Span.parse('0..6')
       })
 
       const wrapper = mountWithProviders(
@@ -193,7 +194,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: '(0..6)'  // Minus strand
+        span: Span.parse('(0..6)')  // Minus strand
       })
 
       const wrapper = mountWithProviders(
@@ -223,7 +224,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: '0..6 + (10..16)'
+        span: Span.parse('0..6 + (10..16)')
       })
 
       const wrapper = mountWithProviders(

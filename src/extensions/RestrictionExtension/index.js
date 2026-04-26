@@ -1,3 +1,4 @@
+import { markRaw } from 'vue'
 import RestrictionButton from './RestrictionButton.vue'
 import RestrictionPanel from './RestrictionPanel.vue'
 import RestrictionLayer from './RestrictionLayer.vue'
@@ -14,11 +15,11 @@ export {
 export { ENZYMES, ENZYMES_SORTED } from './enzymes.js'
 export { findCutSites, findAllCutSites, countCutSites } from './restriction-utils.js'
 
-export const RestrictionExtension = {
+export const RestrictionExtension = markRaw({
   id: 'restriction',
   name: 'Restriction Enzymes',
-  toolbarButton: RestrictionButton,
-  panel: RestrictionPanel,
-  graphicsLayer: RestrictionLayer,
-  circularGraphicsLayer: CircularRestrictionLayer
-}
+  toolbarButton: markRaw(RestrictionButton),
+  panel: markRaw(RestrictionPanel),
+  graphicsLayer: markRaw(RestrictionLayer),
+  circularGraphicsLayer: markRaw(CircularRestrictionLayer)
+})

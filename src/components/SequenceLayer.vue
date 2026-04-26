@@ -62,6 +62,11 @@ const letterSpacing = computed(() => {
   return `${m.charWidth - m.blockWidth}px`
 })
 
+// Convert spaces to non-breaking spaces to prevent SVG whitespace collapse
+function preserveSpaces(text) {
+  return text ? text.replace(/ /g, '\u00A0') : text
+}
+
 // Bar width calculation for a given text length
 function getBarWidth(textLength) {
   return textLength * metrics.value.charWidth
@@ -119,15 +124,15 @@ function getPositionFromEvent(event, lineIndex) {
 
     if (!props.positionMap) return null
 
-    // Clamp to valid range
-    const maxPos = props.positionMap.length
+    // Clamp to valid range (use length - 1 since we're using as array index)
+    const maxPos = props.positionMap.length - 1
     const clampedAlignedPos = Math.max(0, Math.min(alignedPos, maxPos))
 
     // Map to original position
     let originalPos = props.positionMap[clampedAlignedPos]
 
-    // If on a gap, find nearest non-gap position
-    if (originalPos === null) {
+    // If on a gap (null) or undefined (shouldn't happen but handle it), find nearest non-gap position
+    if (originalPos === null || originalPos === undefined) {
       // Search backwards
       for (let i = clampedAlignedPos - 1; i >= 0; i--) {
         if (props.positionMap[i] !== null) {
@@ -165,6 +170,7 @@ function getLineIndexFromY(y) {
 function handleMouseDown(event, lineIndex) {
   if (event.button !== 0) return // Left click only
   event.preventDefault()
+  event.stopPropagation() // Prevent bubbling to background click handler
 
   // Clear native text selection
   window.getSelection()?.removeAllRanges()
@@ -262,7 +268,7 @@ function handleContextMenu(event, lineIndex) {
           dominant-baseline="middle"
           :class="['sequence-text', mode ? `alignment-${mode}-text` : '']"
           :style="{ letterSpacing }"
-        >{{ getLineText(line) }}</text>
+        >{{ preserveSpaces(getLineText(line)) }}</text>
 
         <!-- Bar mode - thin bar above center -->
         <rect

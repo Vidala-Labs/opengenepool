@@ -1,13 +1,19 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
+import { markRaw } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  return new SequenceDocument({ sequence, annotations, circular, backend })
+  const normalizedAnnotations = annotations.map(annotation => ({
+    ...annotation,
+    span: typeof annotation.span === 'string' ? Span.parse(annotation.span) : annotation.span
+  }))
+  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
 }
 
 // Helper to create an empty document
@@ -462,8 +468,8 @@ describe('SequenceEditor', () => {
 
     it('shows annotation types when annotations exist', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '10..50' }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: '60..80' })
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('10..50') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..80') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -491,8 +497,8 @@ describe('SequenceEditor', () => {
 
     it('hides annotations when type is unchecked', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '10..50' }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: '60..80' })
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('10..50') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..80') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -520,8 +526,8 @@ describe('SequenceEditor', () => {
 
     it('hides source type by default', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'source', span: '1..500' }),
-        new Annotation({ id: 'ann2', type: 'gene', span: '10..50' })
+        new Annotation({ id: 'ann1', type: 'source', span: Span.parse('1..500') }),
+        new Annotation({ id: 'ann2', type: 'gene', span: Span.parse('10..50') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -537,8 +543,8 @@ describe('SequenceEditor', () => {
 
     it('persists hidden types to localStorage', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '10..50' }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: '60..80' })
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('10..50') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..80') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -562,8 +568,8 @@ describe('SequenceEditor', () => {
       localStorage.setItem(HIDDEN_TYPES_KEY, JSON.stringify(['gene']))
 
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '10..50' }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: '60..80' })
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('10..50') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..80') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -579,7 +585,7 @@ describe('SequenceEditor', () => {
 
     it('renders color swatch for each annotation type', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'promoter', span: '10..50' })
+        new Annotation({ id: 'ann1', type: 'promoter', span: Span.parse('10..50') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -610,7 +616,7 @@ describe('SequenceEditor', () => {
 
     it('saves default colors to localStorage on first load', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '10..50' })
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('10..50') })
       ]
 
       // No colors in localStorage yet
@@ -639,7 +645,7 @@ describe('SequenceEditor', () => {
       localStorage.setItem(COLORS_KEY, JSON.stringify(customColors))
 
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '10..50' })
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('10..50') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -662,7 +668,7 @@ describe('SequenceEditor', () => {
       localStorage.setItem(COLORS_KEY, JSON.stringify(partialColors))
 
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'promoter', span: '10..50' })
+        new Annotation({ id: 'ann1', type: 'promoter', span: Span.parse('10..50') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -678,7 +684,7 @@ describe('SequenceEditor', () => {
 
     it('annotation layer uses default colors for unknown types', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'unknown_custom_type', span: '10..50' })
+        new Annotation({ id: 'ann1', type: 'unknown_custom_type', span: Span.parse('10..50') })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -847,7 +853,7 @@ describe('SequenceEditor', () => {
     it('setSelection with a:<id> selects annotation span', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: '5..15', caption: 'Test Gene', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: Span.parse('5..15'), caption: 'Test Gene', type: 'gene' }]),
           initialZoom: 100,
         }
       })
@@ -865,7 +871,7 @@ describe('SequenceEditor', () => {
     it('setSelection with a:<id> does nothing for unknown annotation', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: '5..15', caption: 'Test Gene', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: Span.parse('5..15'), caption: 'Test Gene', type: 'gene' }]),
           initialZoom: 100,
         }
       })
@@ -885,7 +891,7 @@ describe('SequenceEditor', () => {
       // Bug: annotation.span is a Span object, but code called .match() on it (string method)
       // Must use Annotation class to reproduce the bug (constructor converts span to Span object)
       const annotations = [
-        new Annotation({ id: 'ann-far', span: '350..400', caption: 'Far Gene', type: 'gene' })
+        new Annotation({ id: 'ann-far', span: Span.parse('350..400'), caption: 'Far Gene', type: 'gene' })
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -945,7 +951,7 @@ describe('SequenceEditor', () => {
 
     it('saves overlay to localStorage when copying sequence with annotations', async () => {
       const annotations = [
-        { id: 'ann-1', span: '5..15', caption: 'Test Gene', type: 'gene' }
+        { id: 'ann-1', span: Span.parse('5..15'), caption: 'Test Gene', type: 'gene' }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1021,7 +1027,7 @@ describe('SequenceEditor', () => {
 
     it('handles partial annotation overlap correctly', async () => {
       const annotations = [
-        { id: 'ann-1', span: '0..20', caption: 'Long Gene', type: 'gene' }
+        { id: 'ann-1', span: Span.parse('0..20'), caption: 'Long Gene', type: 'gene' }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1059,7 +1065,7 @@ describe('SequenceEditor', () => {
     it('handles multi-range selection with annotations', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: '2..8', caption: 'Gene1', type: 'gene' },{ id: 'ann-2', span: '12..18', caption: 'Gene2', type: 'CDS' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: Span.parse('2..8'), caption: 'Gene1', type: 'gene' },{ id: 'ann-2', span: Span.parse('12..18'), caption: 'Gene2', type: 'CDS' }]),
           initialZoom: 100,
         }
       })
@@ -1100,7 +1106,7 @@ describe('SequenceEditor', () => {
     it('does not include annotations outside selection', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: '0..5', caption: 'Before', type: 'gene' },{ id: 'ann-2', span: '15..20', caption: 'After', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: Span.parse('0..5'), caption: 'Before', type: 'gene' },{ id: 'ann-2', span: Span.parse('15..20'), caption: 'After', type: 'gene' }]),
           initialZoom: 100,
         }
       })
@@ -1130,7 +1136,7 @@ describe('SequenceEditor', () => {
     it('preserves annotation orientation in overlay', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: '(5..15)', caption: 'Minus Gene', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: Span.parse('(5..15)'), caption: 'Minus Gene', type: 'gene' }]),
           initialZoom: 100,
         }
       })
@@ -1161,7 +1167,7 @@ describe('SequenceEditor', () => {
       // When copying a minus strand selection, the sequence is reverse-complemented.
       // Annotations within that selection need their positions reversed accordingly.
       const annotations = [
-        { id: 'ann-1', span: '5..10', caption: 'Test Gene', type: 'gene' }
+        { id: 'ann-1', span: Span.parse('5..10'), caption: 'Test Gene', type: 'gene' }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1218,14 +1224,14 @@ describe('SequenceEditor', () => {
     it('onSelectionChange notifies when selection.domain changes', async () => {
       // Create a test extension that captures the API
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1278,14 +1284,14 @@ describe('SequenceEditor', () => {
       // This test verifies that selection changes trigger callbacks
       // even when selection is changed programmatically (not via eventBus)
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1320,14 +1326,14 @@ describe('SequenceEditor', () => {
       // SequenceLayer now handles mouse events internally, which requires DOM setup
       // that's difficult in unit tests. Test the callback using programmatic selection.
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1362,14 +1368,14 @@ describe('SequenceEditor', () => {
 
     it('getSelectedSequence returns selected text', async () => {
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1402,14 +1408,14 @@ describe('SequenceEditor', () => {
       // This test simulates what happens during handle dragging:
       // the range properties are mutated directly without replacing domain.value
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1452,14 +1458,14 @@ describe('SequenceEditor', () => {
 
     it('addAnnotation calls backend.annotationCreated', async () => {
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1486,7 +1492,7 @@ describe('SequenceEditor', () => {
 
       // Call addAnnotation via the extensionAPI
       capturedAPI.addAnnotation({
-        span: '0..30',
+        span: Span.parse('0..30'),
         type: 'CDS',
         caption: 'Test CDS'
       })
@@ -1497,20 +1503,20 @@ describe('SequenceEditor', () => {
       const call = mockBackend.annotationCreated.mock.calls[0][0]
       expect(call.caption).toBe('Test CDS')
       expect(call.type).toBe('CDS')
-      expect(call.span.toString()).toBe('0..30')
+      expect(call.span.toJSON()).toBe('0..30')
       expect(call.id).toBeDefined()
     })
 
     it('addAnnotation emits annotations-update event', async () => {
       let capturedAPI = null
-      const TestPanel = {
+      const TestPanel = markRaw({
         template: '<div></div>',
         setup() {
           const { inject } = require('vue')
           capturedAPI = inject('extensionAPI')
           return {}
         }
-      }
+      })
 
       const testExtension = {
         id: 'test',
@@ -1531,7 +1537,7 @@ describe('SequenceEditor', () => {
 
       // Call addAnnotation via the extensionAPI
       capturedAPI.addAnnotation({
-        span: '0..30',
+        span: Span.parse('0..30'),
         type: 'CDS',
         caption: 'Test CDS'
       })
@@ -1547,6 +1553,34 @@ describe('SequenceEditor', () => {
       const newAnnotation = lastUpdate.find(a => a.caption === 'Test CDS')
       expect(newAnnotation).toBeDefined()
       expect(newAnnotation.type).toBe('CDS')
+    })
+
+    it('does not warn when rendering extension panel components', async () => {
+      const originalConsoleWarn = console.warn
+      console.warn = mock(() => {})
+
+      const TestPanel = markRaw({
+        template: '<div class="test-extension-panel"></div>'
+      })
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCGATCGATCG'),
+          extensions: [{
+            id: 'test',
+            name: 'Test',
+            panel: TestPanel
+          }]
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('.test-extension-panel').exists()).toBe(true)
+      expect(console.warn.mock.calls.some(([message]) =>
+        String(message).includes('Vue received a Component that was made a reactive object')
+      )).toBe(false)
+
+      console.warn = originalConsoleWarn
     })
   })
 
@@ -1684,6 +1718,110 @@ describe('SequenceEditor', () => {
       const statusBox = wrapper.find('.selection-status')
       expect(statusBox.exists()).toBe(true)
       expect(statusBox.text()).toContain('Long Tm: works')
+    })
+  })
+
+  describe('document mode (no alignment)', () => {
+    // SequenceEditor is designed for single sequence editing only.
+    // For alignment mode (comparing two sequences), use AlignmentEditor instead.
+
+    it('accepts SequenceDocument directly', () => {
+      const doc = createDoc('ATCGATCG')
+      const wrapper = mount(SequenceEditor, {
+        props: { sequence: doc }
+      })
+      expect(wrapper.vm.targetDoc).toBe(doc)
+    })
+
+    it('exposes targetDoc as the provided sequence', () => {
+      const doc = createDoc('ATCGATCG')
+      const wrapper = mount(SequenceEditor, {
+        props: { sequence: doc }
+      })
+      expect(wrapper.vm.targetDoc).toBe(doc)
+      expect(wrapper.vm.targetDoc.sequence).toBe('ATCGATCG')
+    })
+
+    it('renders sequence normally', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
+          initialZoom: 50
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Should render sequence in a single layer
+      const sequenceLayers = wrapper.findAllComponents({ name: 'SequenceLayer' })
+      expect(sequenceLayers.length).toBe(1)
+    })
+
+    it('shows circular view toggle for circular sequences', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCG'.repeat(100), [], true),  // circular = true
+          initialZoom: 50
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      const viewModeToggle = wrapper.find('.view-mode-toggle')
+      expect(viewModeToggle.exists()).toBe(true)
+    })
+
+    it('shows selection status text for selections', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG'),
+          initialZoom: 50
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      wrapper.vm.setSelection('0..10')
+      await wrapper.vm.$nextTick()
+
+      const statusText = wrapper.vm.selectionStatusText
+      expect(statusText).toContain('selected')
+      expect(statusText).toContain('10 bases')
+    })
+
+    it('returns null for selection status when no selection', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCGATCGATCG'),
+          initialZoom: 50
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      wrapper.vm.clearSelection()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.vm.selectionStatusText).toBeNull()
+    })
+
+    it('exposes public API without alignment-related methods', () => {
+      // SequenceEditor exposes the standard API for single sequence editing.
+      // Alignment-related methods are in AlignmentEditor instead.
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCGATCG')
+        }
+      })
+
+      // Verify standard API is exposed
+      expect(typeof wrapper.vm.setSequence).toBe('function')
+      expect(typeof wrapper.vm.getSequence).toBe('function')
+      expect(typeof wrapper.vm.setZoom).toBe('function')
+      expect(typeof wrapper.vm.getSelection).toBe('function')
+      expect(typeof wrapper.vm.setSelection).toBe('function')
+      expect(typeof wrapper.vm.clearSelection).toBe('function')
+      expect(typeof wrapper.vm.setCursor).toBe('function')
+      expect(typeof wrapper.vm.scrollToPosition).toBe('function')
+      expect(wrapper.vm.targetDoc).toBeDefined()
+      expect(typeof wrapper.vm.getSelectedSequence).toBe('function')
+      expect(wrapper.vm.selection).toBeDefined()
     })
   })
 })

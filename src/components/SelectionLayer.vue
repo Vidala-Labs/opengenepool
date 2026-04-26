@@ -29,6 +29,11 @@ const props = defineProps({
   ranges: {
     type: Array,
     default: null
+  },
+  /** Reverse coordinate map: original position -> aligned position (for alignment mode rendering) */
+  reverseCoordinateMap: {
+    type: Object,
+    default: null
   }
 })
 
@@ -71,10 +76,39 @@ function getLineIndexFromYForSelection(y) {
 // Check if we're in query mode (handles at bottom, tags below)
 const isQueryMode = computed(() => props.alignmentMode === 'query')
 
+// Convert a range from original coordinates to aligned coordinates
+function convertRangeToAligned(range) {
+  if (!props.alignmentMode || !props.reverseCoordinateMap) {
+    return range
+  }
+
+  const map = props.reverseCoordinateMap
+  const alignedStart = map[range.start]
+  const alignedEnd = map[range.end - 1]
+
+  // If positions can't be mapped, use the original range
+  if (alignedStart === undefined || alignedEnd === undefined) {
+    console.warn('[SelectionLayer] Could not map positions to aligned coordinates', {
+      start: range.start,
+      end: range.end,
+      mapKeys: Object.keys(map).slice(0, 10)
+    })
+    return range
+  }
+
+  // Create a new range-like object with aligned coordinates
+  return {
+    start: alignedStart,
+    end: alignedEnd + 1, // Convert back to exclusive end
+    orientation: range.orientation
+  }
+}
+
 // Compute selection paths for rendering
 const selectionPaths = computed(() => {
   // Use prop ranges if provided, otherwise use injected selection
-  const ranges = props.ranges ?? (selection.domain.value?.ranges ?? [])
+  const domainValue = selection.domain.value
+  const ranges = props.ranges ?? (domainValue?.ranges ?? [])
   if (ranges.length === 0) return []
 
   const paths = []
@@ -84,7 +118,11 @@ const selectionPaths = computed(() => {
 
   for (let i = 0; i < ranges.length; i++) {
     const range = ranges[i]
-    const gSpan = new GraphicsSpan(range, zoom)
+
+    // In alignment mode, convert original positions to aligned positions for rendering
+    const rangeForRendering = props.alignmentMode ? convertRangeToAligned(range) : range
+
+    const gSpan = new GraphicsSpan(rangeForRendering, zoom)
 
     if (gSpan.fragments.length === 0) continue
 

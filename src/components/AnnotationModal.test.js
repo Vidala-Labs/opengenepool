@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import AnnotationModal from './AnnotationModal.vue'
+import { Span } from '../utils/dna.js'
 
 describe('AnnotationModal', () => {
   describe('visibility', () => {
@@ -339,7 +340,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('<0..10')
+      expect(emitted.span.toJSON()).toBe('<0..10')
     })
 
     it('emits span with > marker for end indefinite', async () => {
@@ -357,7 +358,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('0..>10')
+      expect(emitted.span.toJSON()).toBe('0..>10')
     })
 
     it('emits span with both markers for both indefinite', async () => {
@@ -376,7 +377,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('<0..>10')
+      expect(emitted.span.toJSON()).toBe('<0..>10')
     })
 
     it('works with reverse strand and indefinite', async () => {
@@ -389,7 +390,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('(<0..>10)')
+      expect(emitted.span.toJSON()).toBe('(<0..>10)')
     })
 
     it('works with multi-range and indefinite', async () => {
@@ -402,7 +403,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('<0..10 + 20..>30')
+      expect(emitted.span.toJSON()).toBe('<0..10 + 20..>30')
     })
 
     it('newly added range has indefinite unchecked', async () => {
@@ -691,7 +692,7 @@ describe('AnnotationModal', () => {
   })
 
   describe('create action', () => {
-    it('emits create event with annotation data including span string', async () => {
+    it('emits create event with annotation data including span object', async () => {
       const wrapper = mount(AnnotationModal, {
         props: { open: true, span: '5..15' }
       })
@@ -704,7 +705,8 @@ describe('AnnotationModal', () => {
       const emitted = wrapper.emitted('create')[0][0]
       expect(emitted.caption).toBe('GFP')
       expect(emitted.type).toBe('gene')
-      expect(emitted.span).toBe('5..15') // forward strand string
+      expect(emitted.span).toBeInstanceOf(Span)
+      expect(emitted.span.toJSON()).toBe('5..15')
     })
 
     it('emits span with parentheses for reverse strand', async () => {
@@ -718,7 +720,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('(0..10)')
+      expect(emitted.span.toJSON()).toBe('(0..10)')
     })
 
     it('emits span with brackets for unoriented', async () => {
@@ -732,7 +734,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('[0..10]')
+      expect(emitted.span.toJSON()).toBe('[0..10]')
     })
 
     it('updates span when range inputs are changed', async () => {
@@ -749,7 +751,7 @@ describe('AnnotationModal', () => {
 
       const emitted = wrapper.emitted('create')[0][0]
       // Output span is fenced coordinates
-      expect(emitted.span).toBe('20..30')
+      expect(emitted.span.toJSON()).toBe('20..30')
     })
 
     it('builds multi-range span correctly', async () => {
@@ -762,7 +764,7 @@ describe('AnnotationModal', () => {
       await wrapper.find('.annotation-form').trigger('submit')
 
       const emitted = wrapper.emitted('create')[0][0]
-      expect(emitted.span).toBe('5..10 + 20..30')
+      expect(emitted.span.toJSON()).toBe('5..10 + 20..30')
     })
 
     it('includes optional attributes when filled', async () => {

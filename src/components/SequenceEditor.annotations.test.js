@@ -5,11 +5,16 @@ import { join } from 'path'
 import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  return new SequenceDocument({ sequence, annotations, circular, backend })
+  const normalizedAnnotations = annotations.map(annotation => ({
+    ...annotation,
+    span: typeof annotation.span === 'string' ? Span.parse(annotation.span) : annotation.span
+  }))
+  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
 }
 
 describe('SequenceEditor annotations', () => {
@@ -34,7 +39,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '10..50'
+        span: Span.parse('10..50')
       }
 
       const wrapper = mount(SequenceEditor, {
@@ -67,7 +72,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '10..60'
+        span: Span.parse('10..60')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -88,7 +93,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '10..50'
+        span: Span.parse('10..50')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -110,7 +115,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '10..50'
+        span: Span.parse('10..50')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -138,7 +143,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '100..150'
+        span: Span.parse('100..150')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -172,7 +177,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '10..50'
+        span: Span.parse('10..50')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -207,7 +212,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '100..150'
+        span: Span.parse('100..150')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -245,7 +250,7 @@ describe('SequenceEditor annotations', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -279,7 +284,7 @@ describe('SequenceEditor annotations', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -317,7 +322,7 @@ describe('SequenceEditor annotations', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: Span.parse('0..30')
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -371,7 +376,7 @@ describe('SequenceEditor annotations', () => {
 
     it('emits annotations-update when inserting text inside an annotation', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: '10..50' }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('10..50') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -394,12 +399,12 @@ describe('SequenceEditor annotations', () => {
 
       // Annotation should expand: start stays 10, end becomes 55 (50 + 5)
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('10..55')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('10..55')
     })
 
     it('shifts annotation right when inserting before it', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: '20..40' }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('20..40') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -419,12 +424,12 @@ describe('SequenceEditor annotations', () => {
 
       // Both start and end should shift: 20+3=23, 40+3=43
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('23..43')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('23..43')
     })
 
     it('does not modify annotation when inserting after it', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: '10..20' }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('10..20') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -444,14 +449,14 @@ describe('SequenceEditor annotations', () => {
 
       // Annotation should remain unchanged
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('10..20')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('10..20')
     })
 
     it('handles multiple annotations correctly', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Before', type: 'gene', span: '5..15' },
-        { id: 'ann2', caption: 'Contains', type: 'promoter', span: '20..40' },
-        { id: 'ann3', caption: 'After', type: 'terminator', span: '50..60' }
+        { id: 'ann1', caption: 'Before', type: 'gene', span: Span.parse('5..15') },
+        { id: 'ann2', caption: 'Contains', type: 'promoter', span: Span.parse('20..40') },
+        { id: 'ann3', caption: 'After', type: 'terminator', span: Span.parse('50..60') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -472,18 +477,18 @@ describe('SequenceEditor annotations', () => {
       const updatedAnnotations = emitted[0][0]
 
       // ann1 (5..15): insertion at 25, both start and end < 25, so unchanged
-      expect(updatedAnnotations[0].span.toString()).toBe('5..15')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('5..15')
 
       // ann2 (20..40): insertion at 25, start < 25 (unchanged), end > 25 (becomes 42)
-      expect(updatedAnnotations[1].span.toString()).toBe('20..42')
+      expect(updatedAnnotations[1].span.toJSON()).toBe('20..42')
 
       // ann3 (50..60): insertion at 25, both start and end > 25, both shift
-      expect(updatedAnnotations[2].span.toString()).toBe('52..62')
+      expect(updatedAnnotations[2].span.toJSON()).toBe('52..62')
     })
 
     it('shifts annotation when inserting at its start position by default (disciplined inserts)', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('10..30') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -506,12 +511,12 @@ describe('SequenceEditor annotations', () => {
       // start=10 -> 13, end=30 -> 33
       // Result: annotation shifts to make room for inserted text
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('13..33')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('13..33')
     })
 
     it('does not expand annotation when inserting at its end position', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('10..30') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -532,12 +537,12 @@ describe('SequenceEditor annotations', () => {
       // start=10, not > 30, unchanged; end=30, not > 30, unchanged
       // Result: annotation stays the same (insert is at boundary, not inside)
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('10..30')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('10..30')
     })
 
     it('handles join spans with multiple ranges', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Joined', type: 'CDS', span: '10..20 + 40..60' }
+        { id: 'ann1', caption: 'Joined', type: 'CDS', span: Span.parse('10..20 + 40..60') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -558,12 +563,12 @@ describe('SequenceEditor annotations', () => {
       const updatedAnnotations = emitted[0][0]
       // First range (10..20): start and end both < 30, unchanged
       // Second range (40..60): start and end both > 30, both shift by 4
-      expect(updatedAnnotations[0].span.toString()).toBe('10..20 + 44..64')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('10..20 + 44..64')
     })
 
     it('INTEGRATION: inserting inside annotation preserves start position and expands end', async () => {
       const annotations = [
-        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: '230..247' }
+        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: Span.parse('230..247') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -597,7 +602,7 @@ describe('SequenceEditor annotations', () => {
 
       // CRITICAL: Start position must stay at 230 (not shift to 231)
       // End position should be 247 + 4 = 251
-      expect(updatedSpan.toString()).toBe('230..251')
+      expect(updatedSpan.toJSON()).toBe('230..251')
 
       // Also verify the rendered annotation fragment position is correct
       await wrapper.vm.$nextTick()
@@ -610,7 +615,7 @@ describe('SequenceEditor annotations', () => {
 
     it('INTEGRATION: inserting at exact start position shifts annotation (disciplined inserts)', async () => {
       const annotations = [
-        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: '100..150' }
+        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: Span.parse('100..150') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -631,12 +636,12 @@ describe('SequenceEditor annotations', () => {
 
       // With disciplined inserts: annotation starting at insert position shifts entirely
       // Start becomes 103, end becomes 153
-      expect(emitted[0][0][0].span.toString()).toBe('103..153')
+      expect(emitted[0][0][0].span.toJSON()).toBe('103..153')
     })
 
     it('INTEGRATION: inserting 1 base before start shifts entire annotation', async () => {
       const annotations = [
-        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: '100..150' }
+        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: Span.parse('100..150') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -655,7 +660,7 @@ describe('SequenceEditor annotations', () => {
       expect(emitted).toBeTruthy()
 
       // Both start and end shift by 3: 100+3=103, 150+3=153
-      expect(emitted[0][0][0].span.toString()).toBe('103..153')
+      expect(emitted[0][0][0].span.toJSON()).toBe('103..153')
     })
   })
 
@@ -698,7 +703,7 @@ describe('SequenceEditor annotations', () => {
 
     it('shifts annotation after selection by net change', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'After', type: 'gene', span: '50..70' }
+        { id: 'ann1', caption: 'After', type: 'gene', span: Span.parse('50..70') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -718,12 +723,12 @@ describe('SequenceEditor annotations', () => {
 
       // Annotation shifts left by 6: 50-6=44, 70-6=64
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('44..64')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('44..64')
     })
 
     it('does not modify annotation before selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Before', type: 'gene', span: '5..15' }
+        { id: 'ann1', caption: 'Before', type: 'gene', span: Span.parse('5..15') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -743,12 +748,12 @@ describe('SequenceEditor annotations', () => {
 
       // Annotation before selection is unchanged
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('5..15')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('5..15')
     })
 
     it('shrinks annotation that spans across selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Spanning', type: 'gene', span: '10..50' }
+        { id: 'ann1', caption: 'Spanning', type: 'gene', span: Span.parse('10..50') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -768,12 +773,12 @@ describe('SequenceEditor annotations', () => {
 
       // Start stays 10, end shrinks: 50-8=42
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('10..42')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('10..42')
     })
 
     it('expands annotation that spans across selection when replacement is longer', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Spanning', type: 'gene', span: '10..50' }
+        { id: 'ann1', caption: 'Spanning', type: 'gene', span: Span.parse('10..50') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -793,12 +798,12 @@ describe('SequenceEditor annotations', () => {
 
       // Start stays 10, end expands: 50+10=60
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('10..60')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('10..60')
     })
 
     it('collapses annotation contained within selection to zero length', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Inside', type: 'gene', span: '25..35' }
+        { id: 'ann1', caption: 'Inside', type: 'gene', span: Span.parse('25..35') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -818,12 +823,12 @@ describe('SequenceEditor annotations', () => {
 
       // Annotation collapses to zero length at selection start
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('20')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('20')
     })
 
     it('truncates annotation that overlaps left side of selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'OverlapLeft', type: 'gene', span: '15..35' }
+        { id: 'ann1', caption: 'OverlapLeft', type: 'gene', span: Span.parse('15..35') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -843,12 +848,12 @@ describe('SequenceEditor annotations', () => {
 
       // Annotation truncated: start stays 15, end becomes 30 (selection start)
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('15..30')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('15..30')
     })
 
     it('moves annotation that overlaps right side of selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'OverlapRight', type: 'gene', span: '25..45' }
+        { id: 'ann1', caption: 'OverlapRight', type: 'gene', span: Span.parse('25..45') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -870,15 +875,15 @@ describe('SequenceEditor annotations', () => {
       // Start moves to after inserted text: 20+4=24
       // End shifts by net change: 45-6=39
       const updatedAnnotations = emitted[0][0]
-      expect(updatedAnnotations[0].span.toString()).toBe('24..39')
+      expect(updatedAnnotations[0].span.toJSON()).toBe('24..39')
     })
 
     it('handles multiple annotations with different overlap scenarios', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Before', type: 'gene', span: '5..15' },
-        { id: 'ann2', caption: 'Spanning', type: 'promoter', span: '25..55' },
-        { id: 'ann3', caption: 'Inside', type: 'terminator', span: '35..45' },
-        { id: 'ann4', caption: 'After', type: 'CDS', span: '70..90' }
+        { id: 'ann1', caption: 'Before', type: 'gene', span: Span.parse('5..15') },
+        { id: 'ann2', caption: 'Spanning', type: 'promoter', span: Span.parse('25..55') },
+        { id: 'ann3', caption: 'Inside', type: 'terminator', span: Span.parse('35..45') },
+        { id: 'ann4', caption: 'After', type: 'CDS', span: Span.parse('70..90') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -899,16 +904,16 @@ describe('SequenceEditor annotations', () => {
       const updated = emitted[0][0]
 
       // ann1 (5..15): entirely before, unchanged
-      expect(updated[0].span.toString()).toBe('5..15')
+      expect(updated[0].span.toJSON()).toBe('5..15')
 
       // ann2 (25..55): spans selection, end shrinks by 15: 55-15=40
-      expect(updated[1].span.toString()).toBe('25..40')
+      expect(updated[1].span.toJSON()).toBe('25..40')
 
       // ann3 (35..45): contained in selection, collapses to start
-      expect(updated[2].span.toString()).toBe('30')
+      expect(updated[2].span.toJSON()).toBe('30')
 
       // ann4 (70..90): after selection, shifts by -15: 55..75
-      expect(updated[3].span.toString()).toBe('55..75')
+      expect(updated[3].span.toJSON()).toBe('55..75')
     })
   })
 
@@ -918,7 +923,7 @@ describe('SequenceEditor annotations', () => {
       // Selection: 2..7 and 15..24 (overlaps both segments)
       // After delete: should have two segments with adjusted positions
       const annotations = [
-        { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '1..5 + 10..20' }
+        { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('1..5 + 10..20') }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -956,7 +961,7 @@ describe('SequenceEditor annotations', () => {
       //   - 1..5: overlaps 2..7, truncated to 1..2
       //   - 10..15: shifts left by 5 (deletion length), becomes 5..10
       // Final: 1..2 + 5..10
-      expect(ann.span.toString()).toBe('1..2 + 5..10')
+      expect(ann.span.toJSON()).toBe('1..2 + 5..10')
     })
   })
 
@@ -1037,7 +1042,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test Gene',
           type: 'gene',
-          span: '10..50',
+          span: Span.parse('10..50'),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1048,7 +1053,7 @@ describe('SequenceEditor annotations', () => {
         expect(emitted[0][0]).toHaveLength(1)
         expect(emitted[0][0][0].caption).toBe('Test Gene')
         expect(emitted[0][0][0].type).toBe('gene')
-        expect(emitted[0][0][0].span.toString()).toBe('10..50')
+        expect(emitted[0][0][0].span.toJSON()).toBe('10..50')
       })
 
       it('generates unique ID for new annotation', async () => {
@@ -1062,7 +1067,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test',
           type: 'gene',
-          span: '10..20',
+          span: Span.parse('10..20'),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1083,7 +1088,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test CDS',
           type: 'CDS',
-          span: '0..9',
+          span: Span.parse('0..9'),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1105,7 +1110,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test',
           type: 'gene',
-          span: '10..20',
+          span: Span.parse('10..20'),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1120,7 +1125,7 @@ describe('SequenceEditor annotations', () => {
     describe('update annotation', () => {
       it('updates annotation in local state when edited via modal', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Original', type: 'gene', span: '10..50' }
+          { id: 'ann1', caption: 'Original', type: 'gene', span: Span.parse('10..50') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1148,7 +1153,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('update', {
           caption: 'Updated',
           type: 'CDS',
-          span: '10..60',
+          span: Span.parse('10..60'),
           attributes: { gene: 'testGene' }
         })
         await wrapper.vm.$nextTick()
@@ -1159,7 +1164,7 @@ describe('SequenceEditor annotations', () => {
         expect(emitted[0][0][0].id).toBe('ann1')
         expect(emitted[0][0][0].caption).toBe('Updated')
         expect(emitted[0][0][0].type).toBe('CDS')
-        expect(emitted[0][0][0].span.toString()).toBe('10..60')
+        expect(emitted[0][0][0].span.toJSON()).toBe('10..60')
         expect(emitted[0][0][0].attributes.gene).toBe('testGene')
       })
 
@@ -1168,7 +1173,7 @@ describe('SequenceEditor annotations', () => {
           annotationUpdate: mock(() => {})
         }
         const annotations = [
-          { id: 'ann1', caption: 'Original', type: 'gene', span: '10..50' }
+          { id: 'ann1', caption: 'Original', type: 'gene', span: Span.parse('10..50') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations, false, mockBackend), initialZoom: 100 }
@@ -1193,7 +1198,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('update', {
           caption: 'Updated',
           type: 'CDS',
-          span: '10..60',
+          span: Span.parse('10..60'),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1208,8 +1213,8 @@ describe('SequenceEditor annotations', () => {
     describe('delete annotation', () => {
       it('removes annotation from local state when deleted via context menu', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..50' },
-          { id: 'ann2', caption: 'Gene2', type: 'gene', span: '60..90' }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: Span.parse('10..50') },
+          { id: 'ann2', caption: 'Gene2', type: 'gene', span: Span.parse('60..90') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1242,7 +1247,7 @@ describe('SequenceEditor annotations', () => {
           annotationDeleted: mock(() => {})
         }
         const annotations = [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..50' }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: Span.parse('10..50') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations, false, mockBackend), initialZoom: 100 }
@@ -1270,7 +1275,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show delete option in readonly mode', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..50' }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: Span.parse('10..50') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100, readonly: true }
@@ -1296,7 +1301,7 @@ describe('SequenceEditor annotations', () => {
       it('shows merge options for adjacent segments with same orientation', async () => {
         // Create an annotation with two adjacent ranges (10..20 + 20..30)
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '10..20 + 20..30' }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('10..20 + 20..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1326,7 +1331,7 @@ describe('SequenceEditor annotations', () => {
 
       it('shows merge with left option when right-clicking on second segment', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '10..20 + 20..30' }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('10..20 + 20..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1353,7 +1358,7 @@ describe('SequenceEditor annotations', () => {
       it('shows both merge options for middle segment', async () => {
         // Three adjacent segments
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '10..20 + 20..30 + 30..40' }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('10..20 + 20..30 + 30..40') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1382,7 +1387,7 @@ describe('SequenceEditor annotations', () => {
       it('does not show merge options for non-adjacent segments', async () => {
         // Non-adjacent ranges (gap between 20 and 30)
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '10..20 + 30..40' }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('10..20 + 30..40') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1407,7 +1412,7 @@ describe('SequenceEditor annotations', () => {
       it('does not show merge options for segments with different orientations', async () => {
         // Adjacent but different orientations
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '10..20 + (20..30)' }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('10..20 + (20..30)') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1431,7 +1436,7 @@ describe('SequenceEditor annotations', () => {
 
       it('merges segments when clicking merge option', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: '10..20 + 20..30' }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: Span.parse('10..20 + 20..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1462,12 +1467,12 @@ describe('SequenceEditor annotations', () => {
         // The merged span should be 10..30
         const updatedAnnotations = emitted[emitted.length - 1][0]
         const mergedAnnotation = updatedAnnotations.find(a => a.id === 'ann1')
-        expect(mergedAnnotation.span.toString()).toBe('10..30')
+        expect(mergedAnnotation.span.toJSON()).toBe('10..30')
       })
 
       it('does not show merge options for single-range annotations', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Single Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Single Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1492,7 +1497,7 @@ describe('SequenceEditor annotations', () => {
     describe('split annotation', () => {
       it('shows split option when cursor is inside annotation range', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1519,7 +1524,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option when cursor is at annotation start', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1545,7 +1550,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option when cursor is at annotation end', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1571,7 +1576,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option when no cursor exists', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1597,7 +1602,7 @@ describe('SequenceEditor annotations', () => {
 
       it('splits annotation into two ranges when clicking split option', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1629,14 +1634,14 @@ describe('SequenceEditor annotations', () => {
 
         const updatedAnnotations = emitted[emitted.length - 1][0]
         const ann = updatedAnnotations.find(a => a.id === 'ann1')
-        expect(ann.span.toString()).toBe('10..20 + 20..30')
+        expect(ann.span.toJSON()).toBe('10..20 + 20..30')
       })
 
       it('preserves orientation when splitting', async () => {
         // annotation: (10..30) minus strand, cursor at 20
         // after split: (10..20) + (20..30) both minus strand
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '(10..30)' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('(10..30)') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1665,14 +1670,14 @@ describe('SequenceEditor annotations', () => {
         const updatedAnnotations = emitted[emitted.length - 1][0]
         const ann = updatedAnnotations.find(a => a.id === 'ann1')
         // Both ranges should be minus strand
-        expect(ann.span.toString()).toBe('(10..20) + (20..30)')
+        expect(ann.span.toJSON()).toBe('(10..20) + (20..30)')
       })
 
       it('preserves indefinite flags appropriately when splitting', async () => {
         // annotation: <10..>30, cursor at 20
         // after split: <10..20 + 20..>30
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '<10..>30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('<10..>30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1701,7 +1706,7 @@ describe('SequenceEditor annotations', () => {
         const updatedAnnotations = emitted[emitted.length - 1][0]
         const ann = updatedAnnotations.find(a => a.id === 'ann1')
         // Left range has startIndefinite, right range has endIndefinite
-        expect(ann.span.toString()).toBe('<10..20 + 20..>30')
+        expect(ann.span.toJSON()).toBe('<10..20 + 20..>30')
       })
 
       it('calls backend.annotationUpdate when splitting', async () => {
@@ -1709,7 +1714,7 @@ describe('SequenceEditor annotations', () => {
           annotationUpdate: mock(() => {})
         }
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations, false, mockBackend), initialZoom: 100 }
@@ -1737,12 +1742,12 @@ describe('SequenceEditor annotations', () => {
         expect(mockBackend.annotationUpdate).toHaveBeenCalledTimes(1)
         const call = mockBackend.annotationUpdate.mock.calls[0][0]
         expect(call.annotationId).toBe('ann1')
-        expect(call.span.toString()).toBe('10..20 + 20..30')
+        expect(call.span.toJSON()).toBe('10..20 + 20..30')
       })
 
       it('does not show split option in readonly mode', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: Span.parse('10..30') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100, readonly: true }
@@ -1774,7 +1779,7 @@ describe('SequenceEditor annotations', () => {
         // Selection: 2..7 + 15..24
         // After subtraction: 5..7 + 20..24 (the parts not covered by the annotation)
         const annotations = [
-          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: '1..5 + 10..20' }
+          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: Span.parse('1..5 + 10..20') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1817,7 +1822,7 @@ describe('SequenceEditor annotations', () => {
         // Selection: 2..12
         // After subtraction: 5..10 (the gap between annotation ranges)
         const annotations = [
-          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: '1..5 + 10..20' }
+          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: Span.parse('1..5 + 10..20') }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }

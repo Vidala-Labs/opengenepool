@@ -113,7 +113,7 @@ export function useSelection(editorState, graphics, eventBus) {
     if (!isSelected.value || !extend) {
       // New selection
       unselect()
-      domain.value = new SelectionDomain(`${pos}..${pos}`)
+      domain.value = new SelectionDomain([new Range(pos, pos, Orientation.NONE)])
       isSelected.value = true
       source.value = selectionSource
     } else if (domain.value.contains(pos)) {
@@ -206,7 +206,7 @@ export function useSelection(editorState, graphics, eventBus) {
    * Select the entire sequence.
    */
   function selectAll() {
-    select(`0..${editorState.sequenceLength.value}`)
+    select([new Range(0, editorState.sequenceLength.value, Orientation.NONE)])
   }
 
   /**

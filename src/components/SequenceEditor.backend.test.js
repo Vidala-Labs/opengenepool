@@ -3,10 +3,15 @@ import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
+import { Span } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  return new SequenceDocument({ sequence, annotations, circular, backend })
+  const normalizedAnnotations = annotations.map(annotation => ({
+    ...annotation,
+    span: typeof annotation.span === 'string' ? Span.parse(annotation.span) : annotation.span
+  }))
+  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
 }
 
 describe('SequenceEditor backend', () => {
@@ -640,7 +645,7 @@ describe('SequenceEditor backend', () => {
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
       // Annotation should expand: 10..50 -> 10..54 (4 chars inserted)
-      expect(emitted[0][0][0].span.toString()).toBe('10..54')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..54')
     })
 
     it('calls backend.insert before annotation shifts it', async () => {
@@ -671,7 +676,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should shift: 20..40 -> 23..43
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span.toString()).toBe('23..43')
+      expect(emitted[0][0][0].span.toJSON()).toBe('23..43')
     })
   })
 
@@ -936,7 +941,7 @@ describe('SequenceEditor backend', () => {
       expect(emitted).toBeTruthy()
       // For equal length replace within annotation, the annotation remains 10..30
       // (since net change is 0 and it contains the selection, end adjusts by 0)
-      expect(emitted[0][0][0].span.toString()).toBe('10..30')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..30')
     })
 
     it('should collapse annotation when selection contains it and annotationMode is default', async () => {
@@ -971,7 +976,7 @@ describe('SequenceEditor backend', () => {
       expect(emitted).toBeTruthy()
       // Annotation that was contained by selection gets collapsed to zero-width at selStart
       // Zero-width spans serialize as just the position (e.g., "10" not "10..10")
-      expect(emitted[0][0][0].span.toString()).toBe('10')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10')
     })
 
     it('should keep annotation when selection contains it and annotationMode is preserve', async () => {
@@ -1061,7 +1066,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should shift entirely: 10..30 -> 13..33 (3-char insert)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span.toString()).toBe('13..33')
+      expect(emitted[0][0][0].span.toJSON()).toBe('13..33')
     })
 
     it('should extend annotation starting at insert position when checked', async () => {
@@ -1090,7 +1095,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should expand: 10..30 -> 10..33 (start stays, end shifts)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span.toString()).toBe('10..33')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..33')
     })
 
     it('should not extend annotation ending at insert position by default', async () => {
@@ -1122,7 +1127,7 @@ describe('SequenceEditor backend', () => {
       const emitted = wrapper.emitted('annotations-update')
       // No changes means annotations-update not emitted OR annotation unchanged
       if (emitted) {
-        expect(emitted[0][0][0].span.toString()).toBe('10..30')
+        expect(emitted[0][0][0].span.toJSON()).toBe('10..30')
       }
     })
 
@@ -1152,7 +1157,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should expand: 10..30 -> 10..33
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span.toString()).toBe('10..33')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..33')
     })
 
     it('should handle multiple annotations touching same insert position', async () => {
@@ -1186,8 +1191,8 @@ describe('SequenceEditor backend', () => {
       const updatedAnns = emitted[0][0]
       const ann1 = updatedAnns.find(a => a.id === 'ann1')
       const ann2 = updatedAnns.find(a => a.id === 'ann2')
-      expect(ann1.span.toString()).toBe('10..33')
-      expect(ann2.span.toString()).toBe('33..53')
+      expect(ann1.span.toJSON()).toBe('10..33')
+      expect(ann2.span.toJSON()).toBe('33..53')
     })
 
     it('should handle extending both annotations at same position', async () => {
@@ -1221,8 +1226,8 @@ describe('SequenceEditor backend', () => {
       const updatedAnns = emitted[0][0]
       const ann1 = updatedAnns.find(a => a.id === 'ann1')
       const ann2 = updatedAnns.find(a => a.id === 'ann2')
-      expect(ann1.span.toString()).toBe('10..33')
-      expect(ann2.span.toString()).toBe('30..53')
+      expect(ann1.span.toJSON()).toBe('10..33')
+      expect(ann2.span.toJSON()).toBe('30..53')
     })
 
     it('should not show extend options for replacements', async () => {
@@ -1286,7 +1291,7 @@ describe('SequenceEditor backend', () => {
       // Second range should shift: 30..40 -> 33..43
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span.toString()).toBe('10..23 + 33..43')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..23 + 33..43')
     })
 
     it('should still emit edit event with insert type', async () => {

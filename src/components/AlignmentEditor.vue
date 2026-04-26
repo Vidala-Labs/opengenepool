@@ -256,6 +256,17 @@ const queryReverseMap = computed(() => {
   return buildReverseCoordinateMap(alignedQuerySequence.value, alignmentResult.value.queryStart)
 })
 
+// Active reverse coordinate map based on selection source
+// This is used by SelectionLayer to convert original positions to aligned positions for rendering
+const activeReverseCoordinateMap = computed(() => {
+  if (!hasAlignment.value) return null
+  if (selection.source.value === 'query') {
+    return queryReverseMap.value
+  }
+  // Default to target (for both 'target' and null/undefined)
+  return targetReverseMap.value
+})
+
 // Local copy of annotations for display
 const localAnnotations = computed(() => targetDoc.value?.annotations ?? [])
 
@@ -409,6 +420,46 @@ const alignmentBlockHeight = computed(() => {
   return graphics.lineHeight.value * 3 + 40
 })
 provide('alignmentBlockHeight', alignmentBlockHeight)
+
+// Extension API - provides interface for extension panels
+const selectionChangeHandlers = new Set()
+
+// Notify selection change handlers when selection changes
+watch(selection.domain, () => {
+  for (const handler of selectionChangeHandlers) {
+    handler()
+  }
+}, { deep: true })
+
+const extensionAPI = {
+  // State access
+  getSequence: () => targetDoc.value?.sequence ?? '',
+  getTitle: () => targetDoc.value?.name ?? '',
+  getSelectedSequence: () => {
+    if (!selection.isSelected.value || !selection.domain.value) return ''
+    const seq = targetDoc.value?.sequence ?? ''
+    const ranges = selection.domain.value.ranges
+    if (ranges.length === 0) return ''
+    const range = ranges[0]
+    return seq.slice(range.start, range.end)
+  },
+  getAnnotations: () => targetDoc.value?.annotations ?? [],
+
+  // Actions
+  setSelection: (spec) => selection.select(spec),
+  clearSelection: () => selection.unselect(),
+  scrollToPosition: () => {}, // Not implemented for alignment view
+
+  // Annotation creation (not fully supported in alignment mode)
+  addAnnotation: () => {},
+
+  // Event subscription
+  onSelectionChange: (handler) => {
+    selectionChangeHandlers.add(handler)
+    return () => selectionChangeHandlers.delete(handler)
+  }
+}
+provide('extensionAPI', extensionAPI)
 
 // ============================================
 // Template refs and layout
@@ -834,6 +885,7 @@ const toolbarHelpText = `Selection Controls:
             :alignment-mode="selection.source.value"
             :alignment-block-height="alignmentBlockHeight"
             :line-height="graphics.lineHeight.value"
+            :reverse-coordinate-map="activeReverseCoordinateMap"
             @select="handleSelectionChange"
             @contextmenu="handleSelectionContextMenu"
             @mousedown="handleSelectionMouseDown"

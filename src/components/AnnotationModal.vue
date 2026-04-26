@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { TrashIcon, PlusIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/vue/20/solid'
-import { Range, Orientation } from '../utils/dna.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
 
 const props = defineProps({
   open: {
@@ -102,10 +102,8 @@ watch(() => props.open, (isOpen) => {
       // Edit mode - pre-fill from existing annotation
       caption.value = props.annotation.caption || ''
       annotationType.value = props.annotation.type || ''
-      // Parse span from annotation (may be Span object or string)
-      const spanStr = typeof props.annotation.span === 'string'
-        ? props.annotation.span
-        : props.annotation.span?.toString() || props.span
+      // Parse span from the existing annotation object
+      const spanStr = props.annotation.span?.toJSON?.() || props.span
       ranges.value = parseSpan(spanStr)
       // Pre-fill attributes (filter underscore-prefixed keys from display)
       const attrs = props.annotation.attributes || {}
@@ -128,21 +126,15 @@ const rangesLabel = computed(() => {
   return ranges.value.length === 1 ? 'Range' : 'Ranges'
 })
 
-// Build span string from current ranges
+// Build span object from current ranges
 const computedSpan = computed(() => {
-  return ranges.value.map(range => {
-    const start = (parseInt(range.start, 10) || 1) - 1  // Convert GenBank (1-based) to fenced
-    const end = parseInt(range.end, 10) || 0
-    const startStr = range.startIndefinite ? `<${start}` : `${start}`
-    const endStr = range.endIndefinite ? `>${end}` : `${end}`
-    const content = `${startStr}..${endStr}`
-
-    switch (range.strand) {
-      case 'reverse': return `(${content})`
-      case 'none': return `[${content}]`
-      default: return content
-    }
-  }).join(' + ')
+  return new Span(ranges.value.map(range => new Range(
+    (parseInt(range.start, 10) || 1) - 1,
+    parseInt(range.end, 10) || 0,
+    strandToOrientation(range.strand),
+    range.startIndefinite,
+    range.endIndefinite
+  )))
 })
 
 // Check if a range is complete (has both start and end values)

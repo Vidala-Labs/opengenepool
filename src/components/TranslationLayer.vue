@@ -105,10 +105,7 @@ function getChevronPath(x, width, h, orientation, leftEdge, rightEdge) {
  * @returns {Array} Array of component objects
  */
 function walkCDS(annotation, sequence, zoom) {
-  // Parse span to get ranges
-  const span = typeof annotation.span === 'string'
-    ? Span.parse(annotation.span)
-    : annotation.span
+  const span = annotation.span
 
   if (!span || span.ranges.length === 0) return []
 
@@ -297,10 +294,7 @@ function getTranslationString(annotationId) {
   const sequence = editorState.sequence.value
   if (!sequence) return ''
 
-  // Parse span
-  const span = typeof annotation.span === 'string'
-    ? Span.parse(annotation.span)
-    : annotation.span
+  const span = annotation.span
 
   if (!span || span.ranges.length === 0) return ''
 

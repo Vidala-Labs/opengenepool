@@ -4,7 +4,7 @@ import { useEditorState } from './useEditorState.js'
 import { useGraphics } from './useGraphics.js'
 import { createEventBus } from './useEventBus.js'
 import { Annotation } from '../utils/annotation.js'
-import { Orientation } from '../utils/dna.js'
+import { Orientation, Span } from '../utils/dna.js'
 
 describe('generateArrowPath', () => {
   const blockWidth = 8
@@ -150,7 +150,7 @@ describe('useAnnotations', () => {
     it('sets annotation list', () => {
       const ann = createAnnotations()
       const annotationList = [
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ]
 
       ann.setAnnotations(annotationList)
@@ -164,7 +164,7 @@ describe('useAnnotations', () => {
     it('creates elements for annotation fragments', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ])
 
       const lineElements = ann.getElementsByLine.value.get(0)
@@ -176,7 +176,7 @@ describe('useAnnotations', () => {
       const ann = createAnnotations()
       // At zoom=100, this annotation spans lines 0, 1, and 2
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '50..250' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('50..250') })
       ])
 
       expect(ann.getElementsByLine.value.get(0)).toBeDefined()  // 50-99
@@ -187,7 +187,7 @@ describe('useAnnotations', () => {
     it('generates arrow paths for directional annotations', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })  // plus strand
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })  // plus strand
       ])
 
       const elem = ann.getElementsByLine.value.get(0)[0]
@@ -199,8 +199,8 @@ describe('useAnnotations', () => {
     it('stacks overlapping annotations vertically', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..80' }),
-        new Annotation({ id: '2', caption: 'Gene B', type: 'promoter', span: '30..60' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..80') }),
+        new Annotation({ id: '2', caption: 'Gene B', type: 'promoter', span: Span.parse('30..60') })
       ])
 
       const lineElements = ann.getElementsByLine.value.get(0)
@@ -215,8 +215,8 @@ describe('useAnnotations', () => {
     it('does not stack non-overlapping annotations', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..30' }),
-        new Annotation({ id: '2', caption: 'Gene B', type: 'promoter', span: '50..70' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..30') }),
+        new Annotation({ id: '2', caption: 'Gene B', type: 'promoter', span: Span.parse('50..70') })
       ])
 
       const lineElements = ann.getElementsByLine.value.get(0)
@@ -233,9 +233,9 @@ describe('useAnnotations', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
         // Multi-range annotation with fragments at 1..10 and 16..25
-        new Annotation({ id: '1', caption: 'Multi', type: 'gene', span: '1..10+16..25' }),
+        new Annotation({ id: '1', caption: 'Multi', type: 'gene', span: Span.parse('1..10+16..25') }),
         // Annotation that overlaps only the second fragment (16..25)
-        new Annotation({ id: '2', caption: 'Overlap', type: 'gene', span: '12..75' })
+        new Annotation({ id: '2', caption: 'Overlap', type: 'gene', span: Span.parse('12..75') })
       ])
 
       const lineElements = ann.getElementsByLine.value.get(0)
@@ -267,7 +267,7 @@ describe('useAnnotations', () => {
     it('tracks hovered annotation', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ])
 
       ann.showTooltip(ann.annotations.value[0], { x: 100, y: 200 })
@@ -279,7 +279,7 @@ describe('useAnnotations', () => {
     it('hides tooltip', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ])
 
       ann.showTooltip(ann.annotations.value[0], { x: 100, y: 200 })
@@ -292,7 +292,7 @@ describe('useAnnotations', () => {
   describe('event bus integration', () => {
     it('emits annotation-click on click', () => {
       const ann = createAnnotations()
-      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ann.setAnnotations([testAnnotation])
 
       let emittedData = null
@@ -308,7 +308,7 @@ describe('useAnnotations', () => {
 
     it('emits annotation-contextmenu on right-click', () => {
       const ann = createAnnotations()
-      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ann.setAnnotations([testAnnotation])
 
       let emittedData = null
@@ -324,7 +324,7 @@ describe('useAnnotations', () => {
 
     it('emits extendselect on shift-click to add annotation to existing selection', () => {
       const ann = createAnnotations()
-      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '100..150' })
+      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('100..150') })
       ann.setAnnotations([testAnnotation])
 
       let selectEvent = null
@@ -347,7 +347,7 @@ describe('useAnnotations', () => {
 
     it('emits select on regular click (no shift)', () => {
       const ann = createAnnotations()
-      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '100..150' })
+      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('100..150') })
       ann.setAnnotations([testAnnotation])
 
       let selectEvent = null
@@ -372,7 +372,7 @@ describe('useAnnotations', () => {
   describe('getAnnotationAtPosition', () => {
     it('finds annotation containing position', () => {
       const ann = createAnnotations()
-      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+      const testAnnotation = new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ann.setAnnotations([testAnnotation])
 
       const found = ann.getAnnotationAtPosition(25)
@@ -384,7 +384,7 @@ describe('useAnnotations', () => {
     it('returns null when no annotation at position', () => {
       const ann = createAnnotations()
       ann.setAnnotations([
-        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: '10..50' })
+        new Annotation({ id: '1', caption: 'Gene A', type: 'gene', span: Span.parse('10..50') })
       ])
 
       const found = ann.getAnnotationAtPosition(60)

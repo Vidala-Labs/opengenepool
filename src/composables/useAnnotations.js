@@ -362,7 +362,7 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
       // Shift-click extends the existing selection, regular click replaces it
       const eventType = event.shiftKey ? 'extendselect' : 'select'
       eventBus.emit(eventType, {
-        domain: annotation.span.toString()
+        domain: annotation.span.toJSON()
       })
     }
   }

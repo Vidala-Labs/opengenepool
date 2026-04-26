@@ -229,21 +229,21 @@ describe('Range', () => {
     })
   })
 
-  describe('toString', () => {
+  describe('toFencedString', () => {
     it('formats plus strand ranges', () => {
-      expect(new Range(10, 20).toString()).toBe('10..20')
+      expect(new Range(10, 20).toFencedString()).toBe('10..20')
     })
 
     it('formats minus strand ranges with parentheses', () => {
-      expect(new Range(10, 20, Orientation.MINUS).toString()).toBe('(10..20)')
+      expect(new Range(10, 20, Orientation.MINUS).toFencedString()).toBe('(10..20)')
     })
 
     it('formats unoriented ranges with brackets', () => {
-      expect(new Range(10, 20, Orientation.NONE).toString()).toBe('[10..20]')
+      expect(new Range(10, 20, Orientation.NONE).toFencedString()).toBe('[10..20]')
     })
 
     it('formats single positions', () => {
-      expect(new Range(15, 15).toString()).toBe('15')
+      expect(new Range(15, 15).toFencedString()).toBe('15')
     })
   })
 
@@ -274,6 +274,12 @@ describe('Range', () => {
     it('handles indefinite with complement', () => {
       const range = new Range(10, 20, Orientation.MINUS, true, false)
       expect(range.toGenBank()).toBe('complement(<11..20)')
+    })
+  })
+
+  describe('toJSON', () => {
+    it('serializes to fenced coordinate notation', () => {
+      expect(new Range(10, 20, Orientation.MINUS).toJSON()).toBe('(10..20)')
     })
   })
 
@@ -334,30 +340,30 @@ describe('Range', () => {
       })
     })
 
-    describe('toString', () => {
+    describe('toFencedString', () => {
       it('formats start indefinite', () => {
         const range = new Range(10, 20, Orientation.PLUS, true, false)
-        expect(range.toString()).toBe('<10..20')
+        expect(range.toFencedString()).toBe('<10..20')
       })
 
       it('formats end indefinite', () => {
         const range = new Range(10, 20, Orientation.PLUS, false, true)
-        expect(range.toString()).toBe('10..>20')
+        expect(range.toFencedString()).toBe('10..>20')
       })
 
       it('formats both indefinite', () => {
         const range = new Range(10, 20, Orientation.PLUS, true, true)
-        expect(range.toString()).toBe('<10..>20')
+        expect(range.toFencedString()).toBe('<10..>20')
       })
 
       it('formats indefinite with minus strand', () => {
         const range = new Range(10, 20, Orientation.MINUS, true, true)
-        expect(range.toString()).toBe('(<10..>20)')
+        expect(range.toFencedString()).toBe('(<10..>20)')
       })
 
       it('formats indefinite with unoriented notation', () => {
         const range = new Range(10, 20, Orientation.NONE, true, true)
-        expect(range.toString()).toBe('[<10..>20]')
+        expect(range.toFencedString()).toBe('[<10..>20]')
       })
     })
 
@@ -392,7 +398,7 @@ describe('Range', () => {
           '[<10..>20]'
         ]
         for (const str of tests) {
-          expect(Range.parse(str).toString()).toBe(str)
+          expect(Range.parse(str).toFencedString()).toBe(str)
         }
       })
     })
@@ -531,6 +537,13 @@ describe('Span', () => {
         new Range(3744, 4132)
       ])
       expect(span.toGenBank()).toBe('join(2456..2916,2985..3681,3745..4132)')
+    })
+  })
+
+  describe('toJSON', () => {
+    it('serializes to fenced coordinate notation', () => {
+      const span = new Span([new Range(10, 20), new Range(30, 40, Orientation.MINUS)])
+      expect(span.toJSON()).toBe('10..20 + (30..40)')
     })
   })
 })

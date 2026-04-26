@@ -230,28 +230,39 @@ The `#toolbar` slot adds buttons to the main toolbar:
 
 ### Sequence Alignment Mode
 
-The `alignmentSequence` prop triggers alignment mode with Smith-Waterman local alignment:
+For sequence alignment, use the separate `AlignmentEditor` component. This component is a sibling to `SequenceEditor` and provides a dedicated two-sequence comparison view:
 
 ```vue
+<AlignmentEditor
+  :target="targetDoc"
+  :query="queryDoc"
+  :extensions="extensions"
+/>
+
+<!-- Or conditionally render based on whether query exists -->
+<AlignmentEditor
+  v-if="queryDoc"
+  :target="targetDoc"
+  :query="queryDoc"
+/>
 <SequenceEditor
-  :sequence="targetSequence"
-  :alignment-sequence="querySequence"
-  alignment-label="Query"
-  :alignment-annotations="queryAnnotations"
+  v-else
+  :sequence="targetDoc"
 />
 ```
 
 Props:
-- `alignmentSequence` (String): When set, switches to alignment view comparing this sequence to the main sequence
-- `alignmentLabel` (String, default: "Query"): Label for the alignment sequence
-- `alignmentAnnotations` (Array): Annotations to display on the alignment sequence
+- `target` (SequenceDocument, required): The main sequence document
+- `query` (SequenceDocument, required): The query sequence to align against target
+- `initialZoom`, `readonly`, `clipboardBackend`, `extensions`: Same as SequenceEditor
 
 The alignment view shows:
 - Side-by-side sequence comparison with gaps
-- Color-coded matches (green), mismatches (red), and gaps (gray)
 - Match line with `|` for identical bases
 - Statistics (score, identity percentage, length)
 - Annotations from both sequences mapped through gap positions
+- Selection support with `selection.source` tracking which row ('target' or 'query')
+- Edit operations (delete) routed to the correct document based on selection source
 
 To use the alignment function directly:
 

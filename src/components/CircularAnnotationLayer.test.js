@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
 
 // Helper to create mock providers
@@ -56,7 +57,7 @@ describe('CircularAnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -69,7 +70,7 @@ describe('CircularAnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -83,7 +84,7 @@ describe('CircularAnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders(
@@ -99,7 +100,7 @@ describe('CircularAnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders(
@@ -115,8 +116,8 @@ describe('CircularAnnotationLayer', () => {
   describe('row stacking', () => {
     it('stacks overlapping annotations on different rows', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '100..500' }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: '200..600' }) // overlaps
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('100..500') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('200..600') }) // overlaps
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -126,8 +127,8 @@ describe('CircularAnnotationLayer', () => {
 
     it('places non-overlapping annotations on same row', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: '100..500' }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: '1000..1500' }) // no overlap
+        new Annotation({ id: 'ann1', type: 'gene', span: Span.parse('100..500') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('1000..1500') }) // no overlap
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -143,14 +144,14 @@ describe('CircularAnnotationLayer', () => {
         id: 'multi',
         type: 'gene',
         caption: 'Multi',
-        span: '1..10 + 40..50'
+        span: Span.parse('1..10 + 40..50')
       })
 
       const gapAnnotation = new Annotation({
         id: 'gap',
         type: 'gene',
         caption: 'Gap',
-        span: '20..30'
+        span: Span.parse('20..30')
       })
 
       const wrapper = mountWithProviders({ annotations: [multiPartAnnotation, gapAnnotation] })
@@ -167,7 +168,7 @@ describe('CircularAnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -181,7 +182,7 @@ describe('CircularAnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'unknown_type',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -198,7 +199,7 @@ describe('CircularAnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '0..1000' // wide enough for caption
+        span: Span.parse('0..1000') // wide enough for caption
       })
 
       const wrapper = mountWithProviders({
@@ -215,7 +216,7 @@ describe('CircularAnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '0..1000'
+        span: Span.parse('0..1000')
       })
 
       const wrapper = mountWithProviders({
@@ -234,7 +235,7 @@ describe('CircularAnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -250,7 +251,7 @@ describe('CircularAnnotationLayer', () => {
     it('emits contextmenu event', async () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -264,7 +265,7 @@ describe('CircularAnnotationLayer', () => {
     it('emits hover events on mouse enter/leave', async () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: '100..500'
+        span: Span.parse('100..500')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -285,7 +286,7 @@ describe('CircularAnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '0..1000'
+        span: Span.parse('0..1000')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
