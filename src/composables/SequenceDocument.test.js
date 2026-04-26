@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { SequenceDocument } from './SequenceDocument.js'
+import { Span } from '../utils/dna.js'
 
 describe('SequenceDocument', () => {
   describe('constructor', () => {
@@ -14,7 +15,7 @@ describe('SequenceDocument', () => {
     it('creates document with initial values', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: '1', caption: 'test', type: 'gene', span: '0..4' }],
+        annotations: [{ id: '1', caption: 'test', type: 'gene', span: Span.parse('0..4') }],
         circular: true
       })
       expect(doc.sequence).toBe('ATCGATCG')
@@ -27,10 +28,17 @@ describe('SequenceDocument', () => {
     it('normalizes annotations without id', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCG',
-        annotations: [{ caption: 'test', type: 'CDS', span: '0..4' }]
+        annotations: [{ caption: 'test', type: 'CDS', span: Span.parse('0..4') }]
       })
       expect(doc.annotations[0].id).toBeDefined()
       expect(typeof doc.annotations[0].id).toBe('string')
+    })
+
+    it('throws when annotations ingress string spans', () => {
+      expect(() => new SequenceDocument({
+        sequence: 'ATCG',
+        annotations: [{ id: '1', caption: 'test', type: 'gene', span: '0..4' }]
+      })).toThrow('SequenceDocument requires annotation spans to be Span objects')
     })
   })
 
@@ -176,8 +184,8 @@ describe('SequenceDocument', () => {
       doc = new SequenceDocument({
         sequence: 'ATCGATCGATCG',
         annotations: [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: '0..4' },
-          { id: 'ann2', caption: 'Gene2', type: 'CDS', span: '6..10' }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: Span.parse('0..4') },
+          { id: 'ann2', caption: 'Gene2', type: 'CDS', span: Span.parse('6..10') }
         ]
       })
     })
@@ -187,7 +195,7 @@ describe('SequenceDocument', () => {
         const id = doc.addAnnotation({
           caption: 'New Gene',
           type: 'promoter',
-          span: '2..6'
+          span: Span.parse('2..6')
         })
         expect(typeof id).toBe('string')
         expect(doc.annotations.length).toBe(3)
@@ -199,7 +207,7 @@ describe('SequenceDocument', () => {
           id: 'custom-id',
           caption: 'Test',
           type: 'gene',
-          span: '0..4'
+          span: Span.parse('0..4')
         })
         expect(id).toBe('custom-id')
       })
@@ -258,20 +266,21 @@ describe('SequenceDocument', () => {
     it('exports to JSON', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCG',
-        annotations: [{ id: '1', caption: 'Test', type: 'gene', span: '0..4' }],
+        annotations: [{ id: '1', caption: 'Test', type: 'gene', span: Span.parse('0..4') }],
         circular: true
       })
 
       const json = doc.toJSON()
       expect(json.sequence).toBe('ATCG')
       expect(json.annotations.length).toBe(1)
+      expect(json.annotations[0].span).toBe('0..4')
       expect(json.circular).toBe(true)
     })
 
     it('creates from JSON', () => {
       const data = {
         sequence: 'ATCGATCG',
-        annotations: [{ id: '1', caption: 'Test', type: 'CDS', span: '0..4' }],
+        annotations: [{ id: '1', caption: 'Test', type: 'CDS', span: Span.parse('0..4') }],
         circular: true
       }
 
@@ -300,8 +309,21 @@ describe('SequenceDocument', () => {
     it('annotations getter returns updated value after add', () => {
       const doc = new SequenceDocument({ sequence: 'ATCG' })
       expect(doc.annotations.length).toBe(0)
-      doc.addAnnotation({ caption: 'Test', type: 'gene', span: '0..4' })
+      doc.addAnnotation({ caption: 'Test', type: 'gene', span: Span.parse('0..4') })
       expect(doc.annotations.length).toBe(1)
+    })
+  })
+
+  describe('sequenceRef', () => {
+    it('returns the internal sequence ref for reactive tracking', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG' })
+      expect(doc.sequenceRef.value).toBe('ATCG')
+    })
+
+    it('updates when sequence is modified', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG' })
+      doc.insert(2, 'GGG')
+      expect(doc.sequenceRef.value).toBe('ATGGGCG')
     })
   })
 
@@ -359,7 +381,7 @@ describe('SequenceDocument', () => {
         annotationCreated: (data) => calls.push(data)
       }
       const doc = new SequenceDocument({ sequence: 'ATCG', backend })
-      doc.addAnnotation({ caption: 'Test', type: 'gene', span: '0..4' })
+      doc.addAnnotation({ caption: 'Test', type: 'gene', span: Span.parse('0..4') })
 
       expect(calls.length).toBe(1)
       expect(calls[0].caption).toBe('Test')
@@ -374,7 +396,7 @@ describe('SequenceDocument', () => {
       }
       const doc = new SequenceDocument({
         sequence: 'ATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '0..4' }],
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('0..4') }],
         backend
       })
       doc.updateAnnotation({ id: 'ann1', caption: 'Updated' })
@@ -393,7 +415,7 @@ describe('SequenceDocument', () => {
       }
       const doc = new SequenceDocument({
         sequence: 'ATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '0..4' }],
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('0..4') }],
         backend
       })
       doc.deleteAnnotation('ann1')
@@ -408,63 +430,63 @@ describe('SequenceDocument', () => {
     it('shifts annotations after insertion point', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '4..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('4..8') }]
       })
       doc.insert(2, 'GGG')
       // Original 4..8 should shift to 7..11
-      expect(doc.annotations[0].span.toString()).toBe('7..11')
+      expect(doc.annotations[0].span.toJSON()).toBe('7..11')
     })
 
     it('expands annotations containing insertion point', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '2..6' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('2..6') }]
       })
       doc.insert(4, 'GGG')
       // Original 2..6, insert at 4 means it's inside, so end shifts: 2..9
-      expect(doc.annotations[0].span.toString()).toBe('2..9')
+      expect(doc.annotations[0].span.toJSON()).toBe('2..9')
     })
 
     it('does not change annotations before insertion point', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '0..2' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('0..2') }]
       })
       doc.insert(4, 'GGG')
-      expect(doc.annotations[0].span.toString()).toBe('0..2')
+      expect(doc.annotations[0].span.toJSON()).toBe('0..2')
     })
 
     it('respects extendEndIds option', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '0..4' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('0..4') }]
       })
       // Insert at position 4 (end of annotation), extend end
       doc.insert(4, 'GGG', { extendEndIds: ['ann1'] })
       // Should extend to include the insertion: 0..7
-      expect(doc.annotations[0].span.toString()).toBe('0..7')
+      expect(doc.annotations[0].span.toJSON()).toBe('0..7')
     })
 
     it('shifts annotation starting at insertion point by default', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '4..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('4..8') }]
       })
       // Insert at position 4 (start of annotation), default behavior shifts
       doc.insert(4, 'GGG')
       // Should shift both start and end: 7..11
-      expect(doc.annotations[0].span.toString()).toBe('7..11')
+      expect(doc.annotations[0].span.toJSON()).toBe('7..11')
     })
 
     it('respects extendStartIds option', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '4..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('4..8') }]
       })
       // Insert at position 4 (start of annotation), extend start
       doc.insert(4, 'GGG', { extendStartIds: ['ann1'] })
       // Should keep start, shift only end: 4..11
-      expect(doc.annotations[0].span.toString()).toBe('4..11')
+      expect(doc.annotations[0].span.toJSON()).toBe('4..11')
     })
   })
 
@@ -472,42 +494,41 @@ describe('SequenceDocument', () => {
     it('shifts annotations after deletion', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '6..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('6..8') }]
       })
       doc.delete([{ start: 2, end: 4 }])
       // Delete 2 chars, annotation shifts: 6..8 -> 4..6
-      expect(doc.annotations[0].span.toString()).toBe('4..6')
+      expect(doc.annotations[0].span.toJSON()).toBe('4..6')
     })
 
     it('truncates annotations overlapping deletion from left', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '2..6' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('2..6') }]
       })
       doc.delete([{ start: 4, end: 8 }])
       // Annotation ends inside deletion, truncate to 2..4
-      expect(doc.annotations[0].span.toString()).toBe('2..4')
+      expect(doc.annotations[0].span.toJSON()).toBe('2..4')
     })
 
     it('shrinks annotations containing deletion', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '2..10' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('2..10') }]
       })
       doc.delete([{ start: 4, end: 6 }])
       // Annotation contains deletion, shrink by deletion length: 2..8
-      expect(doc.annotations[0].span.toString()).toBe('2..8')
+      expect(doc.annotations[0].span.toJSON()).toBe('2..8')
     })
 
     it('collapses annotations contained by deletion', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '4..6' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('4..6') }]
       })
       doc.delete([{ start: 2, end: 8 }])
       // Annotation is inside deletion range, collapse to deletion start
-      // Range.toString() returns just the position for zero-width ranges
-      expect(doc.annotations[0].span.toString()).toBe('2')
+      expect(doc.annotations[0].span.toJSON()).toBe('2')
     })
   })
 
@@ -515,41 +536,41 @@ describe('SequenceDocument', () => {
     it('adjusts annotations for replacement with same length', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '6..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('6..8') }]
       })
       doc.replace(2, 4, 'XX')
       // Same length replacement, annotation unchanged
-      expect(doc.annotations[0].span.toString()).toBe('6..8')
+      expect(doc.annotations[0].span.toJSON()).toBe('6..8')
     })
 
     it('adjusts annotations for replacement with shorter text', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '6..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('6..8') }]
       })
       doc.replace(2, 5, 'X')
       // Delete 3, insert 1, net -2: 6..8 -> 4..6
-      expect(doc.annotations[0].span.toString()).toBe('4..6')
+      expect(doc.annotations[0].span.toJSON()).toBe('4..6')
     })
 
     it('adjusts annotations for replacement with longer text', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '6..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('6..8') }]
       })
       doc.replace(2, 4, 'XXXXX')
       // Delete 2, insert 5, net +3: 6..8 -> 9..11
-      expect(doc.annotations[0].span.toString()).toBe('9..11')
+      expect(doc.annotations[0].span.toJSON()).toBe('9..11')
     })
 
     it('can skip annotation adjustment with option', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCGATCG',
-        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: '6..8' }]
+        annotations: [{ id: 'ann1', caption: 'Test', type: 'gene', span: Span.parse('6..8') }]
       })
       doc.replace(2, 5, 'X', { adjustAnnotations: false })
       // No adjustment, span stays the same (though it's now invalid)
-      expect(doc.annotations[0].span.toString()).toBe('6..8')
+      expect(doc.annotations[0].span.toJSON()).toBe('6..8')
     })
   })
 })

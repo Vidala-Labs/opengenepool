@@ -54,8 +54,7 @@ export class SequenceDocument {
           attributes: ann.attributes || {}
         }
       }
-      // For plain objects, parse string spans into Span objects
-      const span = typeof ann.span === 'string' ? Span.parse(ann.span) : (ann.span || Span.parse('0..0'))
+      const span = this._requireSpan(ann.span)
       return {
         id: ann.id || crypto.randomUUID(),
         caption: ann.caption || '',
@@ -64,6 +63,20 @@ export class SequenceDocument {
         attributes: ann.attributes || {}
       }
     })
+  }
+
+  /**
+   * Normalize a span-like value to a Span object.
+   * This is only used at input boundaries so internal state stays object-backed.
+   * @private
+   * @param {string|Span|{ranges?: Array}|undefined|null} span
+   * @returns {Span}
+   */
+  _requireSpan(span) {
+    if (span instanceof Span) return span
+    if (span?.ranges) return new Span(span.ranges)
+    if (span == null) return new Span()
+    throw new TypeError('SequenceDocument requires annotation spans to be Span objects')
   }
 
   // ============================================
@@ -76,6 +89,16 @@ export class SequenceDocument {
    */
   get sequence() {
     return this._sequence.value
+  }
+
+  /**
+   * The reactive sequence ref for Vue computed dependencies.
+   * Use this when you need Vue to track sequence changes in a computed.
+   * For most cases, use the `sequence` getter instead.
+   * @returns {ShallowRef<string>}
+   */
+  get sequenceRef() {
+    return this._sequence
   }
 
   /**
@@ -241,9 +264,9 @@ export class SequenceDocument {
     if (index === -1) return false
 
     const updated = { ...this._annotations.value[index], ...annotation }
-    // Normalize span if it was updated
-    if (annotation.span && typeof annotation.span !== 'string') {
-      updated.span = annotation.span.toString?.() || updated.span
+    // Normalize span if it was updated so in-memory state always uses Span objects.
+    if (annotation.span !== undefined) {
+      updated.span = this._requireSpan(annotation.span)
     }
 
     const newAnnotations = [...this._annotations.value]
@@ -306,7 +329,7 @@ export class SequenceDocument {
     if (this._annotations.value.length === 0) return
 
     const updatedAnnotations = this._annotations.value.map(ann => {
-      const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
+      const span = ann.span
       let modified = false
       const shouldExtendStart = extendStartIds.includes(ann.id)
       const shouldExtendEnd = extendEndIds.includes(ann.id)
@@ -350,7 +373,7 @@ export class SequenceDocument {
       }
 
       if (modified) {
-        return { ...ann, span: span.toString() }
+        return { ...ann, span }
       }
       return ann
     })
@@ -373,7 +396,7 @@ export class SequenceDocument {
     const netChange = insertionLength - deletionLength
 
     const updatedAnnotations = this._annotations.value.map(ann => {
-      const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
+      const span = ann.span
       let modified = false
 
       for (let i = 0; i < span.ranges.length; i++) {
@@ -416,7 +439,7 @@ export class SequenceDocument {
       }
 
       if (modified) {
-        return { ...ann, span: span.toString() }
+        return { ...ann, span }
       }
       return ann
     })
@@ -435,7 +458,10 @@ export class SequenceDocument {
   toJSON() {
     return {
       sequence: this._sequence.value,
-      annotations: this._annotations.value,
+      annotations: this._annotations.value.map(annotation => ({
+        ...annotation,
+        span: annotation.span?.toJSON?.() ?? annotation.span
+      })),
       circular: this._circular.value
     }
   }
