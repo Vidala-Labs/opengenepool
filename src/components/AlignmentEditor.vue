@@ -957,7 +957,7 @@ const toolbarHelpText = `Selection Controls:
             />
 
             <!-- Annotation Layers for alignment mode -->
-            <!-- Target annotations above target sequence -->
+            <!-- Target annotations above target sequence (paths extend upward with negative Y) -->
             <AnnotationLayer
               v-if="alignedTargetAnnotations.length > 0"
               ref="targetAnnotationLayerRef"
@@ -968,14 +968,14 @@ const toolbarHelpText = `Selection Controls:
               :block-height="alignmentBlockHeight"
               :show-captions="true"
             />
-            <!-- Query annotations below query sequence (stack downward) -->
+            <!-- Query annotations below query sequence -->
             <AnnotationLayer
               v-if="alignedQueryAnnotations.length > 0"
               ref="queryAnnotationLayerRef"
               mode="query"
               :document="queryDoc"
               :annotations="alignedQueryAnnotations"
-              :y-offset="graphics.lineHeight.value * 3"
+              :y-offset="graphics.lineHeight.value * 4"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
               stack-direction="down"
