@@ -261,6 +261,9 @@ function handleContextMenu(event, lineIndex) {
 function handleClickForElement(dataset, event) {
   if (dataset.layer !== 'sequence') return false
 
+  // In alignment mode, only handle if the element's mode matches this layer's mode
+  if (props.mode && dataset.mode !== props.mode) return false
+
   // Selection is handled via mousedown/mouseup, not click.
   // Return true to prevent the "clear selection" fallback from undoing
   // the selection that was just made via the mousedown/mouseup cycle.
@@ -276,6 +279,9 @@ function handleClickForElement(dataset, event) {
  */
 function getMenuItemsForElement(dataset) {
   if (dataset.layer !== 'sequence') return []
+
+  // In alignment mode, only return items if the element's mode matches this layer's mode
+  if (props.mode && dataset.mode !== props.mode) return []
 
   const items = []
 
@@ -358,6 +364,7 @@ defineExpose({
           :height="lineHeight"
           class="sequence-overlay"
           data-layer="sequence"
+          :data-mode="mode || undefined"
           :data-line-index="line.index"
           @mousedown="handleMouseDown($event, line.index)"
           @contextmenu="handleContextMenu($event, line.index)"
