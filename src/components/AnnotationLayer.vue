@@ -42,6 +42,28 @@ const props = defineProps({
   showTranslation: {
     type: Boolean,
     default: false
+  },
+  /** Mode: null (normal), 'target', or 'query' (for alignment mode) */
+  mode: {
+    type: String,
+    default: null,
+    validator: (v) => v === null || v === 'target' || v === 'query'
+  },
+  /** Y offset within each alignment block (for alignment mode) */
+  yOffset: {
+    type: Number,
+    default: 0
+  },
+  /** Block height for alignment mode (height of target+match+query block) */
+  blockHeight: {
+    type: Number,
+    default: 0
+  },
+  /** Stack direction: 'up' (default, annotations stack above baseline) or 'down' */
+  stackDirection: {
+    type: String,
+    default: 'up',
+    validator: (v) => v === 'up' || v === 'down'
   }
 })
 
@@ -81,8 +103,10 @@ function getTypeColor(type) {
 // Use annotations composable for layout calculations
 // Pass showTranslation as a computed so CDS annotations can reserve extra space
 const showTranslationRef = computed(() => props.showTranslation)
+const stackDirectionRef = computed(() => props.stackDirection)
 const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
-  showTranslation: showTranslationRef
+  showTranslation: showTranslationRef,
+  stackDirection: stackDirectionRef
 })
 
 // Watch for annotation prop changes
@@ -337,8 +361,15 @@ function getFragmentWidth(fragment) {
   return fragment.width * graphics.metrics.value.charWidth
 }
 
+// Is this an alignment mode layer?
+const isAlignmentLayer = computed(() => props.mode !== null)
+
 // Get y position for a line
 function getLineY(lineIndex) {
+  if (isAlignmentLayer.value) {
+    // Alignment mode: position within alignment block
+    return lineIndex * props.blockHeight + props.yOffset
+  }
   return graphics.getLineY(lineIndex)
 }
 

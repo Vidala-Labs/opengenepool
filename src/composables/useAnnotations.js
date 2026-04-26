@@ -109,8 +109,14 @@ export class AnnotationElement {
  * @param {Object} eventBus - Event bus for plugin communication
  * @param {Object} options - Optional settings
  * @param {Ref<boolean>} options.showTranslation - When true, CDS annotations reserve extra height for translation
+ * @param {Ref<string>} options.stackDirection - 'up' (default) or 'down' for stacking direction
  */
 export function useAnnotations(editorState, graphics, eventBus, options = {}) {
+  // Get stack direction (default 'up')
+  const getStackDirection = () => {
+    const dir = options.stackDirection?.value ?? options.stackDirection ?? 'up'
+    return dir
+  }
   // Annotation state
   const annotations = ref([])
 
@@ -275,17 +281,23 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
         // Update row height if this element needs more space
         rows[placedRow].height = Math.max(rows[placedRow].height, elemHeight)
 
-        // Calculate deltaY based on cumulative height of rows below
-        // Row 0 = deltaY 0, subsequent rows stack above based on actual row heights
+        // Calculate deltaY based on cumulative height of rows
+        // Row 0 = deltaY 0, subsequent rows stack based on direction
+        const stackDown = getStackDirection() === 'down'
         let deltaY = 0
         for (let i = 0; i < placedRow; i++) {
-          deltaY -= rows[i].height + contentPadding
+          if (stackDown) {
+            deltaY += rows[i].height + contentPadding
+          } else {
+            deltaY -= rows[i].height + contentPadding
+          }
         }
         elem.deltaY = deltaY
       }
 
       // Second pass: recalculate deltaY now that all row heights are known
       // (in case earlier elements were placed before a tall element expanded the row)
+      const stackDown = getStackDirection() === 'down'
       for (const elem of elements) {
         // Use the row stored in the first pass (not looked up by annotationId,
         // which would be wrong for multi-range annotations with fragments on different rows)
@@ -294,7 +306,11 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
         // Recalculate deltaY with final row heights
         let deltaY = 0
         for (let i = 0; i < elemRow; i++) {
-          deltaY -= rows[i].height + contentPadding
+          if (stackDown) {
+            deltaY += rows[i].height + contentPadding
+          } else {
+            deltaY -= rows[i].height + contentPadding
+          }
         }
         elem.deltaY = deltaY
       }

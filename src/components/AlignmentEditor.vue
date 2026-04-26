@@ -10,6 +10,7 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
+import AnnotationLayer from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import SequenceLayer from './SequenceLayer.vue'
@@ -469,6 +470,8 @@ const measureRef = ref(null)
 const selectionLayerRef = ref(null)
 const targetSequenceLayerRef = ref(null)
 const querySequenceLayerRef = ref(null)
+const targetAnnotationLayerRef = ref(null)
+const queryAnnotationLayerRef = ref(null)
 
 // Zoom levels for selector
 const zoomLevels = [50, 75, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -581,6 +584,8 @@ function showContextMenu(event, context = {}) {
 
     // Check each layer ref for matching items
     const layerMenuItems = [
+      ...(targetAnnotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(queryAnnotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
       ...(selectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
       ...(targetSequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
       ...(querySequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
@@ -636,11 +641,13 @@ function handleSvgClick(event) {
   // Use elementsFromPoint to find all elements at the click position
   const elements = document.elementsFromPoint(event.clientX, event.clientY)
 
-  // Priority order: Selection > TargetSequence > QuerySequence
+  // Priority order: Annotation > Selection > Sequence
   for (const el of elements) {
     if (!el.dataset.layer) continue
 
     // Try each layer in priority order
+    if (targetAnnotationLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (queryAnnotationLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
     if (selectionLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
     if (targetSequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
     if (querySequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
@@ -947,6 +954,31 @@ const toolbarHelpText = `Selection Controls:
               :original-sequence-length="queryDoc?.sequence?.length || 0"
               @select="handleSelectionChange"
               @contextmenu="handleSequenceLayerContextMenu"
+            />
+
+            <!-- Annotation Layers for alignment mode -->
+            <!-- Target annotations above target sequence -->
+            <AnnotationLayer
+              v-if="alignedTargetAnnotations.length > 0"
+              ref="targetAnnotationLayerRef"
+              mode="target"
+              :document="targetDoc"
+              :annotations="alignedTargetAnnotations"
+              :y-offset="0"
+              :block-height="alignmentBlockHeight"
+              :show-captions="true"
+            />
+            <!-- Query annotations below query sequence (stack downward) -->
+            <AnnotationLayer
+              v-if="alignedQueryAnnotations.length > 0"
+              ref="queryAnnotationLayerRef"
+              mode="query"
+              :document="queryDoc"
+              :annotations="alignedQueryAnnotations"
+              :y-offset="graphics.lineHeight.value * 3"
+              :block-height="alignmentBlockHeight"
+              :show-captions="true"
+              stack-direction="down"
             />
           </template>
 

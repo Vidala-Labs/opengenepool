@@ -5,6 +5,9 @@
  * with IUPAC ambiguity code support and affine gap penalties.
  */
 
+import { Range, Span } from './dna.js'
+import { Annotation } from './annotation.js'
+
 /**
  * IUPAC ambiguity code definitions.
  * Each code maps to the set of bases it can represent.
@@ -358,9 +361,18 @@ export function mapAnnotationThroughAlignment(annotation, reverseMap, originalSt
 
   if (mappedRanges.length === 0) return null
 
-  return {
-    ...annotation,
-    mappedRanges,
-    originalAnnotation: annotation
-  }
+  // Create proper Range instances from mapped ranges
+  const ranges = mappedRanges.map(r => new Range(r.start, r.end, r.orientation))
+
+  // Create a new Annotation with the mapped span
+  return new Annotation({
+    id: annotation.id,
+    caption: annotation.caption,
+    type: annotation.type,
+    span: new Span(ranges),
+    attributes: {
+      ...annotation.attributes,
+      _originalAnnotation: annotation
+    }
+  })
 }
