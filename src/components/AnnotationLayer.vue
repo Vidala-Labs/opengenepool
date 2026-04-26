@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, watch, ref, onMounted, onUnmounted } from 'vue'
+import { computed, inject, watch, ref } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { useAnnotations, generateArrowPath } from '../composables/useAnnotations.js'
 
@@ -53,8 +53,6 @@ const graphics = inject('graphics')
 const eventBus = inject('eventBus', null)
 // Annotation colors from localStorage (provided by SequenceEditor)
 const annotationColors = inject('annotationColors', null)
-// Region registry for context menu delegation (optional, may not be provided)
-const regionRegistry = inject('regionRegistry', null)
 // Selection state for context menu items (optional)
 const selection = inject('selection', null)
 
@@ -158,51 +156,69 @@ const fragmentsByLine = computed(() => {
 })
 
 // ============================================
-// Region Registry Integration
+// Context Menu Items via elementsFromPoint
 // ============================================
 
-// Generate unique layer ID for this instance
-const layerId = `annotation-layer-${Math.random().toString(36).substr(2, 9)}`
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'annotation') return false
 
-// Computed regions for registry - maps annotation fragments to hit-testable regions
-const regions = computed(() => {
-  if (!visible.value) return []  // Don't register regions when hidden
+  const annotationId = dataset.annotationId
+  if (!annotationId) return false
 
-  const result = []
-  const lineHeight = graphics.lineHeight.value
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
+  if (!annotation) return false
 
-  for (const [lineIndex, elements] of elementsByLine.value) {
-    const lineY = graphics.getLineY(lineIndex)
+  // Get the annotation's span
+  const span = annotation.span
+  if (!span) return false
 
-    for (const element of elements) {
-      const fragment = element.fragment
-      const annotation = fragment.annotation
+  // Emit click event for parent to handle (e.g., show tooltip)
+  emit('click', { event, annotation })
 
-      // Create region with bounds and metadata
-      result.push({
-        id: `ann-${annotation?.id ?? 'unknown'}-${lineIndex}-${element.left}`,
-        bounds: {
-          x: element.left,
-          y: lineY + element.deltaY - props.height,  // Top of the annotation
-          width: element.right - element.left,
-          height: props.height
-        },
-        zIndex: 10,  // Annotations have medium priority
-        metadata: {
-          annotation,
-          fragment,
-          lineIndex
-        }
-      })
+  // Select the annotation's span
+  if (selection) {
+    if (event.shiftKey && selection.isSelected?.value) {
+      // Shift+click: extend selection to include annotation
+      // For now, just select the annotation (extending multi-range is complex)
+      selection.select(span.toString())
+    } else if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd+click: add annotation span to existing selection
+      for (const range of span.ranges) {
+        selection.addRange(range)
+      }
+    } else {
+      // Normal click: select annotation span
+      selection.select(span.toString())
     }
   }
 
-  return result
-})
+  return true
+}
 
-// Context menu items for annotation regions
-function getContextMenuItems(regionId, metadata) {
-  const { annotation, fragment } = metadata
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'annotation') return []
+
+  const annotationId = dataset.annotationId
+  if (!annotationId) return []
+
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
   if (!annotation) return []
 
   const items = []
@@ -242,8 +258,8 @@ function getContextMenuItems(regionId, metadata) {
 
   // Merge segment options for multi-range annotations
   const spanRanges = annotation.span?.ranges
-  if (fragment?.rangeIndex !== undefined && spanRanges && spanRanges.length > 1) {
-    const rangeIndex = fragment.rangeIndex
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  if (rangeIndex !== undefined && spanRanges && spanRanges.length > 1) {
     const currentRange = spanRanges[rangeIndex]
 
     // Check if can merge with left (previous range)
@@ -255,7 +271,7 @@ function getContextMenuItems(regionId, metadata) {
           action: () => emit('contextmenu', {
             event: null,
             annotation,
-            fragment,
+            fragment: { rangeIndex },
             action: 'merge-left',
             rangeIndex
           })
@@ -272,7 +288,7 @@ function getContextMenuItems(regionId, metadata) {
           action: () => emit('contextmenu', {
             event: null,
             annotation,
-            fragment,
+            fragment: { rangeIndex },
             action: 'merge-right',
             rangeIndex
           })
@@ -282,13 +298,13 @@ function getContextMenuItems(regionId, metadata) {
   }
 
   // Split annotation option when cursor is strictly inside a range
-  if (selection?.isSelected?.value) {
+  if (selection?.isSelected?.value && rangeIndex !== undefined) {
     const selRanges = selection.domain.value?.ranges
     if (selRanges?.length === 1 && selRanges[0].start === selRanges[0].end) {
       const cursorPos = selRanges[0].start
 
-      if (fragment?.rangeIndex !== undefined && spanRanges?.[fragment.rangeIndex]) {
-        const targetRange = spanRanges[fragment.rangeIndex]
+      if (spanRanges?.[rangeIndex]) {
+        const targetRange = spanRanges[rangeIndex]
 
         // Check if cursor is strictly inside (not at boundaries)
         if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
@@ -297,9 +313,9 @@ function getContextMenuItems(regionId, metadata) {
             action: () => emit('contextmenu', {
               event: null,
               annotation,
-              fragment,
+              fragment: { rangeIndex },
               action: 'split',
-              rangeIndex: fragment.rangeIndex,
+              rangeIndex,
               splitPosition: cursorPos
             })
           })
@@ -310,24 +326,6 @@ function getContextMenuItems(regionId, metadata) {
 
   return items
 }
-
-// Register with region registry if available
-onMounted(() => {
-  if (regionRegistry) {
-    regionRegistry.registerLayer({
-      id: layerId,
-      regions,
-      getContextMenuItems
-    })
-  }
-})
-
-// Unregister on unmount
-onUnmounted(() => {
-  if (regionRegistry) {
-    regionRegistry.unregisterLayer(layerId)
-  }
-})
 
 // Calculate x position for a fragment
 function getFragmentX(fragment) {
@@ -387,9 +385,15 @@ function getArrowPath(fragment) {
 }
 
 // Event handlers
+// Click handler for direct element clicks (routes to handleClickForElement)
 function handleClick(event, fragment) {
-  event.stopPropagation()  // Prevent bubbling to SVG mousedown
-  emit('click', { event, annotation: fragment.annotation, fragment })
+  event.stopPropagation()  // Prevent bubbling to SVG
+  const dataset = {
+    layer: 'annotation',
+    annotationId: fragment.annotation?.id,
+    rangeIndex: fragment.rangeIndex?.toString()
+  }
+  handleClickForElement(dataset, event)
 }
 
 function handleContextMenu(event, fragment) {
@@ -500,7 +504,7 @@ function requestEditAnnotation(annotation) {
   emit('edit-annotation', { annotation })
 }
 
-// Expose for testing and visibility control
+// Expose for testing, visibility control, and click/context menu integration
 defineExpose({
   showAnnotations,
   visible,
@@ -510,7 +514,9 @@ defineExpose({
   getFragmentWidth,
   annotationDeltaYByLine,
   deleteAnnotation,
-  requestEditAnnotation
+  requestEditAnnotation,
+  handleClickForElement,
+  getMenuItemsForElement
 })
 </script>
 
@@ -551,6 +557,9 @@ defineExpose({
         :key="`elem-${element.fragment.id}-${elemIndex}`"
         :class="['annotation-fragment', element.fragment.cssClass]"
         :transform="`translate(0, ${element.deltaY - (element.reserveTranslationSpace ? TRANSLATION_HEIGHT : 0)})`"
+        data-layer="annotation"
+        :data-annotation-id="element.fragment.annotation?.id"
+        :data-range-index="element.fragment.rangeIndex"
         @click="handleClick($event, element.fragment)"
         @contextmenu="handleContextMenu($event, element.fragment)"
         @mouseenter="handleMouseEnter($event, element.fragment)"

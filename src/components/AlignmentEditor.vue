@@ -6,7 +6,6 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
-import { useRegionRegistry } from '../composables/useRegionRegistry.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment } from '../utils/alignment.js'
@@ -119,9 +118,6 @@ const eventBus = createEventBus()
 
 // Selection is owned here and provided to children (single source of truth)
 const selection = useSelection(editorState, graphics, eventBus)
-
-// Region registry for hit-testing and context menu delegation to layers
-const regionRegistry = useRegionRegistry()
 
 // ============================================
 // Alignment Computation
@@ -412,8 +408,6 @@ provide('editorState', editorState)
 provide('graphics', graphics)
 provide('eventBus', eventBus)
 provide('selection', selection)
-provide('regionRegistry', regionRegistry)
-
 // Alignment mode state - provided for SequenceLayer and AlignmentTicksLayer
 const isAlignmentMode = computed(() => true)  // Always true for this component
 provide('isAlignmentMode', isAlignmentMode)
@@ -473,6 +467,8 @@ const containerRef = ref(null)
 const svgRef = ref(null)
 const measureRef = ref(null)
 const selectionLayerRef = ref(null)
+const targetSequenceLayerRef = ref(null)
+const querySequenceLayerRef = ref(null)
 
 // Zoom levels for selector
 const zoomLevels = [50, 75, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -586,7 +582,33 @@ function buildContextMenuItems(context) {
 
 function showContextMenu(event, context = {}) {
   event.preventDefault()
-  contextMenuItems.value = buildContextMenuItems(context)
+  const items = buildContextMenuItems(context)
+
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+  const layerItems = []
+
+  // Collect menu items from all layers
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
+
+    // Check each layer ref for matching items
+    const layerMenuItems = [
+      ...(selectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(targetSequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(querySequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
+    ]
+
+    layerItems.push(...layerMenuItems)
+  }
+
+  // Add layer items with separator
+  if (layerItems.length > 0) {
+    items.push({ separator: true })
+    items.push(...layerItems)
+  }
+
+  contextMenuItems.value = items
   if (contextMenuItems.value.length === 0) return
 
   contextMenuX.value = event.clientX
@@ -606,6 +628,38 @@ function handleSelectionChange(data) {
 // Background click - clear selection
 function handleBackgroundClick(event) {
   if (event.button !== 0) return
+  selection.unselect()
+}
+
+/**
+ * Unified click handler for the SVG.
+ * Routes clicks through layers using elementsFromPoint with priority order:
+ * Selection > TargetSequence > QuerySequence.
+ * If no layer handles the click, clears selection (background click).
+ *
+ * @param {MouseEvent} event - The click event
+ */
+function handleSvgClick(event) {
+  // Skip if not left-click
+  if (event.button !== 0) return
+
+  // Focus the SVG so keyboard shortcuts work
+  focusSvg()
+
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+
+  // Priority order: Selection > TargetSequence > QuerySequence
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
+
+    // Try each layer in priority order
+    if (selectionLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (targetSequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (querySequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+  }
+
+  // No layer handled it - clear selection (background click)
   selection.unselect()
 }
 
@@ -838,7 +892,7 @@ const toolbarHelpText = `Selection Controls:
           :height="svgHeight"
           tabindex="0"
           @keydown="handleKeyDown"
-          @click="focusSvg"
+          @click="handleSvgClick"
           @selectstart.prevent
           @dragstart.prevent
           @contextmenu.prevent
@@ -879,6 +933,7 @@ const toolbarHelpText = `Selection Controls:
           <!-- Sequence Layers - alignment mode (two separate layers for target and query) -->
           <template v-if="hasAlignment">
             <SequenceLayer
+              ref="targetSequenceLayerRef"
               mode="target"
               :document="targetDoc"
               :lines="alignmentLines"
@@ -889,6 +944,7 @@ const toolbarHelpText = `Selection Controls:
               @contextmenu="handleSequenceLayerContextMenu"
             />
             <SequenceLayer
+              ref="querySequenceLayerRef"
               mode="query"
               :document="queryDoc"
               :lines="alignmentLines"

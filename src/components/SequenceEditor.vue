@@ -6,7 +6,6 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
-import { useRegionRegistry } from '../composables/useRegionRegistry.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
@@ -324,9 +323,6 @@ const eventBus = createEventBus()
 // Selection is owned here and provided to children (single source of truth)
 const selection = useSelection(editorState, graphics, eventBus)
 
-// Region registry for hit-testing and context menu delegation to layers
-const regionRegistry = useRegionRegistry()
-
 // Local copy of annotations for optimistic UI updates
 // This allows us to adjust annotation positions locally before server confirmation
 const localAnnotations = computed(() => targetDoc.value?.annotations ?? [])
@@ -612,6 +608,7 @@ const showTranslation = ref(true)
 // Refs to layer components
 const annotationLayerRef = ref(null)
 const translationLayerRef = ref(null)
+const sequenceLayerRef = ref(null)
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
@@ -842,7 +839,6 @@ provide('editorState', editorState)
 provide('graphics', graphics)
 provide('eventBus', eventBus)
 provide('selection', selection)  // Single source of truth for selection
-provide('regionRegistry', regionRegistry)  // Region registry for context menu delegation
 provide('annotationColors', annotationColors)  // Colors persisted to localStorage
 provide('showAnnotations', showAnnotations)  // Shared visibility for annotation layers
 provide('showTranslation', showTranslation)  // Shared visibility for translation layer
@@ -1070,7 +1066,7 @@ function buildGlobalContextMenuItems() {
 }
 
 /**
- * Build context menu using region registry for hit-testing.
+ * Build context menu using elementsFromPoint for hit-testing.
  * Combines global items with region-specific items from layers.
  *
  * @param {MouseEvent} event - The contextmenu event
@@ -1080,18 +1076,28 @@ function buildGlobalContextMenuItems() {
 function buildContextMenuFromRegistry(event, context = {}) {
   const items = buildGlobalContextMenuItems()
 
-  // Hit-test the registry to find which region was clicked
-  if (svgRef.value && regionRegistry) {
-    const svgRect = svgRef.value.getBoundingClientRect()
-    const x = event.clientX - svgRect.left
-    const y = event.clientY - svgRect.top
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+  const layerItems = []
 
-    const { region, items: regionItems } = regionRegistry.getContextMenuItemsAtPoint(x, y, 'linear')
+  // Collect menu items from all layers
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
 
-    if (region && regionItems.length > 0) {
-      items.push({ separator: true })
-      items.push(...regionItems)
-    }
+    // Check each layer ref for matching items
+    const layerMenuItems = [
+      ...(annotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(selectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(sequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
+    ]
+
+    layerItems.push(...layerMenuItems)
+  }
+
+  // Add layer items with separator
+  if (layerItems.length > 0) {
+    items.push({ separator: true })
+    items.push(...layerItems)
   }
 
   // Extension items
@@ -1431,6 +1437,38 @@ function hideContextMenu() {
 // Handle clicks on SVG background (null space) - clears selection
 function handleBackgroundClick(event) {
   if (event.button !== 0) return // Left click only
+  selection.unselect()
+}
+
+/**
+ * Unified click handler for the SVG.
+ * Routes clicks through layers using elementsFromPoint with priority order:
+ * Annotation > Selection > Sequence.
+ * If no layer handles the click, clears selection (background click).
+ *
+ * @param {MouseEvent} event - The click event
+ */
+function handleSvgClick(event) {
+  // Skip if not left-click
+  if (event.button !== 0) return
+
+  // Focus the SVG so keyboard shortcuts work
+  focusSvg()
+
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+
+  // Priority order: Annotation > Selection > Sequence
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
+
+    // Try each layer in priority order
+    if (annotationLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (selectionLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (sequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+  }
+
+  // No layer handled it - clear selection (background click)
   selection.unselect()
 }
 
@@ -2514,7 +2552,7 @@ const toolbarHelpText = `Selection Controls:
         :height="svgHeight"
         tabindex="0"
         @keydown="handleKeyDown"
-        @click="focusSvg"
+        @click="handleSvgClick"
         @selectstart.prevent
         @dragstart.prevent
         @contextmenu.prevent
@@ -2555,6 +2593,7 @@ const toolbarHelpText = `Selection Controls:
         <!-- Sequence Layer -->
         <SequenceLayer
           v-if="editorState.sequenceLength.value > 0"
+          ref="sequenceLayerRef"
           :document="targetDoc"
           @select="handleSelectionChange"
           @contextmenu="handleSequenceLayerContextMenu"

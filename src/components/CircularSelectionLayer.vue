@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { getArcPath, polarToCartesian } from '../utils/circular.js'
 
@@ -17,7 +17,6 @@ const emit = defineEmits(['select', 'contextmenu', 'merge', 'handle-contextmenu'
 const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const selection = inject('selection')
-const regionRegistry = inject('regionRegistry', null)
 
 // Tab handle dimensions (smaller version)
 const tabWidth = 8
@@ -506,13 +505,6 @@ function handleDragEnd() {
   }
 }
 
-function handlePathClick(event, rangeIndex) {
-  // Shift-click triggers context menu (Mac-friendly alternative to right-click)
-  if (event.shiftKey) {
-    handlePathContextMenu(event, rangeIndex)
-  }
-}
-
 function handlePathContextMenu(event, rangeIndex) {
   event.preventDefault()
   event.stopPropagation()
@@ -522,13 +514,6 @@ function handlePathContextMenu(event, rangeIndex) {
     rangeIndex,
     range: selection.domain.value.ranges[rangeIndex]
   })
-}
-
-function handleHandleClick(event, rangeIndex, handleType) {
-  // Shift-click triggers context menu (Mac-friendly alternative to right-click)
-  if (event.shiftKey) {
-    handleHandleContextMenu(event, rangeIndex, handleType)
-  }
 }
 
 function handleHandleContextMenu(event, rangeIndex, handleType) {
@@ -546,119 +531,84 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
 }
 
 // ============================================
-// Region Registry Integration
+// Click/Context Menu Items via elementsFromPoint
 // ============================================
 
-// Generate unique layer ID for this instance
-const layerId = `circular-selection-layer-${Math.random().toString(36).substr(2, 9)}`
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'circular-selection') return false
 
-// Computed regions for registry - uses polar coordinates (theta, r)
-const regions = computed(() => {
-  if (!selection.isSelected.value || !selection.domain.value) return []
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  const handleType = dataset.handleType
+  const domain = selection.domain.value
 
-  const result = []
-  const seqLen = editorState.sequenceLength.value
-  if (!seqLen) return []
+  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return false
 
-  const backboneRadius = circularGraphics.backboneRadius.value
-  const rowCount = circularGraphics.annotationRowCount.value || 0
-  const innerRadius = backboneRadius - 4
-  const outerRadius = circularGraphics.getRowRadius(Math.max(0, rowCount - 1)) +
-                      circularGraphics.annotationHeight.value / 2 + 8
-
-  for (let i = 0; i < selection.domain.value.ranges.length; i++) {
-    const range = selection.domain.value.ranges[i]
-
-    // Convert sequence positions to angles
-    const startTheta = (range.start / seqLen) * 2 * Math.PI
-    const endTheta = (range.end / seqLen) * 2 * Math.PI
-    let dTheta = endTheta - startTheta
-    if (dTheta < 0) dTheta += 2 * Math.PI  // Handle wrap-around
-
-    // Selection arc region
-    result.push({
-      id: `circ-sel-range-${i}`,
-      bounds: {
-        theta: startTheta,
-        r: innerRadius,
-        dTheta: dTheta || 0.001,  // Avoid zero for cursor
-        dR: outerRadius - innerRadius
-      },
-      zIndex: 20,
-      metadata: {
-        type: 'selection',
-        rangeIndex: i,
-        range
-      }
-    })
-
-    // Handle regions (approximate)
-    const handleAngularSize = 0.02  // Small angular region for handles
-    const handleRadialSize = 15
-
-    // Start handle
-    result.push({
-      id: `circ-sel-handle-${i}-start`,
-      bounds: {
-        theta: startTheta - handleAngularSize / 2,
-        r: outerRadius,
-        dTheta: handleAngularSize,
-        dR: handleRadialSize
-      },
-      zIndex: 25,
-      metadata: {
-        type: 'handle',
-        rangeIndex: i,
-        handleType: 'start',
-        range
-      }
-    })
-
-    // End handle
-    result.push({
-      id: `circ-sel-handle-${i}-end`,
-      bounds: {
-        theta: endTheta - handleAngularSize / 2,
-        r: outerRadius,
-        dTheta: handleAngularSize,
-        dR: handleRadialSize
-      },
-      zIndex: 25,
-      metadata: {
-        type: 'handle',
-        rangeIndex: i,
-        handleType: 'end',
-        range
-      }
-    })
+  // Handle clicks: do nothing special - drag is via mousedown
+  if (handleType) {
+    // Shift+click on handle shows context menu
+    if (event.shiftKey) {
+      handleHandleContextMenu(event, rangeIndex, handleType)
+    }
+    return true  // Handled - prevent other layers from processing
   }
 
-  return result
-})
+  // Path clicks: do nothing special - selection already exists
+  // Shift+click shows context menu
+  if (event.shiftKey) {
+    handlePathContextMenu(event, rangeIndex)
+  }
 
-// Context menu items for circular selection regions
-function getContextMenuItems(regionId, metadata) {
+  return true  // Handled - prevent other layers from processing
+}
+
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'circular-selection') return []
+
   const items = []
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  const handleType = dataset.handleType
+  const domain = selection.domain.value
 
-  if (metadata.type === 'selection') {
+  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return []
+
+  const range = domain.ranges[rangeIndex]
+
+  if (handleType) {
+    // Handle context menu items
+    items.push({
+      label: 'Extend to position...',
+      action: () => emit('handle-contextmenu', {
+        event: null,
+        rangeIndex,
+        range,
+        handleType
+      })
+    })
+  } else {
+    // Selection arc context menu items
     items.push({
       label: 'Copy selection',
       action: () => emit('contextmenu', {
         event: null,
         source: 'selection',
-        rangeIndex: metadata.rangeIndex,
-        range: metadata.range,
+        rangeIndex,
+        range,
         action: 'copy'
-      })
-    })
-  } else if (metadata.type === 'handle') {
-    items.push({
-      label: 'Extend to position...',
-      action: () => emit('handle-contextmenu', {
-        event: null,
-        rangeIndex: metadata.rangeIndex,
-        range: metadata.range,
-        handleType: metadata.handleType
       })
     })
   }
@@ -666,22 +616,10 @@ function getContextMenuItems(regionId, metadata) {
   return items
 }
 
-// Register with region registry if available
-onMounted(() => {
-  if (regionRegistry) {
-    regionRegistry.registerLayer({
-      id: layerId,
-      regions,
-      getContextMenuItems
-    })
-  }
-})
-
-// Unregister on unmount
-onUnmounted(() => {
-  if (regionRegistry) {
-    regionRegistry.unregisterLayer(layerId)
-  }
+// Expose for click routing and context menu integration
+defineExpose({
+  handleClickForElement,
+  getMenuItemsForElement
 })
 </script>
 
@@ -692,7 +630,8 @@ onUnmounted(() => {
       <path
         :d="sel.path"
         :class="sel.cssClass"
-        @click="handlePathClick($event, sel.index)"
+        data-layer="circular-selection"
+        :data-range-index="sel.index"
         @contextmenu="handlePathContextMenu($event, sel.index)"
       />
 
@@ -705,8 +644,10 @@ onUnmounted(() => {
           sel.startAngle
         )"
         :class="getHandleCssClass(sel.range)"
+        data-layer="circular-selection"
+        :data-range-index="sel.index"
+        data-handle-type="start"
         @mousedown="startHandleDrag($event, sel.index, 'start')"
-        @click="handleHandleClick($event, sel.index, 'start')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'start')"
       />
 
@@ -720,8 +661,10 @@ onUnmounted(() => {
           sel.endAngle
         )"
         :class="getHandleCssClass(sel.range)"
+        data-layer="circular-selection"
+        :data-range-index="sel.index"
+        data-handle-type="end"
         @mousedown="startHandleDrag($event, sel.index, 'end')"
-        @click="handleHandleClick($event, sel.index, 'end')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'end')"
       />
 

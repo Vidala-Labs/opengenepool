@@ -215,6 +215,52 @@ function handleOriginDragStart(event) {
   if (!props.draggableOrigin) return
   emit('origin-drag-start', event)
 }
+
+// ============================================
+// Click/Context Menu Items via elementsFromPoint
+// ============================================
+
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * CircularSequenceLayer handles selection via mousedown (drag-based), so clicks here
+ * just return true to prevent the "clear selection" fallback from firing.
+ * The actual selection logic has already happened in the mousedown/mouseup cycle.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'circular-sequence') return false
+
+  // Selection is handled via mousedown/mouseup, not click.
+  // Return true to prevent the "clear selection" fallback from undoing
+  // the selection that was just made via the mousedown/mouseup cycle.
+  return true
+}
+
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ * CircularSequenceLayer doesn't provide context menu items - global items are handled by the editor.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element (empty for sequence layer)
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'circular-sequence') return []
+  // CircularSequenceLayer doesn't provide specific context menu items
+  // Global items (Copy, Paste, Select All, etc.) are handled by the editor
+  return []
+}
+
+// Expose for click routing and context menu integration
+defineExpose({
+  handleClickForElement,
+  getMenuItemsForElement
+})
 </script>
 
 <template>
@@ -223,6 +269,7 @@ function handleOriginDragStart(event) {
     <path
       :d="backbonePath"
       class="backbone"
+      data-layer="circular-sequence"
       @mousedown="handleMouseDown"
       @contextmenu="handleContextMenu"
     />

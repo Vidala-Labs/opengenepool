@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { GraphicsSpan } from '../composables/useGraphics.js'
 import { Orientation } from '../utils/dna.js'
 
@@ -45,9 +45,6 @@ const graphics = inject('graphics')
 
 // Selection is injected from parent (single source of truth)
 const selection = inject('selection')
-
-// Region registry for context menu delegation (optional, may not be provided)
-const regionRegistry = inject('regionRegistry', null)
 
 // Handle drag state
 const draggedHandle = ref(null) // { rangeIndex, type: 'start'|'end' }
@@ -247,105 +244,76 @@ const selectionPaths = computed(() => {
 })
 
 // ============================================
-// Region Registry Integration
+// Click/Context Menu Items via elementsFromPoint
 // ============================================
 
-// Generate unique layer ID for this instance
-const layerId = `selection-layer-${Math.random().toString(36).substr(2, 9)}`
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'selection') return false
 
-// Computed regions for registry - maps selection paths to hit-testable regions
-const regions = computed(() => {
-  if (!selection.isSelected.value) return []
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  const handleType = dataset.handleType
+  const domain = selection.domain.value
 
-  const result = []
-  const lineHeight = graphics.lineHeight.value
-  const m = graphics.metrics.value
+  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return false
 
-  // Add regions for each selection path
-  for (const sel of selectionPaths.value) {
-    if (!sel.isFirstFragment) continue  // Only register first fragment of multi-line selections
-
-    const range = sel.range
-    const rangeIndex = sel.index
-
-    // Get bounds from the path's handle positions
-    const startX = sel.handleStart?.x ?? m.lmargin
-    const endX = sel.handleEnd?.x ?? (m.lmargin + m.lineWidth)
-    const startY = sel.handleStart?.y ?? 0
-    const endY = sel.handleEnd?.y ?? lineHeight
-
-    // Selection path region
-    result.push({
-      id: `sel-range-${rangeIndex}`,
-      bounds: {
-        x: startX,
-        y: Math.min(startY, endY),
-        width: endX - startX,
-        height: Math.abs(endY - startY) || lineHeight
-      },
-      zIndex: 20,  // Selection has high priority
-      metadata: {
-        type: 'selection',
-        rangeIndex,
-        range
-      }
-    })
-
-    // Start handle region
-    if (sel.handleStart) {
-      const handleSize = 12  // Approximate handle size
-      result.push({
-        id: `sel-handle-${rangeIndex}-start`,
-        bounds: {
-          x: sel.handleStart.x - handleSize / 2,
-          y: sel.handleStart.y - handleSize / 2,
-          width: handleSize,
-          height: handleSize
-        },
-        zIndex: 25,  // Handles have highest priority
-        metadata: {
-          type: 'handle',
-          rangeIndex,
-          handleType: 'start',
-          range
-        }
-      })
+  // Handle clicks: do nothing special - drag is via mousedown
+  if (handleType) {
+    // Shift+click on handle shows context menu
+    if (event.shiftKey) {
+      handleHandleContextMenu(event, rangeIndex, handleType)
     }
-
-    // End handle region
-    if (sel.handleEnd) {
-      const handleSize = 12
-      result.push({
-        id: `sel-handle-${rangeIndex}-end`,
-        bounds: {
-          x: sel.handleEnd.x - handleSize / 2,
-          y: sel.handleEnd.y - handleSize / 2,
-          width: handleSize,
-          height: handleSize
-        },
-        zIndex: 25,
-        metadata: {
-          type: 'handle',
-          rangeIndex,
-          handleType: 'end',
-          range
-        }
-      })
-    }
+    return true  // Handled - prevent other layers from processing
   }
 
-  return result
-})
+  // Path clicks: do nothing special - selection already exists
+  // Shift+click shows context menu
+  if (event.shiftKey) {
+    handlePathContextMenu(event, rangeIndex)
+  }
 
-// Context menu items for selection regions
-function getContextMenuItems(regionId, metadata) {
+  return true  // Handled - prevent other layers from processing
+}
+
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'selection') return []
+
   const items = []
-  // Orientation is already imported at the top of the file
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  const handleType = dataset.handleType
+  const domain = selection.domain.value
 
-  if (metadata.type === 'selection') {
-    const range = metadata.range
-    const rangeIndex = metadata.rangeIndex
-    const domain = selection.domain.value
+  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return []
+
+  const range = domain.ranges[rangeIndex]
+
+  if (handleType) {
+    // Handle context menu items
+    items.push({
+      label: 'Extend to position...',
+      action: () => emit('handle-contextmenu', {
+        event: null,
+        rangeIndex,
+        range,
+        handleType
+      })
+    })
+  } else {
+    // Selection path context menu items
 
     // Copy selection
     items.push({
@@ -380,7 +348,7 @@ function getContextMenuItems(regionId, metadata) {
     }
 
     // Multi-range operations
-    if (domain && domain.ranges.length > 1) {
+    if (domain.ranges.length > 1) {
       items.push({
         label: 'Delete this range',
         action: () => selection.deleteRange(rangeIndex)
@@ -398,39 +366,10 @@ function getContextMenuItems(regionId, metadata) {
         })
       }
     }
-  } else if (metadata.type === 'handle') {
-    // Handle context menu items
-    items.push({
-      label: 'Extend to position...',
-      action: () => emit('handle-contextmenu', {
-        event: null,
-        rangeIndex: metadata.rangeIndex,
-        range: metadata.range,
-        handleType: metadata.handleType
-      })
-    })
   }
 
   return items
 }
-
-// Register with region registry if available
-onMounted(() => {
-  if (regionRegistry) {
-    regionRegistry.registerLayer({
-      id: layerId,
-      regions,
-      getContextMenuItems
-    })
-  }
-})
-
-// Unregister on unmount
-onUnmounted(() => {
-  if (regionRegistry) {
-    regionRegistry.unregisterLayer(layerId)
-  }
-})
 
 // Compute merge bubbles for touching range pairs
 // Only show merge bubbles for injected selection, not custom ranges
@@ -784,14 +723,6 @@ function handleDragEnd() {
   }
 }
 
-// Selection path click handler
-function handlePathClick(event, rangeIndex) {
-  // Shift-click triggers context menu (Mac-friendly alternative to right-click)
-  if (event.shiftKey) {
-    handlePathContextMenu(event, rangeIndex)
-  }
-}
-
 function handlePathMouseDown(event, rangeIndex) {
   // Ctrl+click should add a new range - emit event so parent can handle it
   if (event.ctrlKey) {
@@ -810,13 +741,6 @@ function handlePathContextMenu(event, rangeIndex) {
   })
 }
 
-function handleHandleClick(event, rangeIndex, handleType) {
-  // Shift-click triggers context menu (Mac-friendly alternative to right-click)
-  if (event.shiftKey) {
-    handleHandleContextMenu(event, rangeIndex, handleType)
-  }
-}
-
 function handleHandleContextMenu(event, rangeIndex, handleType) {
   event.preventDefault()
   event.stopPropagation()
@@ -831,9 +755,11 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
   })
 }
 
-// Expose for parent component
+// Expose for parent component, click routing, and context menu integration
 defineExpose({
-  selection
+  selection,
+  handleClickForElement,
+  getMenuItemsForElement
 })
 </script>
 
@@ -845,8 +771,9 @@ defineExpose({
       <path
         :d="sel.path"
         :class="sel.cssClass"
+        data-layer="selection"
+        :data-range-index="sel.index"
         @mousedown="handlePathMouseDown($event, sel.index)"
-        @click="handlePathClick($event, sel.index)"
         @contextmenu="handlePathContextMenu($event, sel.index)"
       />
 
@@ -855,8 +782,10 @@ defineExpose({
         v-if="sel.handleStart"
         :d="getTrianglePath(sel.handleStart.x, sel.handleStart.y, sel.isQuery)"
         :class="getHandleCssClass(sel.range)"
+        data-layer="selection"
+        :data-range-index="sel.index"
+        data-handle-type="start"
         @mousedown="startHandleDrag($event, sel.index, 'start')"
-        @click="handleHandleClick($event, sel.index, 'start')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'start')"
       />
 
@@ -865,8 +794,10 @@ defineExpose({
         v-if="sel.handleEnd"
         :d="getTrianglePath(sel.handleEnd.x, sel.handleEnd.y, sel.isQuery)"
         :class="getHandleCssClass(sel.range)"
+        data-layer="selection"
+        :data-range-index="sel.index"
+        data-handle-type="end"
         @mousedown="startHandleDrag($event, sel.index, 'end')"
-        @click="handleHandleClick($event, sel.index, 'end')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'end')"
       />
 

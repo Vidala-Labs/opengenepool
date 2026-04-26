@@ -6,7 +6,6 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
-import { useRegionRegistry } from '../composables/useRegionRegistry.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation, reverseComplement } from '../utils/dna.js'
@@ -95,12 +94,10 @@ const graphics = useGraphics(editorState)
 const eventBus = createEventBus()
 const selection = useSelection(editorState, graphics, eventBus)
 const circularGraphics = useCircularGraphics(editorState)
-const regionRegistry = useRegionRegistry()
 
 // Provide state to child components
 provide('editorState', editorState)
 provide('graphics', graphics)
-provide('regionRegistry', regionRegistry)
 provide('eventBus', eventBus)
 provide('selection', selection)
 provide('circularGraphics', circularGraphics)
@@ -109,6 +106,11 @@ provide('annotationColors', ref(null))
 // SVG ref
 const svgRef = ref(null)
 const containerRef = ref(null)
+
+// Refs to layer components
+const circularAnnotationLayerRef = ref(null)
+const circularSelectionLayerRef = ref(null)
+const circularSequenceLayerRef = ref(null)
 
 // ============================================
 // Document Sync
@@ -373,6 +375,36 @@ function handleMouseUp() {
   }
 }
 
+/**
+ * Unified click handler for the circular SVG.
+ * Routes clicks through layers using elementsFromPoint with priority order:
+ * Annotation > Selection > Sequence.
+ * If no layer handles the click, clears selection (background click).
+ *
+ * @param {MouseEvent} event - The click event
+ */
+function handleSvgClick(event) {
+  // Skip if not left-click
+  if (event.button !== 0) return
+
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+
+  // Priority order: Annotation > Selection > Sequence
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
+
+    // Try each layer in priority order
+    if (circularAnnotationLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (circularSelectionLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (circularSequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+  }
+
+  // No layer handled it - this is a background click
+  // Note: Dead zone clearing is handled by handleMouseDown, so we don't need to
+  // clear selection here - the mousedown/mouseup cycle handles that.
+}
+
 // ============================================
 // Zoom Dragging
 // ============================================
@@ -547,31 +579,33 @@ function buildGlobalContextMenuItems() {
 }
 
 /**
- * Build context menu using region registry for hit-testing (circular mode).
+ * Build context menu using elementsFromPoint for hit-testing (circular mode).
  */
 function buildContextMenuFromRegistry(event) {
   const items = buildGlobalContextMenuItems()
 
-  // Hit-test the registry to find which region was clicked
-  if (regionRegistry) {
-    const coords = getCoordsFromEvent(event)
-    if (coords) {
-      // Calculate theta and r from mouse coordinates
-      const dx = coords.x - circularGraphics.centerX.value
-      const dy = coords.y - circularGraphics.centerY.value
-      const theta = Math.atan2(dy, dx)
-      const r = Math.sqrt(dx * dx + dy * dy)
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+  const layerItems = []
 
-      // Normalize theta to [0, 2π)
-      const normalizedTheta = theta < 0 ? theta + 2 * Math.PI : theta
+  // Collect menu items from all layers
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
 
-      const { region, items: regionItems } = regionRegistry.getContextMenuItemsAtPoint(normalizedTheta, r, 'circular')
+    // Check each layer ref for matching items
+    const layerMenuItems = [
+      ...(circularAnnotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(circularSelectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(circularSequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
+    ]
 
-      if (region && regionItems.length > 0) {
-        items.push({ separator: true })
-        items.push(...regionItems)
-      }
-    }
+    layerItems.push(...layerMenuItems)
+  }
+
+  // Add layer items with separator
+  if (layerItems.length > 0) {
+    items.push({ separator: true })
+    items.push(...layerItems)
   }
 
   return items
@@ -978,6 +1012,7 @@ defineExpose({
           :viewBox="circularGraphics.viewBox.value"
           preserveAspectRatio="xMidYMid meet"
           @mousedown="handleMouseDown"
+          @click="handleSvgClick"
           @contextmenu="handleContextMenu"
         >
           <!-- Background -->
@@ -991,6 +1026,7 @@ defineExpose({
 
           <!-- Sequence layer (backbone + tick marks) -->
           <CircularSequenceLayer
+            ref="circularSequenceLayerRef"
             :draggable-origin="true"
             @select="handleSelectionChange"
             @contextmenu="handleSequenceContextMenu"
@@ -999,6 +1035,7 @@ defineExpose({
 
           <!-- Selection layer -->
           <CircularSelectionLayer
+            ref="circularSelectionLayerRef"
             @select="handleSelectionChange"
             @contextmenu="handleSelectionContextMenu"
             @handle-contextmenu="handleHandleContextMenu"
@@ -1006,6 +1043,7 @@ defineExpose({
 
           <!-- Annotation layer -->
           <CircularAnnotationLayer
+            ref="circularAnnotationLayerRef"
             :annotations="annotationInstances"
             :show-captions="showAnnotationCaptions"
             @click="handleAnnotationClick"

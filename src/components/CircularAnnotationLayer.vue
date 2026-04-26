@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { useCircularAnnotations } from '../composables/useCircularAnnotations.js'
 
 const props = defineProps({
@@ -23,7 +23,6 @@ const circularGraphics = inject('circularGraphics')
 const annotationColors = inject('annotationColors', null)
 const showAnnotations = inject('showAnnotations', ref(true))
 const eventBus = inject('eventBus', null)
-const regionRegistry = inject('regionRegistry', null)
 
 // Use the circular annotations composable
 const circularAnnotations = useCircularAnnotations(
@@ -44,10 +43,14 @@ const annotationElements = computed(() => {
 const { captionFits } = circularAnnotations
 
 // Event handlers - emit to parent and delegate to composable
+// Click handler for direct element clicks (routes to handleClickForElement)
 function handleClick(event, element) {
-  event.stopPropagation()
-  emit('click', { event, annotation: element.annotation })
-  circularAnnotations.handleClick(element.annotation, event)
+  event.stopPropagation()  // Prevent bubbling to SVG
+  const dataset = {
+    layer: 'circular-annotation',
+    annotationId: element.annotation?.id
+  }
+  handleClickForElement(dataset, event)
 }
 
 function handleContextMenu(event, element) {
@@ -66,58 +69,50 @@ function handleMouseLeave(event, element) {
 }
 
 // ============================================
-// Region Registry Integration
+// Click/Context Menu Items via elementsFromPoint
 // ============================================
 
-// Generate unique layer ID for this instance
-const layerId = `circular-annotation-layer-${Math.random().toString(36).substr(2, 9)}`
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'circular-annotation') return false
 
-// Computed regions for registry - uses polar coordinates (theta, r)
-const regions = computed(() => {
-  if (!showAnnotations.value) return []
+  const annotationId = dataset.annotationId
+  if (!annotationId) return false
 
-  const result = []
-  const seqLen = editorState.sequenceLength.value
-  if (!seqLen) return []
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
+  if (!annotation) return false
 
-  for (const element of annotationElements.value) {
-    const annotation = element.annotation
-    if (!annotation?.span?.ranges) continue
+  // Emit click event for parent to handle
+  emit('click', { event, annotation })
 
-    // Each annotation may span multiple ranges
-    for (const range of annotation.span.ranges) {
-      // Convert sequence positions to angles
-      const startTheta = (range.start / seqLen) * 2 * Math.PI
-      const endTheta = (range.end / seqLen) * 2 * Math.PI
-      const dTheta = endTheta - startTheta
+  // TODO: Selection integration - could select annotation span here
+  // For now, just return true to indicate handled
+  return true
+}
 
-      // Get radial position from element
-      const r = element.innerRadius ?? circularGraphics.annotationInnerRadius.value
-      const dR = element.trackWidth ?? circularGraphics.annotationTrackWidth.value
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'circular-annotation') return []
 
-      result.push({
-        id: `circ-ann-${annotation.id}-${range.start}`,
-        bounds: {
-          theta: startTheta,
-          r,
-          dTheta: dTheta > 0 ? dTheta : 2 * Math.PI + dTheta,  // Handle wrap-around
-          dR
-        },
-        zIndex: 10,
-        metadata: {
-          annotation,
-          element
-        }
-      })
-    }
-  }
+  const annotationId = dataset.annotationId
+  if (!annotationId) return []
 
-  return result
-})
-
-// Context menu items for circular annotation regions
-function getContextMenuItems(regionId, metadata) {
-  const { annotation } = metadata
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
   if (!annotation) return []
 
   return [
@@ -132,22 +127,10 @@ function getContextMenuItems(regionId, metadata) {
   ]
 }
 
-// Register with region registry if available
-onMounted(() => {
-  if (regionRegistry) {
-    regionRegistry.registerLayer({
-      id: layerId,
-      regions,
-      getContextMenuItems
-    })
-  }
-})
-
-// Unregister on unmount
-onUnmounted(() => {
-  if (regionRegistry) {
-    regionRegistry.unregisterLayer(layerId)
-  }
+// Expose for click routing and context menu integration
+defineExpose({
+  handleClickForElement,
+  getMenuItemsForElement
 })
 </script>
 
@@ -168,6 +151,8 @@ onUnmounted(() => {
       v-for="(element, idx) in annotationElements"
       :key="`ann-${element.annotation.id || idx}`"
       class="annotation"
+      data-layer="circular-annotation"
+      :data-annotation-id="element.annotation?.id"
       @click="handleClick($event, element)"
       @contextmenu="handleContextMenu($event, element)"
       @mouseenter="handleMouseEnter($event, element)"
