@@ -1,5 +1,17 @@
 <script setup>
-import { Cog6ToothIcon, QuestionMarkCircleIcon } from '@heroicons/vue/24/outline'
+import { ref, useSlots } from 'vue'
+import { Cog6ToothIcon, QuestionMarkCircleIcon, InformationCircleIcon } from '@heroicons/vue/24/outline'
+
+const slots = useSlots()
+const infoPopupVisible = ref(false)
+
+function toggleInfoPopup() {
+  infoPopupVisible.value = !infoPopupVisible.value
+}
+
+function closeInfoPopup() {
+  infoPopupVisible.value = false
+}
 
 const props = defineProps({
   zoomLevel: {
@@ -72,6 +84,14 @@ function toggleConfigPanel() {
 
     <span v-if="titleVisible" class="info">
       <slot name="title" />
+      <button
+        v-if="slots.info"
+        class="info-button"
+        title="Show info"
+        @click="toggleInfoPopup"
+      >
+        <InformationCircleIcon class="icon-toolbar-sm" />
+      </button>
     </span>
 
     <div v-if="showViewModeToggle" class="view-mode-toggle">
@@ -115,6 +135,19 @@ function toggleConfigPanel() {
 
       <div v-if="configPanelOpen" class="config-panel" @click.stop>
         <slot name="config" />
+      </div>
+    </div>
+
+    <!-- Info Popup -->
+    <div v-if="infoPopupVisible && slots.info" class="info-popup-overlay" @click="closeInfoPopup">
+      <div class="info-popup" @click.stop>
+        <div class="info-popup-header">
+          <h3>Info</h3>
+          <button class="info-popup-close" @click="closeInfoPopup">&times;</button>
+        </div>
+        <div class="info-popup-content">
+          <slot name="info" />
+        </div>
       </div>
     </div>
   </div>
@@ -234,6 +267,84 @@ function toggleConfigPanel() {
 .icon-toolbar-lg {
   width: 1.25rem;
   height: 1.25rem;
+}
+
+.icon-toolbar-sm {
+  width: 1rem;
+  height: 1rem;
+}
+
+.info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.info-button:hover {
+  background: #e5e7eb;
+  color: #333;
+}
+
+/* Info Popup */
+.info-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.info-popup {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  min-width: 300px;
+  max-width: 500px;
+}
+
+.info-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.info-popup-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.info-popup-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  line-height: 1;
+  padding: 0;
+}
+
+.info-popup-close:hover {
+  color: #333;
+}
+
+.info-popup-content {
+  padding: 16px;
 }
 
 @media (max-width: 768px) {

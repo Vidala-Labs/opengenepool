@@ -2,13 +2,14 @@
 
 [![CI](https://github.com/Vidala-Labs/opengenepool/actions/workflows/ci.yml/badge.svg)](https://github.com/Vidala-Labs/opengenepool/actions/workflows/ci.yml)
 
-A Vue.js DNA sequence editor component for viewing and editing genetic sequences with professional annotation support.
+A Vue.js DNA sequence editor component library for viewing, editing, and annotating genetic sequences with professional annotation support.
 
 ## Features
 
 ### Views
 - **Linear View** - Sequence display with configurable zoom, position labels, and automatic line wrapping
 - **Circular View** - Plasmid visualization with draggable origin, zoom control, and origin-spanning selection support
+- **Alignment View** - Side-by-side sequence comparison with Smith-Waterman alignment
 
 ### Selection
 - **Multi-range Selection** - Select multiple non-contiguous regions with independent strand orientation
@@ -30,9 +31,10 @@ A Vue.js DNA sequence editor component for viewing and editing genetic sequences
 - **CDS Translation** - Automatic amino acid display for coding sequences
 
 ### Developer Features
-- **Backend Adapter** - Optional server communication for edits and annotation changes
+- **SequenceDocument** - Reactive document model for sequence and annotations
+- **AlignmentEditor** - Dedicated component for sequence alignment comparison
 - **Extensions** - Plugin system for extra functionality (see [EXTENSIONS.md](EXTENSIONS.md))
-- **Toolbar Slot** - Inject custom toolbar content from parent application
+- **Customizable Slots** - Title, toolbar, and config panel customization
 - **Exposed API** - Methods for programmatic control (setSelection, scrollToPosition, etc.)
 - **Event System** - Comprehensive events for selection, editing, and annotation interactions
 
@@ -47,92 +49,214 @@ npm install opengenepool
 ```vue
 <template>
   <SequenceEditor
-    :sequence="dnaSequence"
-    :annotations="annotations"
+    :sequence="doc"
     @edit="handleEdit"
   />
 </template>
 
 <script setup>
-import { SequenceEditor } from 'opengenepool'
+import { SequenceEditor, SequenceDocument } from 'opengenepool'
 
-const dnaSequence = 'ATCGATCG...'
-const annotations = [
-  { id: '1', caption: 'Gene A', type: 'gene', span: '0..500' },
-  { id: '2', caption: 'Promoter', type: 'promoter', span: '(500..600)' }
-]
+const doc = new SequenceDocument({
+  sequence: 'ATCGATCG...',
+  annotations: [
+    { id: '1', label: 'Gene A', type: 'gene', span: '0..500' },
+    { id: '2', label: 'Promoter', type: 'promoter', span: '(500..600)' }
+  ],
+  circular: true
+})
+
+function handleEdit(data) {
+  console.log('Edit:', data)
+}
 </script>
 ```
 
-## Props
+## Components
+
+### SequenceEditor
+
+The main component for viewing and editing a single sequence.
+
+#### Props
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `sequence` | String | `''` | DNA sequence (ATCGNRYSWKMBDHV) |
-| `title` | String | `''` | Sequence name displayed in toolbar |
-| `annotations` | Array | `[]` | Array of annotation objects |
-| `metadata` | Object | `{}` | Sequence metadata (circular, molecule_type, etc.) |
+| `sequence` | SequenceDocument | required | Document containing sequence, annotations, and metadata |
 | `initialZoom` | Number | `100` | Bases per line |
 | `readonly` | Boolean | `false` | Disable all editing operations |
-| `showAnnotationCaptions` | Boolean | `true` | Show labels on annotations |
-| `backend` | Object | `null` | Backend adapter for server communication |
+| `clipboardBackend` | Object | `null` | Custom clipboard handler |
 | `extensions` | Array | `[]` | Extension objects (see [EXTENSIONS.md](EXTENSIONS.md)) |
+| `tmCalculator` | Function | `null` | Custom melting temperature calculator |
 
-## Events
+#### Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `edit` | `{ type, text, position }` | Sequence was modified (insert/delete/cut) |
+| `edit` | `{ type, ranges, to }` | Sequence was modified |
 | `select` | `{ start, end, sequence }` | Selection changed |
-| `annotation-click` | `{ annotation, event }` | Annotation clicked |
-| `annotation-contextmenu` | `{ annotation, event }` | Annotation right-clicked |
-| `annotations-update` | `Array<Annotation>` | Annotations changed (standalone mode) |
+| `annotations-update` | `Array<Annotation>` | Annotations changed |
 | `ready` | - | Component initialized |
+
+### AlignmentEditor
+
+A dedicated component for comparing two sequences with Smith-Waterman alignment.
+
+```vue
+<template>
+  <AlignmentEditor
+    v-if="queryDoc"
+    ref="alignmentRef"
+    :target="targetDoc"
+    :query="queryDoc"
+  >
+    <template #title>
+      {{ name }} (alignment)
+    </template>
+    <template #info>
+      <!-- Info icon appears automatically when this slot is provided -->
+      <div>Score: {{ alignmentRef?.alignmentResult?.score }}</div>
+      <div>Identity: {{ alignmentRef?.alignmentResult?.identity }}%</div>
+    </template>
+  </AlignmentEditor>
+  <SequenceEditor v-else :sequence="targetDoc" />
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { AlignmentEditor, SequenceEditor, SequenceDocument } from 'opengenepool'
+
+const alignmentRef = ref(null)
+</script>
+```
+
+#### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `target` | SequenceDocument | required | The main sequence document |
+| `query` | SequenceDocument | required | The sequence to align against target |
+| `initialZoom` | Number | `100` | Bases per line |
+| `readonly` | Boolean | `false` | Disable editing |
+| `clipboardBackend` | Object | `null` | Custom clipboard handler |
+| `extensions` | Array | `[]` | Extension objects |
+
+#### Exposed Properties
+
+Access via template ref:
+
+- `alignmentResult` - Alignment statistics (score, identity, ranges, aligned sequences)
+- `selection` - Selection state with `source` tracking ('target' or 'query')
+- `targetDoc`, `queryDoc` - The document instances
 
 ## Slots
 
-### `#toolbar`
+### `#title`
 
-Inject custom content into the toolbar (appears left of help/settings buttons):
+Customize the title display in the toolbar:
 
 ```vue
-<SequenceEditor :sequence="seq" :metadata="metadata">
-  <template #toolbar>
-    <button @click="cloneConstruct">Clone</button>
-    <button v-if="metadata.circular" @click="rotateOrigin">Rotate Origin</button>
+<SequenceEditor :sequence="doc">
+  <template #title>
+    <strong>{{ doc.name }}</strong> &mdash; {{ doc.sequence.length }} bp
   </template>
 </SequenceEditor>
 ```
 
-## Public Methods
+### `#info`
 
-Access via template ref:
+Provide content for an info popup. When this slot is provided, an info icon (i) automatically appears next to the title. Clicking it opens a popup with your content:
 
 ```vue
-<SequenceEditor ref="editor" />
+<SequenceEditor :sequence="doc">
+  <template #info>
+    <div>Molecule Type: {{ metadata.molecule_type }}</div>
+    <div>Organism: {{ metadata.organism }}</div>
+  </template>
+</SequenceEditor>
 ```
 
+### `#toolbar`
+
+Inject custom buttons into the toolbar:
+
+```vue
+<SequenceEditor :sequence="doc">
+  <template #toolbar>
+    <button @click="saveAs">Save As</button>
+    <button @click="download">Download</button>
+  </template>
+</SequenceEditor>
+```
+
+### `#config`
+
+Add custom sections to the settings panel:
+
+```vue
+<SequenceEditor :sequence="doc">
+  <template #config>
+    <div class="config-section">
+      <span class="config-header">My Settings</span>
+      <div class="config-types">
+        <label class="type-row">
+          <input type="checkbox" v-model="myOption">
+          <span class="type-name">Enable Feature</span>
+        </label>
+      </div>
+    </div>
+  </template>
+</SequenceEditor>
+```
+
+## SequenceDocument
+
+A reactive document model that encapsulates sequence data, annotations, and edit operations.
+
 ```javascript
-// Selection
-editor.setSelection('10..20')           // Single range
-editor.setSelection('10..20 + 30..40')  // Multi-range
-editor.setSelection('a:annotation-id')  // Select annotation's span
-editor.getSelection()                   // → { start, end } | null
-editor.clearSelection()
+import { SequenceDocument } from 'opengenepool'
 
-// Navigation
-editor.setCursor(100)
-editor.scrollToPosition(500)
+const doc = new SequenceDocument({
+  sequence: 'ATCGATCG',
+  annotations: [...],
+  circular: false,
+  name: 'My Sequence'
+})
 
-// Sequence
-editor.setSequence('ATCG...', 'New Title')
-editor.getSequence()
+// Reactive properties
+doc.sequence        // The DNA sequence string
+doc.annotations     // Array of annotations
+doc.circular        // Boolean for circular/linear
+doc.sequenceRef     // Vue ref for reactivity tracking
 
-// Zoom
-editor.setZoom(200)
+// Edit operations (mutate the document)
+doc.insert(position, bases)
+doc.delete([{ start, end }, ...])
+doc.replace(start, end, newBases)
+```
 
-// Modals
-editor.openMetadataModal()
+## Alignment Function
+
+Use the alignment algorithm directly:
+
+```javascript
+import { align } from 'opengenepool'
+
+const result = align('ATCGATCG', 'ATCGAATCG', {
+  match: 2,       // Score for matching bases (default: 2)
+  mismatch: -1,   // Penalty for mismatches (default: -1)
+  gapOpen: -3,    // Gap opening penalty (default: -3)
+  gapExtend: -1   // Gap extension penalty (default: -1)
+})
+
+// result = {
+//   score: 12,
+//   queryStart: 0, queryEnd: 8,
+//   targetStart: 0, targetEnd: 9,
+//   queryAligned: 'ATCG-ATCG',
+//   targetAligned: 'ATCGAATCG',
+//   identity: 88.9
+// }
 ```
 
 ## Coordinate System
@@ -157,47 +281,6 @@ Position:  0  1  2  3  4  5  6
 
 Ranges are always specified start ≤ end, regardless of strand.
 
-**Note:** GenBank-style indefinite ranges (`<100..200`, `100..>200`) are not currently supported.
-
-## Backend Adapter
-
-For server-side persistence, provide a backend object with async handlers:
-
-```javascript
-const backend = {
-  // Sequence editing
-  async insert({ id, position, text }) { /* ... */ },
-  async delete({ id, start, end }) { /* ... */ },
-
-  // Annotation management
-  async annotationCreated({ id, caption, type, span, attributes }) { /* ... */ },
-  async annotationUpdated({ id, annotationId, ...fields }) { /* ... */ },
-  async annotationDeleted({ id, annotationId }) { /* ... */ },
-
-  // Metadata
-  async titleUpdate({ id, title }) { /* ... */ },
-
-  // Clipboard (optional) - intercept copy/paste operations
-  async copy({ text, selection }) { /* ... */ },  // Called on Ctrl+C / copy
-  async paste() { /* return text */ }             // Called on Ctrl+V / paste
-}
-```
-
-### Clipboard Hooks
-
-The `copy` and `paste` methods are optional. If not provided, the editor uses the system clipboard directly.
-
-**copy({ text, selection })** - Called when the user copies. Receives:
-- `text` - The selected sequence text (with proper orientation handling)
-- `selection` - The SelectionDomain object with range details
-
-**paste()** - Called when the user pastes. Should return the text to insert, or `null`/`undefined` to cancel.
-
-Use cases:
-- Server-side clipboard for cross-session persistence
-- Sequence validation/transformation before paste
-- Analytics/logging of clipboard operations
-
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -214,6 +297,9 @@ Use cases:
 bun install
 bun test
 bun test --watch
+
+# Run example app
+cd example && bun run dev
 ```
 
 ## Support

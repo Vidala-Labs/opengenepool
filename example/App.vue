@@ -5,7 +5,7 @@ import AlignmentEditor from '../src/components/AlignmentEditor.vue'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
 import { Span } from '../src/utils/dna.js'
 import Sidebar from './Sidebar.vue'
-import { ArrowDownTrayIcon, DocumentDuplicateIcon, InformationCircleIcon } from '@heroicons/vue/24/outline'
+import { ArrowDownTrayIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
 import { pUC19, testAlignmentSequence } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
@@ -272,6 +272,28 @@ const hasMetadata = computed(() => {
           <strong class="title-display">{{ displayTitle }}</strong>
           &mdash; {{ sequenceLength.toLocaleString() }} bp (alignment)
         </template>
+        <template #info>
+          <div class="info-row">
+            <span class="info-label">Score:</span>
+            <span class="info-value">{{ editorRef?.alignmentResult?.score }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Identity:</span>
+            <span class="info-value">{{ editorRef?.alignmentResult?.identity }}%</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Aligned Length:</span>
+            <span class="info-value">{{ editorRef?.alignmentResult?.targetAligned?.length || 0 }} positions</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Query Range:</span>
+            <span class="info-value">{{ (editorRef?.alignmentResult?.queryStart || 0) + 1 }}..{{ editorRef?.alignmentResult?.queryEnd }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Target Range:</span>
+            <span class="info-value">{{ (editorRef?.alignmentResult?.targetStart || 0) + 1 }}..{{ editorRef?.alignmentResult?.targetEnd }}</span>
+          </div>
+        </template>
         <template #toolbar>
           <button class="toolbar-icon-btn close-alignment-btn" @click="clearAlignment" title="Close alignment view">
             ✕
@@ -299,13 +321,24 @@ const hasMetadata = computed(() => {
         <template #title>
           <strong class="title-display">{{ displayTitle }}</strong>
           &mdash; {{ sequenceLength.toLocaleString() }} bp
-          <button
-            v-if="hasMetadata"
-            class="info-button"
-            title="Sequence info"
-          >
-            <InformationCircleIcon class="icon-toolbar" />
-          </button>
+        </template>
+        <template v-if="hasMetadata" #info>
+          <div v-if="currentSequenceData?.metadata?.molecule_type" class="info-row">
+            <span class="info-label">Molecule Type:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.molecule_type }}</span>
+          </div>
+          <div v-if="currentSequenceData?.metadata?.definition" class="info-row">
+            <span class="info-label">Definition:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.definition }}</span>
+          </div>
+          <div v-if="currentSequenceData?.metadata?.accession" class="info-row">
+            <span class="info-label">Accession:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.accession }}</span>
+          </div>
+          <div v-if="currentSequenceData?.metadata?.organism" class="info-row">
+            <span class="info-label">Organism:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.organism }}</span>
+          </div>
         </template>
         <template #toolbar>
           <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
@@ -401,30 +434,6 @@ html, body, #app {
   cursor: default;
 }
 
-.info-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px;
-  margin-left: 4px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: #666;
-  cursor: pointer;
-  vertical-align: middle;
-}
-
-.info-button:hover {
-  background: #f0f0f0;
-  color: #333;
-}
-
-.icon-toolbar {
-  width: 16px;
-  height: 16px;
-}
-
 .toolbar-icon-btn {
   display: flex;
   align-items: center;
@@ -456,5 +465,26 @@ html, body, #app {
 .close-alignment-btn:hover {
   background: #fde8e8;
   border-color: #e74c3c;
+}
+
+/* Info row styles for #info slot content */
+.info-row {
+  display: flex;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-weight: 500;
+  color: #666;
+  min-width: 120px;
+}
+
+.info-value {
+  color: #333;
 }
 </style>

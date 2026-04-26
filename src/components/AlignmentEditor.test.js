@@ -226,7 +226,7 @@ describe('AlignmentEditor Status Text', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
-  it('shows alignment score and identity when no selection', async () => {
+  it('returns null for selectionStatusText when no selection (stats available via alignmentResult)', async () => {
     const wrapper = mount(AlignmentEditor, {
       props: {
         target: createDoc('ATCGATCGATCG'),
@@ -236,9 +236,15 @@ describe('AlignmentEditor Status Text', () => {
 
     await wrapper.vm.$nextTick()
 
+    // selectionStatusText is null when no selection - stats should be displayed via #info slot
     const statusText = wrapper.vm.selectionStatusText
-    expect(statusText).toContain('Score')
-    expect(statusText).toContain('Identity')
+    expect(statusText).toBeNull()
+
+    // But alignment stats are available via alignmentResult for the implementor
+    const result = wrapper.vm.alignmentResult
+    expect(result).not.toBeNull()
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.identity).toBeGreaterThan(0)
   })
 
   it('shows Target selected when target row is selected', async () => {

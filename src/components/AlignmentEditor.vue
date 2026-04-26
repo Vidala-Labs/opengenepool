@@ -361,10 +361,9 @@ function rangeToGenBank(range) {
 }
 
 // Computed property for selection status text displayed in lower right corner
+// Only shows selection info - alignment stats should be displayed via #info slot
 const selectionStatusText = computed(() => {
   if (!hasAlignment.value) return null
-
-  const result = alignmentResult.value
 
   // Check for selection in alignment mode
   if (selection.isSelected.value && selection.domain.value?.ranges?.length > 0) {
@@ -374,11 +373,11 @@ const selectionStatusText = computed(() => {
       const length = selectedText.length
       const baseWord = length === 1 ? 'base' : 'bases'
       const rowLabel = selection.source.value === 'target' ? 'Target' : 'Query'
-      return `${rowLabel} selected: ${range.start + 1}..${range.end} (${length} ${baseWord}) · Score: ${result.score} · Identity: ${result.identity}%`
+      return `${rowLabel} selected: ${range.start + 1}..${range.end} (${length} ${baseWord})`
     }
   }
 
-  return `Score: ${result.score} · Identity: ${result.identity}% · Aligned: ${result.targetAligned.length} positions`
+  return null
 })
 
 // Set initial zoom from localStorage (fallback to prop)

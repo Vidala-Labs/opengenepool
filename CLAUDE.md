@@ -259,10 +259,45 @@ Props:
 The alignment view shows:
 - Side-by-side sequence comparison with gaps
 - Match line with `|` for identical bases
-- Statistics (score, identity percentage, length)
 - Annotations from both sequences mapped through gap positions
 - Selection support with `selection.source` tracking which row ('target' or 'query')
 - Edit operations (delete) routed to the correct document based on selection source
+
+#### Displaying Alignment Statistics
+
+Alignment statistics are available via the exposed `alignmentResult` property. To display them, provide an `#info` slot - this will automatically show an info icon (i) in the toolbar that opens a popup with your content when clicked:
+
+```vue
+<AlignmentEditor
+  ref="editorRef"
+  :target="targetDoc"
+  :query="queryDoc"
+>
+  <template #title>
+    {{ title }} &mdash; {{ length }} bp (alignment)
+  </template>
+  <template #info>
+    <div class="info-row">
+      <span class="info-label">Score:</span>
+      <span class="info-value">{{ editorRef?.alignmentResult?.score }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Identity:</span>
+      <span class="info-value">{{ editorRef?.alignmentResult?.identity }}%</span>
+    </div>
+    <!-- Add more fields as needed -->
+  </template>
+</AlignmentEditor>
+```
+
+The `alignmentResult` object contains:
+- `score`: Alignment score
+- `identity`: Identity percentage
+- `queryStart`, `queryEnd`: Query sequence range
+- `targetStart`, `targetEnd`: Target sequence range
+- `queryAligned`, `targetAligned`: Aligned sequences with gaps
+
+The info icon only appears when an `#info` slot is provided. See `example/App.vue` for a complete implementation.
 
 To use the alignment function directly:
 
