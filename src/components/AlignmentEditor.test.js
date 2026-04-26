@@ -514,6 +514,113 @@ describe('AlignmentEditor Annotations', () => {
   })
 })
 
+describe('AlignmentEditor Context Menu', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('shows context menu with Select all option when no selection', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),
+        query: createDoc('ATCGATCGATCG')
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Build context menu with no selection
+    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+
+    // Should have at least one item (Select all)
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Select all')).toBe(true)
+  })
+
+  it('shows Select all along with other options when selection exists', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),
+        query: createDoc('ATCGATCGATCG')
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Create a selection
+    wrapper.vm.selection.startSelection(0, false, 'target')
+    wrapper.vm.selection.updateSelection(4)
+    wrapper.vm.selection.endSelection()
+    await wrapper.vm.$nextTick()
+
+    // Build context menu with selection
+    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+
+    // Should have Copy, Select none, Select all, and Delete
+    expect(items.some(item => item.label === 'Copy selection')).toBe(true)
+    expect(items.some(item => item.label === 'Select none')).toBe(true)
+    expect(items.some(item => item.label === 'Select all')).toBe(true)
+    expect(items.some(item => item.label === 'Delete sequence')).toBe(true)
+  })
+
+  it('Select all action selects entire target sequence', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),
+        query: createDoc('GGGGAAAACCCC')
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // No selection initially
+    expect(wrapper.vm.selection.isSelected.value).toBe(false)
+
+    // Build context menu and execute Select all action
+    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+    const selectAllItem = items.find(item => item.label === 'Select all')
+    expect(selectAllItem).toBeDefined()
+
+    selectAllItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Should have selected entire target sequence (12 bases)
+    expect(wrapper.vm.selection.isSelected.value).toBe(true)
+    expect(wrapper.vm.selection.domain.value.ranges[0].start).toBe(0)
+    expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(12)
+  })
+
+  it('Select all uses query sequence length when query is selected', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),
+        query: createDoc('GGGGAAAA')  // 8 bases
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // First select something on query row to set source to 'query'
+    wrapper.vm.selection.startSelection(0, false, 'query')
+    wrapper.vm.selection.updateSelection(2)
+    wrapper.vm.selection.endSelection()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.selection.source.value).toBe('query')
+
+    // Build context menu and execute Select all action
+    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+    const selectAllItem = items.find(item => item.label === 'Select all')
+    selectAllItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Should have selected entire query sequence (8 bases)
+    expect(wrapper.vm.selection.isSelected.value).toBe(true)
+    expect(wrapper.vm.selection.domain.value.ranges[0].start).toBe(0)
+    expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(8)
+  })
+})
+
 describe('AlignmentEditor Mouse Interactions', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEY)

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { getArcPath, polarToCartesian } from '../utils/circular.js'
 
@@ -17,6 +17,7 @@ const emit = defineEmits(['select', 'contextmenu', 'merge', 'handle-contextmenu'
 const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const selection = inject('selection')
+const regionRegistry = inject('regionRegistry', null)
 
 // Tab handle dimensions (smaller version)
 const tabWidth = 8
@@ -543,6 +544,145 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
     isCursor
   })
 }
+
+// ============================================
+// Region Registry Integration
+// ============================================
+
+// Generate unique layer ID for this instance
+const layerId = `circular-selection-layer-${Math.random().toString(36).substr(2, 9)}`
+
+// Computed regions for registry - uses polar coordinates (theta, r)
+const regions = computed(() => {
+  if (!selection.isSelected.value || !selection.domain.value) return []
+
+  const result = []
+  const seqLen = editorState.sequenceLength.value
+  if (!seqLen) return []
+
+  const backboneRadius = circularGraphics.backboneRadius.value
+  const rowCount = circularGraphics.annotationRowCount.value || 0
+  const innerRadius = backboneRadius - 4
+  const outerRadius = circularGraphics.getRowRadius(Math.max(0, rowCount - 1)) +
+                      circularGraphics.annotationHeight.value / 2 + 8
+
+  for (let i = 0; i < selection.domain.value.ranges.length; i++) {
+    const range = selection.domain.value.ranges[i]
+
+    // Convert sequence positions to angles
+    const startTheta = (range.start / seqLen) * 2 * Math.PI
+    const endTheta = (range.end / seqLen) * 2 * Math.PI
+    let dTheta = endTheta - startTheta
+    if (dTheta < 0) dTheta += 2 * Math.PI  // Handle wrap-around
+
+    // Selection arc region
+    result.push({
+      id: `circ-sel-range-${i}`,
+      bounds: {
+        theta: startTheta,
+        r: innerRadius,
+        dTheta: dTheta || 0.001,  // Avoid zero for cursor
+        dR: outerRadius - innerRadius
+      },
+      zIndex: 20,
+      metadata: {
+        type: 'selection',
+        rangeIndex: i,
+        range
+      }
+    })
+
+    // Handle regions (approximate)
+    const handleAngularSize = 0.02  // Small angular region for handles
+    const handleRadialSize = 15
+
+    // Start handle
+    result.push({
+      id: `circ-sel-handle-${i}-start`,
+      bounds: {
+        theta: startTheta - handleAngularSize / 2,
+        r: outerRadius,
+        dTheta: handleAngularSize,
+        dR: handleRadialSize
+      },
+      zIndex: 25,
+      metadata: {
+        type: 'handle',
+        rangeIndex: i,
+        handleType: 'start',
+        range
+      }
+    })
+
+    // End handle
+    result.push({
+      id: `circ-sel-handle-${i}-end`,
+      bounds: {
+        theta: endTheta - handleAngularSize / 2,
+        r: outerRadius,
+        dTheta: handleAngularSize,
+        dR: handleRadialSize
+      },
+      zIndex: 25,
+      metadata: {
+        type: 'handle',
+        rangeIndex: i,
+        handleType: 'end',
+        range
+      }
+    })
+  }
+
+  return result
+})
+
+// Context menu items for circular selection regions
+function getContextMenuItems(regionId, metadata) {
+  const items = []
+
+  if (metadata.type === 'selection') {
+    items.push({
+      label: 'Copy selection',
+      action: () => emit('contextmenu', {
+        event: null,
+        source: 'selection',
+        rangeIndex: metadata.rangeIndex,
+        range: metadata.range,
+        action: 'copy'
+      })
+    })
+  } else if (metadata.type === 'handle') {
+    items.push({
+      label: 'Extend to position...',
+      action: () => emit('handle-contextmenu', {
+        event: null,
+        rangeIndex: metadata.rangeIndex,
+        range: metadata.range,
+        handleType: metadata.handleType
+      })
+    })
+  }
+
+  return items
+}
+
+// Register with region registry if available
+onMounted(() => {
+  if (regionRegistry) {
+    regionRegistry.registerLayer({
+      id: layerId,
+      regions,
+      getContextMenuItems
+    })
+  }
+})
+
+// Unregister on unmount
+onUnmounted(() => {
+  if (regionRegistry) {
+    regionRegistry.unregisterLayer(layerId)
+  }
+})
 </script>
 
 <template>

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, watch, ref } from 'vue'
+import { computed, inject, watch, ref, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { useAnnotations, generateArrowPath } from '../composables/useAnnotations.js'
 
@@ -53,6 +53,10 @@ const graphics = inject('graphics')
 const eventBus = inject('eventBus', null)
 // Annotation colors from localStorage (provided by SequenceEditor)
 const annotationColors = inject('annotationColors', null)
+// Region registry for context menu delegation (optional, may not be provided)
+const regionRegistry = inject('regionRegistry', null)
+// Selection state for context menu items (optional)
+const selection = inject('selection', null)
 
 // Default colors used when not provided via inject (e.g., in tests)
 const DEFAULT_COLORS = {
@@ -151,6 +155,178 @@ const fragmentsByLine = computed(() => {
     byLine.set(line, elements.map(e => e.fragment))
   }
   return byLine
+})
+
+// ============================================
+// Region Registry Integration
+// ============================================
+
+// Generate unique layer ID for this instance
+const layerId = `annotation-layer-${Math.random().toString(36).substr(2, 9)}`
+
+// Computed regions for registry - maps annotation fragments to hit-testable regions
+const regions = computed(() => {
+  if (!visible.value) return []  // Don't register regions when hidden
+
+  const result = []
+  const lineHeight = graphics.lineHeight.value
+
+  for (const [lineIndex, elements] of elementsByLine.value) {
+    const lineY = graphics.getLineY(lineIndex)
+
+    for (const element of elements) {
+      const fragment = element.fragment
+      const annotation = fragment.annotation
+
+      // Create region with bounds and metadata
+      result.push({
+        id: `ann-${annotation?.id ?? 'unknown'}-${lineIndex}-${element.left}`,
+        bounds: {
+          x: element.left,
+          y: lineY + element.deltaY - props.height,  // Top of the annotation
+          width: element.right - element.left,
+          height: props.height
+        },
+        zIndex: 10,  // Annotations have medium priority
+        metadata: {
+          annotation,
+          fragment,
+          lineIndex
+        }
+      })
+    }
+  }
+
+  return result
+})
+
+// Context menu items for annotation regions
+function getContextMenuItems(regionId, metadata) {
+  const { annotation, fragment } = metadata
+  if (!annotation) return []
+
+  const items = []
+
+  // Edit annotation
+  items.push({
+    label: 'Edit Annotation',
+    action: () => emit('edit-annotation', { annotation })
+  })
+
+  // Delete annotation
+  items.push({
+    label: 'Delete Annotation',
+    action: () => {
+      if (props.document) {
+        props.document.deleteAnnotation(annotation.id)
+      } else {
+        emit('delete-annotation', { id: annotation.id })
+      }
+    }
+  })
+
+  // Subtract from selection (when annotation overlaps selection)
+  if (selection?.isSelected?.value && selection?.domain?.value) {
+    const annotationSpan = annotation.span
+    const hasOverlap = selection.domain.value.ranges.some(selRange =>
+      annotationSpan?.ranges?.some(annRange => selRange.overlaps?.(annRange))
+    )
+
+    if (hasOverlap) {
+      items.push({
+        label: 'Subtract from selection',
+        action: () => selection.subtractSpan(annotationSpan)
+      })
+    }
+  }
+
+  // Merge segment options for multi-range annotations
+  const spanRanges = annotation.span?.ranges
+  if (fragment?.rangeIndex !== undefined && spanRanges && spanRanges.length > 1) {
+    const rangeIndex = fragment.rangeIndex
+    const currentRange = spanRanges[rangeIndex]
+
+    // Check if can merge with left (previous range)
+    if (rangeIndex > 0) {
+      const leftRange = spanRanges[rangeIndex - 1]
+      if (leftRange.end === currentRange.start && leftRange.orientation === currentRange.orientation) {
+        items.push({
+          label: 'Merge with left segment',
+          action: () => emit('contextmenu', {
+            event: null,
+            annotation,
+            fragment,
+            action: 'merge-left',
+            rangeIndex
+          })
+        })
+      }
+    }
+
+    // Check if can merge with right (next range)
+    if (rangeIndex < spanRanges.length - 1) {
+      const rightRange = spanRanges[rangeIndex + 1]
+      if (currentRange.end === rightRange.start && currentRange.orientation === rightRange.orientation) {
+        items.push({
+          label: 'Merge with right segment',
+          action: () => emit('contextmenu', {
+            event: null,
+            annotation,
+            fragment,
+            action: 'merge-right',
+            rangeIndex
+          })
+        })
+      }
+    }
+  }
+
+  // Split annotation option when cursor is strictly inside a range
+  if (selection?.isSelected?.value) {
+    const selRanges = selection.domain.value?.ranges
+    if (selRanges?.length === 1 && selRanges[0].start === selRanges[0].end) {
+      const cursorPos = selRanges[0].start
+
+      if (fragment?.rangeIndex !== undefined && spanRanges?.[fragment.rangeIndex]) {
+        const targetRange = spanRanges[fragment.rangeIndex]
+
+        // Check if cursor is strictly inside (not at boundaries)
+        if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
+          items.push({
+            label: 'Split annotation',
+            action: () => emit('contextmenu', {
+              event: null,
+              annotation,
+              fragment,
+              action: 'split',
+              rangeIndex: fragment.rangeIndex,
+              splitPosition: cursorPos
+            })
+          })
+        }
+      }
+    }
+  }
+
+  return items
+}
+
+// Register with region registry if available
+onMounted(() => {
+  if (regionRegistry) {
+    regionRegistry.registerLayer({
+      id: layerId,
+      regions,
+      getContextMenuItems
+    })
+  }
+})
+
+// Unregister on unmount
+onUnmounted(() => {
+  if (regionRegistry) {
+    regionRegistry.unregisterLayer(layerId)
+  }
 })
 
 // Calculate x position for a fragment

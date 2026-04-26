@@ -6,6 +6,7 @@
 // Components
 export { default as SequenceEditor } from './components/SequenceEditor.vue'
 export { default as AlignmentEditor } from './components/AlignmentEditor.vue'
+export { default as CircularEditor } from './components/CircularEditor.vue'
 export { default as AnnotationLayer } from './components/AnnotationLayer.vue'
 
 // Composables

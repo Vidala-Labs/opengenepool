@@ -6,6 +6,7 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { useRegionRegistry } from '../composables/useRegionRegistry.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment } from '../utils/alignment.js'
@@ -118,6 +119,9 @@ const eventBus = createEventBus()
 
 // Selection is owned here and provided to children (single source of truth)
 const selection = useSelection(editorState, graphics, eventBus)
+
+// Region registry for hit-testing and context menu delegation to layers
+const regionRegistry = useRegionRegistry()
 
 // ============================================
 // Alignment Computation
@@ -408,6 +412,7 @@ provide('editorState', editorState)
 provide('graphics', graphics)
 provide('eventBus', eventBus)
 provide('selection', selection)
+provide('regionRegistry', regionRegistry)
 
 // Alignment mode state - provided for SequenceLayer and AlignmentTicksLayer
 const isAlignmentMode = computed(() => true)  // Always true for this component
@@ -548,6 +553,22 @@ function buildContextMenuItems(context) {
     })
   }
 
+  // Select all (always available)
+  // Determine source: use context.mode if provided (from right-clicking on a sequence row),
+  // otherwise use current selection source, or default to target
+  const selectAllSource = context.mode || selection.source.value || 'target'
+  items.push({
+    label: 'Select all',
+    action: () => {
+      const seqLength = selectAllSource === 'query'
+        ? queryDoc.value?.sequence?.length || 0
+        : editorState.sequenceLength.value
+      // Set the source before selecting so the selection knows which document it belongs to
+      selection.source.value = selectAllSource
+      selection.select(`0..${seqLength}`)
+    }
+  })
+
   // Delete sequence option
   if (isSelected && domain && domain.ranges.length > 0 && !props.readonly) {
     const range = domain.ranges[0]
@@ -592,20 +613,20 @@ function handleBackgroundContextMenu(event) {
   showContextMenu(event, { source: 'background' })
 }
 
-function handleSequenceLayerContextMenu({ event, lineIndex }) {
-  showContextMenu(event, { source: 'sequence', lineIndex })
+function handleSequenceLayerContextMenu({ event, lineIndex, mode }) {
+  showContextMenu(event, { source: 'sequence', lineIndex, mode })
 }
 
-function handleSelectionContextMenu(event, data) {
-  showContextMenu(event, { source: 'selection', ...data })
+function handleSelectionContextMenu(data) {
+  showContextMenu(data.event, { source: 'selection', rangeIndex: data.rangeIndex, range: data.range })
 }
 
 function handleSelectionMouseDown(event) {
   // Handled by SelectionLayer
 }
 
-function handleHandleContextMenu(event, data) {
-  showContextMenu(event, { source: 'handle', ...data })
+function handleHandleContextMenu(data) {
+  showContextMenu(data.event, { source: 'handle', rangeIndex: data.rangeIndex, range: data.range, handleType: data.handleType })
 }
 
 // Focus the SVG element

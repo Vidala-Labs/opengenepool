@@ -6,6 +6,7 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { useRegionRegistry } from '../composables/useRegionRegistry.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
@@ -322,6 +323,9 @@ const eventBus = createEventBus()
 
 // Selection is owned here and provided to children (single source of truth)
 const selection = useSelection(editorState, graphics, eventBus)
+
+// Region registry for hit-testing and context menu delegation to layers
+const regionRegistry = useRegionRegistry()
 
 // Local copy of annotations for optimistic UI updates
 // This allows us to adjust annotation positions locally before server confirmation
@@ -838,6 +842,7 @@ provide('editorState', editorState)
 provide('graphics', graphics)
 provide('eventBus', eventBus)
 provide('selection', selection)  // Single source of truth for selection
+provide('regionRegistry', regionRegistry)  // Region registry for context menu delegation
 provide('annotationColors', annotationColors)  // Colors persisted to localStorage
 provide('showAnnotations', showAnnotations)  // Shared visibility for annotation layers
 provide('showTranslation', showTranslation)  // Shared visibility for translation layer
@@ -964,6 +969,153 @@ function getExtensionContextMenuItems(context) {
       }
     }
   }
+  return items
+}
+
+/**
+ * Build global context menu items that don't depend on which region was clicked.
+ * These include: Copy, Select all/none, Insert/Replace/Delete sequence, Create annotation.
+ */
+function buildGlobalContextMenuItems() {
+  const items = []
+  const isSelected = selection.isSelected.value
+  const domain = selection.domain.value
+  const hasSequence = editorState.sequenceLength.value > 0
+
+  // Special case: no sequence loaded - show Insert sequence option
+  if (!hasSequence && !props.readonly) {
+    items.push({
+      label: 'Insert sequence...',
+      action: () => {
+        insertModalIsReplace.value = false
+        insertModalPosition.value = 0
+        insertModalText.value = ''
+        insertModalVisible.value = true
+      }
+    })
+    return items
+  }
+
+  // Group 1: Copy / Select none / Select all
+  if (isSelected && domain && domain.ranges.length > 0) {
+    items.push({
+      label: 'Copy selection',
+      action: () => handleCopy()
+    })
+    items.push({
+      label: 'Select none',
+      action: () => selection.unselect()
+    })
+  }
+  items.push({
+    label: 'Select all',
+    action: () => selection.selectAll()
+  })
+
+  // Group 2: Insert / Replace / Delete sequence
+  if (isSelected && domain && domain.ranges.length > 0) {
+    const firstRange = domain.ranges[0]
+    const isZeroLength = firstRange.start === firstRange.end
+
+    if (!props.readonly) {
+      items.push({ separator: true })
+
+      // Insert sequence option for zero-length selections (cursor position)
+      if (isZeroLength) {
+        items.push({
+          label: 'Insert sequence...',
+          action: () => {
+            insertModalIsReplace.value = false
+            insertModalPosition.value = firstRange.start
+            insertModalText.value = ''
+            insertModalVisible.value = true
+          }
+        })
+      }
+
+      // Replace sequence option for single non-zero-length selections only
+      if (!isZeroLength && domain.ranges.length === 1) {
+        items.push({
+          label: 'Replace sequence with...',
+          action: () => {
+            insertModalIsReplace.value = true
+            insertModalPosition.value = firstRange.start
+            insertModalSelectionEnd.value = firstRange.end
+            insertModalText.value = ''
+            insertModalVisible.value = true
+          }
+        })
+      }
+
+      // Delete sequence option for non-zero-length selections
+      if (!isZeroLength) {
+        items.push({
+          label: 'Delete sequence',
+          action: () => handleDelete()
+        })
+      }
+    }
+  }
+
+  // Create annotation option - always available when not readonly
+  if (!props.readonly) {
+    items.push({ separator: true })
+    items.push({
+      label: 'Create Annotation',
+      action: () => openAnnotationModal()
+    })
+  }
+
+  return items
+}
+
+/**
+ * Build context menu using region registry for hit-testing.
+ * Combines global items with region-specific items from layers.
+ *
+ * @param {MouseEvent} event - The contextmenu event
+ * @param {Object} context - Additional context (lineIndex, etc.)
+ * @returns {Array} Combined menu items
+ */
+function buildContextMenuFromRegistry(event, context = {}) {
+  const items = buildGlobalContextMenuItems()
+
+  // Hit-test the registry to find which region was clicked
+  if (svgRef.value && regionRegistry) {
+    const svgRect = svgRef.value.getBoundingClientRect()
+    const x = event.clientX - svgRect.left
+    const y = event.clientY - svgRect.top
+
+    const { region, items: regionItems } = regionRegistry.getContextMenuItemsAtPoint(x, y, 'linear')
+
+    if (region && regionItems.length > 0) {
+      items.push({ separator: true })
+      items.push(...regionItems)
+    }
+  }
+
+  // Extension items
+  let extContext = null
+  if (selection.isSelected.value && selection.domain.value) {
+    const selectedSeq = getSelectedSequenceText()
+    extContext = {
+      type: 'selection',
+      data: { sequence: selectedSeq, domain: selection.domain.value }
+    }
+  } else if (context.pos !== undefined) {
+    extContext = {
+      type: 'sequence',
+      data: { position: context.pos }
+    }
+  }
+
+  if (extContext) {
+    const extItems = getExtensionContextMenuItems(extContext)
+    if (extItems.length > 0) {
+      items.push({ separator: true }, ...extItems)
+    }
+  }
+
   return items
 }
 

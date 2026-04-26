@@ -234,7 +234,7 @@ function handleMouseUp() {
 }
 
 function handleContextMenu(event, lineIndex) {
-  emit('contextmenu', { event, lineIndex })
+  emit('contextmenu', { event, lineIndex, mode: props.mode })
 }
 </script>
 

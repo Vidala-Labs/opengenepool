@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
 import { GraphicsSpan } from '../composables/useGraphics.js'
 import { Orientation } from '../utils/dna.js'
 
@@ -45,6 +45,9 @@ const graphics = inject('graphics')
 
 // Selection is injected from parent (single source of truth)
 const selection = inject('selection')
+
+// Region registry for context menu delegation (optional, may not be provided)
+const regionRegistry = inject('regionRegistry', null)
 
 // Handle drag state
 const draggedHandle = ref(null) // { rangeIndex, type: 'start'|'end' }
@@ -241,6 +244,192 @@ const selectionPaths = computed(() => {
   }
 
   return paths
+})
+
+// ============================================
+// Region Registry Integration
+// ============================================
+
+// Generate unique layer ID for this instance
+const layerId = `selection-layer-${Math.random().toString(36).substr(2, 9)}`
+
+// Computed regions for registry - maps selection paths to hit-testable regions
+const regions = computed(() => {
+  if (!selection.isSelected.value) return []
+
+  const result = []
+  const lineHeight = graphics.lineHeight.value
+  const m = graphics.metrics.value
+
+  // Add regions for each selection path
+  for (const sel of selectionPaths.value) {
+    if (!sel.isFirstFragment) continue  // Only register first fragment of multi-line selections
+
+    const range = sel.range
+    const rangeIndex = sel.index
+
+    // Get bounds from the path's handle positions
+    const startX = sel.handleStart?.x ?? m.lmargin
+    const endX = sel.handleEnd?.x ?? (m.lmargin + m.lineWidth)
+    const startY = sel.handleStart?.y ?? 0
+    const endY = sel.handleEnd?.y ?? lineHeight
+
+    // Selection path region
+    result.push({
+      id: `sel-range-${rangeIndex}`,
+      bounds: {
+        x: startX,
+        y: Math.min(startY, endY),
+        width: endX - startX,
+        height: Math.abs(endY - startY) || lineHeight
+      },
+      zIndex: 20,  // Selection has high priority
+      metadata: {
+        type: 'selection',
+        rangeIndex,
+        range
+      }
+    })
+
+    // Start handle region
+    if (sel.handleStart) {
+      const handleSize = 12  // Approximate handle size
+      result.push({
+        id: `sel-handle-${rangeIndex}-start`,
+        bounds: {
+          x: sel.handleStart.x - handleSize / 2,
+          y: sel.handleStart.y - handleSize / 2,
+          width: handleSize,
+          height: handleSize
+        },
+        zIndex: 25,  // Handles have highest priority
+        metadata: {
+          type: 'handle',
+          rangeIndex,
+          handleType: 'start',
+          range
+        }
+      })
+    }
+
+    // End handle region
+    if (sel.handleEnd) {
+      const handleSize = 12
+      result.push({
+        id: `sel-handle-${rangeIndex}-end`,
+        bounds: {
+          x: sel.handleEnd.x - handleSize / 2,
+          y: sel.handleEnd.y - handleSize / 2,
+          width: handleSize,
+          height: handleSize
+        },
+        zIndex: 25,
+        metadata: {
+          type: 'handle',
+          rangeIndex,
+          handleType: 'end',
+          range
+        }
+      })
+    }
+  }
+
+  return result
+})
+
+// Context menu items for selection regions
+function getContextMenuItems(regionId, metadata) {
+  const items = []
+  // Orientation is already imported at the top of the file
+
+  if (metadata.type === 'selection') {
+    const range = metadata.range
+    const rangeIndex = metadata.rangeIndex
+    const domain = selection.domain.value
+
+    // Copy selection
+    items.push({
+      label: 'Copy selection',
+      action: () => emit('contextmenu', {
+        event: null,
+        rangeIndex,
+        range,
+        action: 'copy'
+      })
+    })
+
+    // Strand flip options
+    if (range.orientation === 1 || range.orientation === -1) {
+      items.push({
+        label: 'Flip strand',
+        action: () => selection.flip(rangeIndex)
+      })
+      items.push({
+        label: 'Make undirected',
+        action: () => selection.setOrientation(rangeIndex, 0)
+      })
+    } else {
+      items.push({
+        label: 'Set to plus strand',
+        action: () => selection.setOrientation(rangeIndex, 1)
+      })
+      items.push({
+        label: 'Set to minus strand',
+        action: () => selection.setOrientation(rangeIndex, -1)
+      })
+    }
+
+    // Multi-range operations
+    if (domain && domain.ranges.length > 1) {
+      items.push({
+        label: 'Delete this range',
+        action: () => selection.deleteRange(rangeIndex)
+      })
+      if (rangeIndex > 0) {
+        items.push({
+          label: 'Move range up',
+          action: () => selection.moveRange(rangeIndex, rangeIndex - 1)
+        })
+      }
+      if (rangeIndex < domain.ranges.length - 1) {
+        items.push({
+          label: 'Move range down',
+          action: () => selection.moveRange(rangeIndex, rangeIndex + 1)
+        })
+      }
+    }
+  } else if (metadata.type === 'handle') {
+    // Handle context menu items
+    items.push({
+      label: 'Extend to position...',
+      action: () => emit('handle-contextmenu', {
+        event: null,
+        rangeIndex: metadata.rangeIndex,
+        range: metadata.range,
+        handleType: metadata.handleType
+      })
+    })
+  }
+
+  return items
+}
+
+// Register with region registry if available
+onMounted(() => {
+  if (regionRegistry) {
+    regionRegistry.registerLayer({
+      id: layerId,
+      regions,
+      getContextMenuItems
+    })
+  }
+})
+
+// Unregister on unmount
+onUnmounted(() => {
+  if (regionRegistry) {
+    regionRegistry.unregisterLayer(layerId)
+  }
 })
 
 // Compute merge bubbles for touching range pairs
