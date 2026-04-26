@@ -794,6 +794,10 @@ const toolbarHelpText = `Selection Controls:
         </slot>
       </template>
 
+      <template v-if="$slots.info" #info>
+        <slot name="info"></slot>
+      </template>
+
       <template #toolbar>
         <slot name="toolbar"></slot>
       </template>
