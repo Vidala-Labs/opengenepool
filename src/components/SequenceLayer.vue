@@ -32,6 +32,11 @@ const props = defineProps({
   blockHeight: {
     type: Number,
     default: 0
+  },
+  /** Original sequence length for Select all in alignment mode */
+  originalSequenceLength: {
+    type: Number,
+    default: null
   }
 })
 
@@ -265,16 +270,35 @@ function handleClickForElement(dataset, event) {
 /**
  * Get context menu items for an element with data attributes.
  * Called by parent editor when element is found via elementsFromPoint.
- * SequenceLayer doesn't provide context menu items - global items are handled by the editor.
  *
  * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element (empty for sequence layer)
+ * @returns {Array} Menu items for this element
  */
 function getMenuItemsForElement(dataset) {
   if (dataset.layer !== 'sequence') return []
-  // SequenceLayer doesn't provide specific context menu items
-  // Global items (Copy, Paste, Select All, etc.) are handled by the editor
-  return []
+
+  const items = []
+
+  // Select all - available for sequence layers
+  // For alignment mode, use originalSequenceLength prop and set source
+  // For normal mode, use editorState.sequenceLength
+  const seqLength = props.originalSequenceLength ?? editorState.sequenceLength.value
+  const mode = props.mode  // 'target', 'query', or null
+
+  if (seqLength > 0) {
+    items.push({
+      label: 'Select all',
+      action: () => {
+        selection.select(`0..${seqLength}`)
+        if (mode) {
+          // Alignment mode: set source AFTER selecting (select() calls unselect() which clears source)
+          selection.source.value = mode
+        }
+      }
+    })
+  }
+
+  return items
 }
 
 // Expose for click routing and context menu integration

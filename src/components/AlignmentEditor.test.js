@@ -519,7 +519,7 @@ describe('AlignmentEditor Context Menu', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
-  it('shows context menu with Select all option when no selection', async () => {
+  it('shows context menu with Select all option when clicking on target sequence', async () => {
     const wrapper = mount(AlignmentEditor, {
       props: {
         target: createDoc('ATCGATCGATCG'),
@@ -529,10 +529,11 @@ describe('AlignmentEditor Context Menu', () => {
 
     await wrapper.vm.$nextTick()
 
-    // Build context menu with no selection
-    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+    // Get Select all from target SequenceLayer's getMenuItemsForElement
+    const targetLayer = wrapper.vm.targetSequenceLayerRef
+    const items = targetLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'target' })
 
-    // Should have at least one item (Select all)
+    // Should have Select all
     expect(items.length).toBeGreaterThan(0)
     expect(items.some(item => item.label === 'Select all')).toBe(true)
   })
@@ -553,14 +554,18 @@ describe('AlignmentEditor Context Menu', () => {
     wrapper.vm.selection.endSelection()
     await wrapper.vm.$nextTick()
 
-    // Build context menu with selection
-    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+    // Global items from buildContextMenuItems
+    const globalItems = wrapper.vm.buildContextMenuItems({ source: 'sequence', mode: 'target' })
 
-    // Should have Copy, Select none, Select all, and Delete
-    expect(items.some(item => item.label === 'Copy selection')).toBe(true)
-    expect(items.some(item => item.label === 'Select none')).toBe(true)
-    expect(items.some(item => item.label === 'Select all')).toBe(true)
-    expect(items.some(item => item.label === 'Delete sequence')).toBe(true)
+    // Should have Copy, Select none, Delete
+    expect(globalItems.some(item => item.label === 'Copy selection')).toBe(true)
+    expect(globalItems.some(item => item.label === 'Select none')).toBe(true)
+    expect(globalItems.some(item => item.label === 'Delete sequence')).toBe(true)
+
+    // Select all comes from layer
+    const targetLayer = wrapper.vm.targetSequenceLayerRef
+    const layerItems = targetLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'target' })
+    expect(layerItems.some(item => item.label === 'Select all')).toBe(true)
   })
 
   it('Select all action selects entire target sequence', async () => {
@@ -576,8 +581,17 @@ describe('AlignmentEditor Context Menu', () => {
     // No selection initially
     expect(wrapper.vm.selection.isSelected.value).toBe(false)
 
-    // Build context menu and execute Select all action
-    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+    // Get Select all from target SequenceLayer and execute it
+    const targetLayer = wrapper.vm.targetSequenceLayerRef
+
+    // Debug: Check what props the layer has
+    const sequenceLayers = wrapper.findAllComponents({ name: 'SequenceLayer' })
+    const targetLayerComponent = sequenceLayers.find(l => l.props('mode') === 'target')
+    expect(targetLayerComponent).toBeDefined()
+    expect(targetLayerComponent.props('mode')).toBe('target')
+    expect(targetLayerComponent.props('originalSequenceLength')).toBe(12)
+
+    const items = targetLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'target' })
     const selectAllItem = items.find(item => item.label === 'Select all')
     expect(selectAllItem).toBeDefined()
 
@@ -586,11 +600,12 @@ describe('AlignmentEditor Context Menu', () => {
 
     // Should have selected entire target sequence (12 bases)
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
+    expect(wrapper.vm.selection.source.value).toBe('target')
     expect(wrapper.vm.selection.domain.value.ranges[0].start).toBe(0)
     expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(12)
   })
 
-  it('Select all uses query sequence length when query is selected', async () => {
+  it('Select all uses query sequence length when clicking on query row', async () => {
     const wrapper = mount(AlignmentEditor, {
       props: {
         target: createDoc('ATCGATCGATCG'),
@@ -600,24 +615,112 @@ describe('AlignmentEditor Context Menu', () => {
 
     await wrapper.vm.$nextTick()
 
-    // First select something on query row to set source to 'query'
-    wrapper.vm.selection.startSelection(0, false, 'query')
-    wrapper.vm.selection.updateSelection(2)
-    wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
-
-    expect(wrapper.vm.selection.source.value).toBe('query')
-
-    // Build context menu and execute Select all action
-    const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+    // Get Select all from query SequenceLayer and execute it
+    const queryLayer = wrapper.vm.querySequenceLayerRef
+    const items = queryLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'query' })
     const selectAllItem = items.find(item => item.label === 'Select all')
     selectAllItem.action()
     await wrapper.vm.$nextTick()
 
     // Should have selected entire query sequence (8 bases)
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
+    expect(wrapper.vm.selection.source.value).toBe('query')
     expect(wrapper.vm.selection.domain.value.ranges[0].start).toBe(0)
     expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(8)
+  })
+})
+
+describe('AlignmentEditor Select All Context Menu', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('does NOT show Select all when right-clicking on background', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),
+        query: createDoc('ATCGATCGATCG')
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Build context menu from background (no sequence layer)
+    // Global items from editor should NOT include Select all
+    const items = wrapper.vm.buildContextMenuItems({ source: 'background' })
+
+    // Background should NOT have Select all (it comes from layers, not global items)
+    expect(items.some(item => item.label === 'Select all')).toBe(false)
+  })
+
+  it('shows Select all for target when right-clicking on target sequence layer', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),  // 12 bases
+        query: createDoc('GGGGAAAA')  // 8 bases
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Get Select all from target SequenceLayer
+    const targetLayer = wrapper.vm.targetSequenceLayerRef
+    const items = targetLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'target' })
+
+    // Should have Select all
+    const selectAllItem = items.find(item => item.label === 'Select all')
+    expect(selectAllItem).toBeDefined()
+
+    // Execute Select all and verify it selects target sequence (12 bases)
+    selectAllItem.action()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.selection.source.value).toBe('target')
+    expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(12)
+  })
+
+  it('shows Select all for query when right-clicking on query sequence layer', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),  // 12 bases
+        query: createDoc('GGGGAAAA')  // 8 bases
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Get Select all from query SequenceLayer
+    const queryLayer = wrapper.vm.querySequenceLayerRef
+    const items = queryLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'query' })
+
+    // Should have Select all
+    const selectAllItem = items.find(item => item.label === 'Select all')
+    expect(selectAllItem).toBeDefined()
+
+    // Execute Select all and verify it selects query sequence (8 bases)
+    selectAllItem.action()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.selection.source.value).toBe('query')
+    expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(8)
+  })
+
+  it('Select all from layer is included when building full context menu', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCG'),
+        query: createDoc('GGGGAAAA')
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Layer items include Select all
+    const targetLayer = wrapper.vm.targetSequenceLayerRef
+    const layerItems = targetLayer.getMenuItemsForElement({ layer: 'sequence', mode: 'target' })
+
+    // Should have Select all from layer
+    expect(layerItems.some(item => item.label === 'Select all')).toBe(true)
   })
 })
 

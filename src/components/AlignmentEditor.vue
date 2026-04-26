@@ -549,21 +549,8 @@ function buildContextMenuItems(context) {
     })
   }
 
-  // Select all (always available)
-  // Determine source: use context.mode if provided (from right-clicking on a sequence row),
-  // otherwise use current selection source, or default to target
-  const selectAllSource = context.mode || selection.source.value || 'target'
-  items.push({
-    label: 'Select all',
-    action: () => {
-      const seqLength = selectAllSource === 'query'
-        ? queryDoc.value?.sequence?.length || 0
-        : editorState.sequenceLength.value
-      // Set the source before selecting so the selection knows which document it belongs to
-      selection.source.value = selectAllSource
-      selection.select(`0..${seqLength}`)
-    }
-  })
+  // Note: "Select all" is provided by SequenceLayer via getMenuItemsForElement
+  // This ensures it only appears when clicking on a sequence layer (not background)
 
   // Delete sequence option
   if (isSelected && domain && domain.ranges.length > 0 && !props.readonly) {
@@ -841,7 +828,12 @@ defineExpose({
   alignedTargetAnnotations,
   alignedQueryAnnotations,
   selectionStatusText,
-  selection
+  selection,
+  // Layer refs for testing
+  targetSequenceLayerRef,
+  querySequenceLayerRef,
+  // For testing context menu building
+  buildContextMenuItems
 })
 
 const toolbarHelpText = `Selection Controls:
@@ -940,6 +932,7 @@ const toolbarHelpText = `Selection Controls:
               :position-map="targetPositionMap"
               :y-offset="0"
               :block-height="alignmentBlockHeight"
+              :original-sequence-length="editorState.sequenceLength.value"
               @select="handleSelectionChange"
               @contextmenu="handleSequenceLayerContextMenu"
             />
@@ -951,6 +944,7 @@ const toolbarHelpText = `Selection Controls:
               :position-map="queryPositionMap"
               :y-offset="graphics.lineHeight.value * 2"
               :block-height="alignmentBlockHeight"
+              :original-sequence-length="queryDoc?.sequence?.length || 0"
               @select="handleSelectionChange"
               @contextmenu="handleSequenceLayerContextMenu"
             />
