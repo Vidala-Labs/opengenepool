@@ -205,19 +205,21 @@ function handleClickForElement(dataset, event) {
   const annotation = props.annotations.find(a => a.id === annotationId)
   if (!annotation) return false
 
-  // Get the annotation's span
-  const span = annotation.span
+  // In alignment mode, use the original annotation span (not the aligned coordinates)
+  // The original annotation is stored in _originalAnnotation attribute by mapAnnotationThroughAlignment
+  const originalAnnotation = annotation.attributes?._originalAnnotation
+  const span = originalAnnotation?.span ?? annotation.span
   if (!span) return false
 
   // Emit click event for parent to handle (e.g., show tooltip)
-  emit('click', { event, annotation })
+  emit('click', { event, annotation: originalAnnotation ?? annotation })
 
   // Select the annotation's span
   if (selection) {
     if (event.shiftKey && selection.isSelected?.value) {
       // Shift+click: extend selection to include annotation
       // For now, just select the annotation (extending multi-range is complex)
-      selection.select(span.toString())
+      selection.select(span)
     } else if (event.ctrlKey || event.metaKey) {
       // Ctrl/Cmd+click: add annotation span to existing selection
       for (const range of span.ranges) {
@@ -225,7 +227,12 @@ function handleClickForElement(dataset, event) {
       }
     } else {
       // Normal click: select annotation span
-      selection.select(span.toString())
+      selection.select(span)
+    }
+
+    // In alignment mode, set the selection source to track which row was clicked
+    if (props.mode && selection.source) {
+      selection.source.value = props.mode
     }
   }
 
