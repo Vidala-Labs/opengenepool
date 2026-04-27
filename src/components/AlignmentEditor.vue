@@ -67,7 +67,8 @@ const emit = defineEmits([
   'contextmenu',
   'ready',
   'edit',
-  'annotations-update'
+  'annotations-update',
+  'edit-annotation'
 ])
 
 // Effective clipboard backend - returns null when readonly to prevent copy/paste
@@ -541,6 +542,37 @@ function buildContextMenuItems(context) {
   const isSelected = selection.isSelected.value
   const domain = selection.domain.value
 
+  // Annotation-specific menu items
+  if (context.source === 'annotation' && context.annotation) {
+    const annotation = context.annotation
+
+    // Edit annotation
+    items.push({
+      label: 'Edit Annotation',
+      action: () => {
+        // Emit edit event - parent can handle this
+        emit('edit-annotation', { annotation })
+      }
+    })
+
+    // Delete annotation - determine which document to use based on mode
+    items.push({
+      label: 'Delete Annotation',
+      action: () => {
+        // Find the document that owns this annotation
+        // Check if annotation is in target or query based on the fragment's mode
+        const mode = context.fragment?.annotation?.attributes?._alignmentMode
+        if (mode === 'query' && props.query) {
+          props.query.deleteAnnotation(annotation.id)
+        } else if (props.target) {
+          props.target.deleteAnnotation(annotation.id)
+        }
+      }
+    })
+
+    items.push({ separator: true })
+  }
+
   // Copy option
   if (isSelected && domain && domain.ranges.length > 0) {
     const range = domain.ranges[0]
@@ -679,6 +711,10 @@ function handleSelectionMouseDown(event) {
 
 function handleHandleContextMenu(data) {
   showContextMenu(data.event, { source: 'handle', rangeIndex: data.rangeIndex, range: data.range, handleType: data.handleType })
+}
+
+function handleAnnotationContextMenu(data) {
+  showContextMenu(data.event, { source: 'annotation', annotation: data.annotation, fragment: data.fragment })
 }
 
 // Focus the SVG element
@@ -971,6 +1007,7 @@ const toolbarHelpText = `Selection Controls:
               :y-offset="TOP_PADDING"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
+              @contextmenu="handleAnnotationContextMenu"
             />
             <!-- Query annotations below query sequence -->
             <AnnotationLayer
@@ -983,6 +1020,7 @@ const toolbarHelpText = `Selection Controls:
               :block-height="alignmentBlockHeight"
               :show-captions="true"
               stack-direction="down"
+              @contextmenu="handleAnnotationContextMenu"
             />
           </template>
 

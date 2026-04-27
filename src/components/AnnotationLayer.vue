@@ -256,12 +256,17 @@ function getMenuItemsForElement(dataset) {
   const annotation = props.annotations.find(a => a.id === annotationId)
   if (!annotation) return []
 
+  // In alignment mode, use the original annotation (not the aligned coordinates)
+  // The original annotation is stored in _originalAnnotation attribute by mapAnnotationThroughAlignment
+  const originalAnnotation = annotation.attributes?._originalAnnotation
+  const effectiveAnnotation = originalAnnotation ?? annotation
+
   const items = []
 
   // Edit annotation
   items.push({
     label: 'Edit Annotation',
-    action: () => emit('edit-annotation', { annotation })
+    action: () => emit('edit-annotation', { annotation: effectiveAnnotation })
   })
 
   // Delete annotation
@@ -269,9 +274,9 @@ function getMenuItemsForElement(dataset) {
     label: 'Delete Annotation',
     action: () => {
       if (props.document) {
-        props.document.deleteAnnotation(annotation.id)
+        props.document.deleteAnnotation(effectiveAnnotation.id)
       } else {
-        emit('delete-annotation', { id: annotation.id })
+        emit('delete-annotation', { id: effectiveAnnotation.id })
       }
     }
   })
@@ -292,20 +297,21 @@ function getMenuItemsForElement(dataset) {
   }
 
   // Merge segment options for multi-range annotations
-  const spanRanges = annotation.span?.ranges
+  // Use effectiveAnnotation's span for merge/split operations
+  const effectiveSpanRanges = effectiveAnnotation.span?.ranges
   const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
-  if (rangeIndex !== undefined && spanRanges && spanRanges.length > 1) {
-    const currentRange = spanRanges[rangeIndex]
+  if (rangeIndex !== undefined && effectiveSpanRanges && effectiveSpanRanges.length > 1) {
+    const currentRange = effectiveSpanRanges[rangeIndex]
 
     // Check if can merge with left (previous range)
     if (rangeIndex > 0) {
-      const leftRange = spanRanges[rangeIndex - 1]
+      const leftRange = effectiveSpanRanges[rangeIndex - 1]
       if (leftRange.end === currentRange.start && leftRange.orientation === currentRange.orientation) {
         items.push({
           label: 'Merge with left segment',
           action: () => emit('contextmenu', {
             event: null,
-            annotation,
+            annotation: effectiveAnnotation,
             fragment: { rangeIndex },
             action: 'merge-left',
             rangeIndex
@@ -315,14 +321,14 @@ function getMenuItemsForElement(dataset) {
     }
 
     // Check if can merge with right (next range)
-    if (rangeIndex < spanRanges.length - 1) {
-      const rightRange = spanRanges[rangeIndex + 1]
+    if (rangeIndex < effectiveSpanRanges.length - 1) {
+      const rightRange = effectiveSpanRanges[rangeIndex + 1]
       if (currentRange.end === rightRange.start && currentRange.orientation === rightRange.orientation) {
         items.push({
           label: 'Merge with right segment',
           action: () => emit('contextmenu', {
             event: null,
-            annotation,
+            annotation: effectiveAnnotation,
             fragment: { rangeIndex },
             action: 'merge-right',
             rangeIndex
@@ -338,8 +344,8 @@ function getMenuItemsForElement(dataset) {
     if (selRanges?.length === 1 && selRanges[0].start === selRanges[0].end) {
       const cursorPos = selRanges[0].start
 
-      if (spanRanges?.[rangeIndex]) {
-        const targetRange = spanRanges[rangeIndex]
+      if (effectiveSpanRanges?.[rangeIndex]) {
+        const targetRange = effectiveSpanRanges[rangeIndex]
 
         // Check if cursor is strictly inside (not at boundaries)
         if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
@@ -347,7 +353,7 @@ function getMenuItemsForElement(dataset) {
             label: 'Split annotation',
             action: () => emit('contextmenu', {
               event: null,
-              annotation,
+              annotation: effectiveAnnotation,
               fragment: { rangeIndex },
               action: 'split',
               rangeIndex,
