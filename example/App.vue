@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, shallowRef, computed, watch, onMounted } from 'vue'
 import SequenceEditor from '../src/components/SequenceEditor.vue'
 import AlignmentEditor from '../src/components/AlignmentEditor.vue'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
@@ -51,23 +51,50 @@ function normalizeSequenceData(data) {
 }
 
 // Create SequenceDocument instances
-const targetDoc = computed(() => {
-  if (!currentSequenceData.value) return null
-  return new SequenceDocument({
-    sequence: currentSequenceData.value.sequence,
-    annotations: currentSequenceData.value.annotations || [],
-    circular: currentSequenceData.value.metadata?.circular || false
-  })
-})
+// IMPORTANT: Use shallowRef + watch instead of computed to avoid creating new
+// instances on every access. This allows mutations (delete, insert) to persist.
+const targetDoc = shallowRef(null)
+const queryDoc = shallowRef(null)
 
-const queryDoc = computed(() => {
-  if (!alignmentSequenceData.value) return null
-  return new SequenceDocument({
-    sequence: alignmentSequenceData.value.sequence,
-    annotations: alignmentSequenceData.value.annotations || [],
-    circular: alignmentSequenceData.value.metadata?.circular || false
-  })
-})
+// Watch for changes to currentSequenceData ID and create new document only when needed
+watch(
+  () => currentSequenceData.value?.id,
+  (newId, oldId) => {
+    if (!currentSequenceData.value) {
+      targetDoc.value = null
+      return
+    }
+    // Only create new document when ID changes (sequence was switched)
+    if (newId !== oldId || !targetDoc.value) {
+      targetDoc.value = new SequenceDocument({
+        sequence: currentSequenceData.value.sequence,
+        annotations: currentSequenceData.value.annotations || [],
+        circular: currentSequenceData.value.metadata?.circular || false
+      })
+    }
+  },
+  { immediate: true }
+)
+
+// Watch for changes to alignmentSequenceData ID
+watch(
+  () => alignmentSequenceData.value?.id,
+  (newId, oldId) => {
+    if (!alignmentSequenceData.value) {
+      queryDoc.value = null
+      return
+    }
+    // Only create new document when ID changes
+    if (newId !== oldId || !queryDoc.value) {
+      queryDoc.value = new SequenceDocument({
+        sequence: alignmentSequenceData.value.sequence,
+        annotations: alignmentSequenceData.value.annotations || [],
+        circular: alignmentSequenceData.value.metadata?.circular || false
+      })
+    }
+  },
+  { immediate: true }
+)
 
 // Note: targetDoc and queryDoc are passed directly to editors
 
@@ -233,6 +260,7 @@ function clearAlignment() {
 
 // Computed for title display
 const displayTitle = computed(() => currentSequenceData.value?.name || 'Untitled')
+const queryTitle = computed(() => alignmentSequenceData.value?.name || 'Untitled')
 const sequenceLength = computed(() => targetDoc.value?.sequence?.length || 0)
 const hasMetadata = computed(() => {
   const m = currentSequenceData.value?.metadata
@@ -269,8 +297,7 @@ const hasMetadata = computed(() => {
         @annotations-update="handleAnnotationsUpdate"
       >
         <template #title>
-          <strong class="title-display">{{ displayTitle }}</strong>
-          &mdash; {{ sequenceLength.toLocaleString() }} bp (alignment)
+          <strong class="title-display">{{ displayTitle }}</strong> x <strong class="title-display">{{ queryTitle }}</strong>
         </template>
         <template #info>
           <div class="info-row">

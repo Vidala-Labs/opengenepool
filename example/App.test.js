@@ -290,6 +290,97 @@ describe('Sidebar logic', () => {
  * Tests for the handleEdit function logic in App.vue
  * These test the sequence manipulation logic that will be used in the app.
  */
+/**
+ * BUG TEST: Computed property that creates new SequenceDocument on every access
+ *
+ * This test demonstrates a bug where using a computed property that returns
+ * `new SequenceDocument(...)` causes mutations to be lost, because each access
+ * creates a fresh instance from the unchanged source data.
+ */
+describe('Computed document mutation bug', () => {
+  it('mutations are lost when computed creates new instance on every access (BUG DEMO)', () => {
+    // Simulate the buggy pattern from App.vue lines 54-61
+    const currentSequenceData = { value: { sequence: 'ATCGATCGATCG', annotations: [] } }
+
+    // This is the BUGGY pattern - creating new SequenceDocument on every access
+    function getBuggyTargetDoc() {
+      if (!currentSequenceData.value) return null
+      return new SequenceDocument({
+        sequence: currentSequenceData.value.sequence,
+        annotations: currentSequenceData.value.annotations || [],
+        circular: false
+      })
+    }
+
+    // First access - get the document
+    const doc1 = getBuggyTargetDoc()
+    expect(doc1.sequence).toBe('ATCGATCGATCG')
+    expect(doc1.sequence.length).toBe(12)
+
+    // Delete 4 bases from position 4-8
+    doc1.delete([{ start: 4, end: 8 }])
+
+    // The document we mutated shows the change
+    expect(doc1.sequence.length).toBe(8)
+    expect(doc1.sequence).toBe('ATCGATCG')
+
+    // BUT second access creates a NEW document from UNCHANGED source data!
+    const doc2 = getBuggyTargetDoc()
+
+    // BUG: The mutation is lost - we're back to the original sequence
+    expect(doc2.sequence.length).toBe(12)  // Still 12, not 8!
+    expect(doc2.sequence).toBe('ATCGATCGATCG')  // Original sequence!
+
+    // The two documents are NOT the same instance
+    expect(doc1).not.toBe(doc2)
+  })
+
+  it('mutations persist when document instance is reused (CORRECT PATTERN)', () => {
+    // Simulate the correct pattern - create document once and reuse
+    const currentSequenceData = { value: { sequence: 'ATCGATCGATCG', annotations: [] } }
+
+    // Create document ONCE
+    let cachedDoc = null
+    function getCorrectTargetDoc() {
+      if (!currentSequenceData.value) {
+        cachedDoc = null
+        return null
+      }
+      // Only create if we don't have one or source changed
+      if (!cachedDoc) {
+        cachedDoc = new SequenceDocument({
+          sequence: currentSequenceData.value.sequence,
+          annotations: currentSequenceData.value.annotations || [],
+          circular: false
+        })
+      }
+      return cachedDoc
+    }
+
+    // First access - get the document
+    const doc1 = getCorrectTargetDoc()
+    expect(doc1.sequence).toBe('ATCGATCGATCG')
+    expect(doc1.sequence.length).toBe(12)
+
+    // Delete 4 bases from position 4-8
+    doc1.delete([{ start: 4, end: 8 }])
+
+    // The document shows the change
+    expect(doc1.sequence.length).toBe(8)
+    expect(doc1.sequence).toBe('ATCGATCG')
+
+    // Second access returns the SAME document instance
+    const doc2 = getCorrectTargetDoc()
+
+    // CORRECT: The mutation persists
+    expect(doc2.sequence.length).toBe(8)
+    expect(doc2.sequence).toBe('ATCGATCG')
+
+    // Same instance
+    expect(doc1).toBe(doc2)
+  })
+})
+
 describe('App edit handling logic', () => {
   // Helper function that mirrors the handleEdit logic
   function applyEdit(sequence, data) {
