@@ -13,6 +13,7 @@ import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import AnnotationModal from './AnnotationModal.vue'
 import SequenceLayer from './SequenceLayer.vue'
 import AlignmentTicksLayer from './AlignmentTicksLayer.vue'
 import Toolbar from './Toolbar.vue'
@@ -536,44 +537,19 @@ const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 const contextMenuItems = ref([])
 
+// Annotation modal state
+const annotationModalOpen = ref(false)
+const annotationModalSpan = ref('0..0')
+const editingAnnotation = ref(null)  // null = create mode, annotation object = edit mode
+const annotationModalMode = ref('target')  // Track which document to add annotation to
+
 // Build context menu items
 function buildContextMenuItems(context) {
   const items = []
   const isSelected = selection.isSelected.value
   const domain = selection.domain.value
 
-  // Annotation-specific menu items
-  if (context.source === 'annotation' && context.annotation) {
-    const annotation = context.annotation
-
-    // Edit annotation
-    items.push({
-      label: 'Edit Annotation',
-      action: () => {
-        // Emit edit event - parent can handle this
-        emit('edit-annotation', { annotation })
-      }
-    })
-
-    // Delete annotation - determine which document to use based on mode
-    items.push({
-      label: 'Delete Annotation',
-      action: () => {
-        // Find the document that owns this annotation
-        // Check if annotation is in target or query based on the fragment's mode
-        const mode = context.fragment?.annotation?.attributes?._alignmentMode
-        if (mode === 'query' && props.query) {
-          props.query.deleteAnnotation(annotation.id)
-        } else if (props.target) {
-          props.target.deleteAnnotation(annotation.id)
-        }
-      }
-    })
-
-    items.push({ separator: true })
-  }
-
-  // Copy option
+  // Group 1: Copy / Select none
   if (isSelected && domain && domain.ranges.length > 0) {
     const range = domain.ranges[0]
     if (range.start !== range.end) {
@@ -591,7 +567,7 @@ function buildContextMenuItems(context) {
   // Note: "Select all" is provided by SequenceLayer via getMenuItemsForElement
   // This ensures it only appears when clicking on a sequence layer (not background)
 
-  // Delete sequence option
+  // Group 2: Delete sequence option
   if (isSelected && domain && domain.ranges.length > 0 && !props.readonly) {
     const range = domain.ranges[0]
     if (range.start !== range.end) {
@@ -600,6 +576,55 @@ function buildContextMenuItems(context) {
         label: 'Delete sequence',
         action: () => handleDelete()
       })
+    }
+  }
+
+  // Group 3: Create / Edit / Delete Annotation
+  if (!props.readonly) {
+    items.push({ separator: true })
+
+    // Create annotation option - always available when not readonly
+    items.push({
+      label: 'Create Annotation',
+      action: () => openAnnotationModal()
+    })
+  }
+
+  // Annotation-specific items when right-clicking on an annotation
+  if (context.source === 'annotation' && context.annotation && !props.readonly) {
+    const annotation = context.annotation
+    const mode = annotation.attributes?._alignmentMode || 'target'
+
+    items.push({
+      label: 'Edit Annotation',
+      action: () => openAnnotationModalForEdit(annotation, mode)
+    })
+
+    items.push({
+      label: 'Delete Annotation',
+      action: () => {
+        if (mode === 'query' && props.query) {
+          props.query.deleteAnnotation(annotation.id)
+        } else if (props.target) {
+          props.target.deleteAnnotation(annotation.id)
+        }
+        emit('annotations-update')
+      }
+    })
+
+    // Subtract from selection option when annotation overlaps selection
+    if (isSelected && domain) {
+      const annotationSpan = annotation.span
+      const hasOverlap = annotationSpan?.ranges && domain.ranges.some(selRange =>
+        annotationSpan.ranges.some(annRange => selRange.overlaps?.(annRange))
+      )
+
+      if (hasOverlap) {
+        items.push({
+          label: 'Subtract from selection',
+          action: () => selection.subtractSpan(annotationSpan)
+        })
+      }
     }
   }
 
@@ -646,6 +671,97 @@ function showContextMenu(event, context = {}) {
 
 function hideContextMenu() {
   contextMenuVisible.value = false
+}
+
+// Annotation modal functions
+function openAnnotationModal() {
+  const domain = selection.domain.value
+
+  // Set the mode based on current selection source
+  annotationModalMode.value = selection.source.value || 'target'
+
+  if (domain && domain.ranges.length > 0 && domain.ranges[0].start !== domain.ranges[0].end) {
+    // Convert selection ranges to span string for annotation
+    // In alignment mode, we need to use the reverse coordinate map to get original positions
+    const reverseMap = annotationModalMode.value === 'query' ? queryReverseMap.value : targetReverseMap.value
+
+    const spanStr = domain.ranges
+      .map(r => {
+        // Map aligned coordinates back to original coordinates
+        const origStart = reverseMap ? reverseMap[r.start] : r.start
+        const origEnd = reverseMap ? reverseMap[r.end] : r.end
+        if (origStart !== undefined && origEnd !== undefined) {
+          return new Range(origStart, origEnd, r.orientation).toFencedString()
+        }
+        return null
+      })
+      .filter(s => s !== null)
+      .join(' + ')
+    annotationModalSpan.value = spanStr || ''
+  } else {
+    annotationModalSpan.value = ''
+  }
+  editingAnnotation.value = null
+  annotationModalOpen.value = true
+}
+
+function closeAnnotationModal() {
+  annotationModalOpen.value = false
+  editingAnnotation.value = null
+}
+
+function openAnnotationModalForEdit(annotation, mode = 'target') {
+  editingAnnotation.value = annotation
+  annotationModalMode.value = mode
+  const spanStr = annotation.span?.toJSON?.() || '0..0'
+  annotationModalSpan.value = spanStr
+  annotationModalOpen.value = true
+}
+
+function handleAnnotationCreate(data) {
+  const doc = annotationModalMode.value === 'query' ? props.query : props.target
+  if (!doc) return
+
+  // Add annotation to the appropriate document
+  doc.addAnnotation({
+    span: data.span,
+    type: data.type,
+    label: data.label,
+    color: data.color,
+    orientation: data.orientation,
+    attributes: data.attributes || {}
+  })
+
+  emit('annotations-update')
+  annotationModalOpen.value = false
+}
+
+function handleAnnotationUpdate(data) {
+  const annotationId = editingAnnotation.value.id
+  const doc = annotationModalMode.value === 'query' ? props.query : props.target
+  if (!doc) return
+
+  // Update annotation in the appropriate document
+  doc.updateAnnotation({
+    id: annotationId,
+    span: data.span,
+    type: data.type,
+    label: data.label,
+    color: data.color,
+    orientation: data.orientation,
+    attributes: data.attributes || {}
+  })
+
+  emit('annotations-update')
+  annotationModalOpen.value = false
+  editingAnnotation.value = null
+}
+
+function handleEditAnnotation(data) {
+  const { annotation } = data
+  // Determine which document this annotation belongs to
+  const mode = annotation.attributes?._alignmentMode || 'target'
+  openAnnotationModalForEdit(annotation, mode)
 }
 
 // Handle selection change events
@@ -1072,6 +1188,18 @@ const toolbarHelpText = `Selection Controls:
       confirm-label="Delete"
       @confirm="confirmDelete"
       @cancel="cancelDelete"
+    />
+
+    <!-- Annotation Creation/Edit Modal -->
+    <AnnotationModal
+      :open="annotationModalOpen"
+      :span="annotationModalSpan"
+      :sequence-length="editorState.sequenceLength.value"
+      :readonly="props.readonly"
+      :annotation="editingAnnotation"
+      @close="closeAnnotationModal"
+      @create="handleAnnotationCreate"
+      @update="handleAnnotationUpdate"
     />
 
     <!-- Extension panels/overlays -->
