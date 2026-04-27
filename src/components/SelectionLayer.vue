@@ -20,6 +20,11 @@ const props = defineProps({
     type: Number,
     default: 0
   },
+  /** Top padding for alignment mode */
+  alignmentTopPadding: {
+    type: Number,
+    default: 0
+  },
   /** Line height for calculating query row offset */
   lineHeight: {
     type: Number,
@@ -58,7 +63,7 @@ function getLineYForSelection(lineIndex) {
   if (props.alignmentMode) {
     // Target row is at top (offset 0), query row is 2 lines down
     const rowOffset = props.alignmentMode === 'query' ? props.lineHeight * 2 : 0
-    return lineIndex * props.alignmentBlockHeight + rowOffset
+    return props.alignmentTopPadding + lineIndex * props.alignmentBlockHeight + rowOffset
   }
   return graphics.getLineY(lineIndex)
 }
@@ -66,9 +71,9 @@ function getLineYForSelection(lineIndex) {
 // Helper to get line index from Y position (inverse of getLineYForSelection)
 function getLineIndexFromYForSelection(y) {
   if (props.alignmentMode) {
-    // Subtract the row offset, then divide by block height
+    // Subtract the top padding and row offset, then divide by block height
     const rowOffset = props.alignmentMode === 'query' ? props.lineHeight * 2 : 0
-    return Math.max(0, Math.floor((y - rowOffset) / props.alignmentBlockHeight))
+    return Math.max(0, Math.floor((y - props.alignmentTopPadding - rowOffset) / props.alignmentBlockHeight))
   }
   return graphics.pixelToLineIndex(y, editorState.lineCount.value)
 }

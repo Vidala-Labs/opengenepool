@@ -317,7 +317,11 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
     }
 
     // Report extra height needed per line to graphics system
-    if (graphics.setLineExtraHeight) {
+    // Skip this in alignment mode - alignment uses fixed block heights and having
+    // multiple AnnotationLayers call setLineExtraHeight causes infinite reactive loops
+    // ("Maximum recursive updates exceeded" error)
+    const skipLineHeight = options.skipLineHeightManagement?.value ?? options.skipLineHeightManagement ?? false
+    if (graphics.setLineExtraHeight && !skipLineHeight) {
       // First, reset all lines that previously had extra height but no longer have annotations
       const currentExtraHeights = graphics.lineExtraHeight?.value
       if (currentExtraHeights) {

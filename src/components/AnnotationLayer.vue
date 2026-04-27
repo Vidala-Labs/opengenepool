@@ -104,9 +104,13 @@ function getTypeColor(type) {
 // Pass showTranslation as a computed so CDS annotations can reserve extra space
 const showTranslationRef = computed(() => props.showTranslation)
 const stackDirectionRef = computed(() => props.stackDirection)
+// In alignment mode, skip line height management to avoid infinite reactive loops
+// when multiple AnnotationLayers exist (one for target, one for query)
+const skipLineHeightRef = computed(() => props.mode !== null)
 const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
   showTranslation: showTranslationRef,
-  stackDirection: stackDirectionRef
+  stackDirection: stackDirectionRef,
+  skipLineHeightManagement: skipLineHeightRef
 })
 
 // Watch for annotation prop changes

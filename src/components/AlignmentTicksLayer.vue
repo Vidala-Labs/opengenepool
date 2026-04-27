@@ -8,6 +8,7 @@ const graphics = inject('graphics')
 const isAlignmentMode = inject('isAlignmentMode', ref(false))
 const alignmentLines = inject('alignmentLines', ref([]))
 const alignmentBlockHeight = inject('alignmentBlockHeight', ref(0))
+const alignmentTopPadding = inject('alignmentTopPadding', 0)
 
 // Metrics for positioning
 const metrics = computed(() => graphics.metrics.value)
@@ -31,7 +32,7 @@ function preserveSpaces(text) {
     <g
       v-for="line in alignmentLines"
       :key="'ticks-' + line.index"
-      :transform="`translate(0, ${line.index * alignmentBlockHeight + lineHeight})`"
+      :transform="`translate(0, ${alignmentTopPadding + line.index * alignmentBlockHeight + lineHeight})`"
       class="alignment-ticks"
     >
       <!-- No label for match row -->

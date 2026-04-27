@@ -414,11 +414,17 @@ const isAlignmentMode = computed(() => true)  // Always true for this component
 provide('isAlignmentMode', isAlignmentMode)
 provide('alignmentLines', alignmentLines)
 
-// Alignment block height (query + match + target + annotation space)
+// Layout constants for alignment view
+const TOP_PADDING = 30  // Space at top of SVG (similar to SequenceEditor's vmargin + tooltipMargin)
+const ROW_SPACING = 20  // Extra space between alignment blocks for annotation overflow
+const ANNOTATION_SPACE = 40  // Space within each block for annotations
+
+// Alignment block height (query + match + target + annotation space + row spacing)
 const alignmentBlockHeight = computed(() => {
-  return graphics.lineHeight.value * 3 + 40
+  return graphics.lineHeight.value * 3 + ANNOTATION_SPACE + ROW_SPACING
 })
 provide('alignmentBlockHeight', alignmentBlockHeight)
+provide('alignmentTopPadding', TOP_PADDING)
 
 // Extension API - provides interface for extension panels
 const selectionChangeHandlers = new Set()
@@ -493,9 +499,7 @@ const availableZooms = computed(() => {
 // SVG dimensions for alignment mode
 const svgHeight = computed(() => {
   if (hasAlignment.value) {
-    const lineHeight = graphics.lineHeight.value
-    const blockHeight = lineHeight * 3 + 40
-    return alignmentLines.value.length * blockHeight + 40
+    return TOP_PADDING + alignmentLines.value.length * alignmentBlockHeight.value + 40
   }
   return 100 // Minimal height when no alignment
 })
@@ -937,7 +941,7 @@ const toolbarHelpText = `Selection Controls:
               :document="targetDoc"
               :lines="alignmentLines"
               :position-map="targetPositionMap"
-              :y-offset="0"
+              :y-offset="TOP_PADDING"
               :block-height="alignmentBlockHeight"
               :original-sequence-length="editorState.sequenceLength.value"
               @select="handleSelectionChange"
@@ -949,7 +953,7 @@ const toolbarHelpText = `Selection Controls:
               :document="queryDoc"
               :lines="alignmentLines"
               :position-map="queryPositionMap"
-              :y-offset="graphics.lineHeight.value * 2"
+              :y-offset="TOP_PADDING + graphics.lineHeight.value * 2"
               :block-height="alignmentBlockHeight"
               :original-sequence-length="queryDoc?.sequence?.length || 0"
               @select="handleSelectionChange"
@@ -964,7 +968,7 @@ const toolbarHelpText = `Selection Controls:
               mode="target"
               :document="targetDoc"
               :annotations="alignedTargetAnnotations"
-              :y-offset="0"
+              :y-offset="TOP_PADDING"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
             />
@@ -975,7 +979,7 @@ const toolbarHelpText = `Selection Controls:
               mode="query"
               :document="queryDoc"
               :annotations="alignedQueryAnnotations"
-              :y-offset="graphics.lineHeight.value * 4"
+              :y-offset="TOP_PADDING + graphics.lineHeight.value * 4"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
               stack-direction="down"
@@ -990,6 +994,7 @@ const toolbarHelpText = `Selection Controls:
             ref="selectionLayerRef"
             :alignment-mode="selection.source.value"
             :alignment-block-height="alignmentBlockHeight"
+            :alignment-top-padding="TOP_PADDING"
             :line-height="graphics.lineHeight.value"
             :reverse-coordinate-map="activeReverseCoordinateMap"
             @select="handleSelectionChange"

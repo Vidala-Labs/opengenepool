@@ -146,6 +146,68 @@ describe('useAnnotations', () => {
     return annotations
   }
 
+  describe('alignment mode bug: multiple annotation layers', () => {
+    // BUG: In AlignmentEditor, when both target and query have annotations,
+    // two AnnotationLayer components are rendered, each calling useAnnotations.
+    // Both computed properties (getElementsByLine) mutate graphics.lineExtraHeight
+    // via setLineExtraHeight, causing "Maximum recursive updates exceeded" error.
+    //
+    // This test demonstrates the problem: two useAnnotations instances sharing
+    // the same graphics should not cause recursive updates.
+    it('should not cause recursive updates when two instances share graphics', () => {
+      // Setup: shared editor state and graphics (simulating AlignmentEditor)
+      const sharedEditorState = useEditorState()
+      sharedEditorState.setSequence('A'.repeat(1000))
+      sharedEditorState.setZoom(100)
+      const sharedGraphics = useGraphics(sharedEditorState)
+      sharedGraphics.setContainerSize(800, 600)
+      sharedGraphics.setFontMetrics(8, 16)
+
+      // Create two useAnnotations instances (like target and query AnnotationLayers)
+      const eventBus1 = createEventBus()
+      const eventBus2 = createEventBus()
+      const annotations1 = useAnnotations(sharedEditorState, sharedGraphics, eventBus1)
+      const annotations2 = useAnnotations(sharedEditorState, sharedGraphics, eventBus2)
+
+      // Set different annotations on each (like target and query)
+      annotations1.setAnnotations([
+        new Annotation({ id: 't1', caption: 'Target Gene', type: 'gene', span: Span.parse('10..50') })
+      ])
+      annotations2.setAnnotations([
+        new Annotation({ id: 'q1', caption: 'Query Gene', type: 'gene', span: Span.parse('10..50') })
+      ])
+
+      // Access both computed properties - this should NOT cause infinite recursion
+      // In the browser, this causes "Maximum recursive updates exceeded" error
+      // because both computeds call setLineExtraHeight which triggers re-evaluation
+      let recursionCount = 0
+      const maxRecursion = 100
+
+      // Wrap setLineExtraHeight to count calls
+      const originalSetLineExtraHeight = sharedGraphics.setLineExtraHeight
+      sharedGraphics.setLineExtraHeight = (...args) => {
+        recursionCount++
+        if (recursionCount > maxRecursion) {
+          throw new Error('Recursive updates detected: setLineExtraHeight called too many times')
+        }
+        return originalSetLineExtraHeight(...args)
+      }
+
+      // Access both computed properties to trigger the bug
+      const elements1 = annotations1.getElementsByLine.value
+      const elements2 = annotations2.getElementsByLine.value
+
+      // Verify annotations were processed
+      expect(elements1.get(0)).toBeDefined()
+      expect(elements2.get(0)).toBeDefined()
+
+      // The bug is that setLineExtraHeight is called many times due to reactive loop
+      // A proper implementation should call it at most a few times per annotation layer
+      // Currently this test FAILS because of excessive recursive calls
+      expect(recursionCount).toBeLessThan(10)  // Should be ~2-4 calls max, not 100+
+    })
+  })
+
   describe('setAnnotations', () => {
     it('sets annotation list', () => {
       const ann = createAnnotations()
