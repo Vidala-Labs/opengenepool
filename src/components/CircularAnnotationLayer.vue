@@ -158,6 +158,9 @@ defineExpose({
       @mouseenter="handleMouseEnter($event, element)"
       @mouseleave="handleMouseLeave($event, element)"
     >
+      <!-- Tooltip (native browser tooltip via SVG title element) -->
+      <title v-if="element.caption">{{ element.caption }}</title>
+
       <!-- Annotation arc path -->
       <path
         :d="element.path"

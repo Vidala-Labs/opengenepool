@@ -77,6 +77,8 @@ const eventBus = inject('eventBus', null)
 const annotationColors = inject('annotationColors', null)
 // Selection state for context menu items (optional)
 const selection = inject('selection', null)
+// Inject alignment line positioning function (provided by AlignmentEditor)
+const getAlignmentLineY = inject('getAlignmentLineY', null)
 
 // Default colors used when not provided via inject (e.g., in tests)
 const DEFAULT_COLORS = {
@@ -384,7 +386,10 @@ const isAlignmentLayer = computed(() => props.mode !== null)
 // Get y position for a line
 function getLineY(lineIndex) {
   if (isAlignmentLayer.value) {
-    // Alignment mode: position within alignment block
+    // Use injected per-line positioning if available, otherwise fall back to uniform spacing
+    if (getAlignmentLineY) {
+      return getAlignmentLineY(lineIndex) + props.yOffset
+    }
     return lineIndex * props.blockHeight + props.yOffset
   }
   return graphics.getLineY(lineIndex)
@@ -599,12 +604,14 @@ defineExpose({
       :transform="`translate(0, ${getLineY(lineIndex)})`"
     >
       <!-- Each element on this line (with layout-computed deltaY) -->
-      <!-- When translation space is reserved, offset visual up to leave room below for translation -->
+      <!-- When translation space is reserved, offset visual to leave room for translation -->
+      <!-- stack-direction="up": shift up (subtract) to leave room below -->
+      <!-- stack-direction="down": shift down (add) to leave room above -->
       <g
         v-for="(element, elemIndex) in elementsByLine.get(lineIndex)"
         :key="`elem-${element.fragment.id}-${elemIndex}`"
         :class="['annotation-fragment', element.fragment.cssClass]"
-        :transform="`translate(0, ${element.deltaY - (element.reserveTranslationSpace ? TRANSLATION_HEIGHT : 0)})`"
+        :transform="`translate(0, ${element.deltaY + (element.reserveTranslationSpace ? (stackDirection === 'down' ? TRANSLATION_HEIGHT : -TRANSLATION_HEIGHT) : 0)})`"
         data-layer="annotation"
         :data-annotation-id="element.fragment.annotation?.id"
         :data-range-index="element.fragment.rangeIndex"
@@ -613,6 +620,9 @@ defineExpose({
         @mouseenter="handleMouseEnter($event, element.fragment)"
         @mouseleave="handleMouseLeave($event, element.fragment)"
       >
+        <!-- Tooltip (native browser tooltip via SVG title element) -->
+        <title v-if="element.fragment.caption">{{ element.fragment.caption }}</title>
+
         <!-- Use pre-computed arrow path from layout, color/gradient based on indefinite state -->
         <path
           :d="element.path"
@@ -622,10 +632,11 @@ defineExpose({
         />
 
         <!-- Caption text (only shown if it fits within the arrow) -->
+        <!-- For down direction, nudge text down slightly to better center in the arrow -->
         <text
           v-if="showCaptions && captionFits(element)"
           :x="getCaptionX(element)"
-          :y="-height / 2"
+          :y="stackDirection === 'down' ? height / 2 + 2 : -height / 2"
           dominant-baseline="middle"
           class="annotation-caption"
         >
