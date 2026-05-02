@@ -8,7 +8,7 @@ import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
-import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment } from '../utils/alignment.js'
+import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -143,6 +143,24 @@ const alignmentResult = computed(() => {
 const hasAlignment = computed(() => {
   return alignmentResult.value && alignmentResult.value.score > 0
 })
+
+// Update gaps on documents when alignment changes
+watch(alignmentResult, (result) => {
+  if (!result || result.score === 0) {
+    // No alignment - clear gaps
+    targetDoc.value?.clearGaps?.()
+    queryDoc.value?.clearGaps?.()
+    return
+  }
+
+  // Extract and set gaps for target document
+  const targetGaps = extractGaps(result.targetAligned, result.targetStart)
+  targetDoc.value?.setGaps?.(targetGaps)
+
+  // Extract and set gaps for query document
+  const queryGaps = extractGaps(result.queryAligned, result.queryStart)
+  queryDoc.value?.setGaps?.(queryGaps)
+}, { immediate: true })
 
 // Aligned sequences with gaps inserted
 const alignedQuerySequence = computed(() => {

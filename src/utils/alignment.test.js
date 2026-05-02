@@ -3,7 +3,8 @@ import {
   align,
   scoreMatch,
   buildCoordinateMap,
-  mapCoordinate
+  mapCoordinate,
+  extractGaps
 } from './alignment.js'
 
 /**
@@ -394,5 +395,70 @@ describe('coordinate mapping', () => {
       expect(mapCoordinate(8, map, 5)).toBe(3)     // Last valid
       expect(mapCoordinate(9, map, 5)).toBeNull()  // After end
     })
+  })
+})
+
+describe('extractGaps', () => {
+  it('returns empty array for sequence with no gaps', () => {
+    const gaps = extractGaps('ATCG', 0)
+    expect(gaps).toEqual([])
+  })
+
+  it('extracts single gap from aligned sequence', () => {
+    // 'AT--CG' has a gap of length 2 after position 1 (after T)
+    const gaps = extractGaps('AT--CG', 0)
+    expect(gaps).toEqual([{ position: 2, length: 2 }])
+  })
+
+  it('extracts multiple gaps from aligned sequence', () => {
+    // 'A-T--CG-' has gaps at:
+    // - length 1 after position 0 (after A)
+    // - length 2 after position 1 (after T)
+    // - length 1 after position 3 (after G)
+    const gaps = extractGaps('A-T--CG-', 0)
+    expect(gaps).toEqual([
+      { position: 1, length: 1 },
+      { position: 2, length: 2 },
+      { position: 4, length: 1 }
+    ])
+  })
+
+  it('handles gap at the start of sequence', () => {
+    // '--ATCG' has a gap of length 2 before position 0
+    const gaps = extractGaps('--ATCG', 0)
+    expect(gaps).toEqual([{ position: 0, length: 2 }])
+  })
+
+  it('handles gap at the end of sequence', () => {
+    // 'ATCG--' has a gap of length 2 after position 3 (after G)
+    const gaps = extractGaps('ATCG--', 0)
+    expect(gaps).toEqual([{ position: 4, length: 2 }])
+  })
+
+  it('respects originalStart offset', () => {
+    // 'AT--CG' with originalStart=10 means positions are 10,11,12,13
+    // Gap is after position 11 (original position)
+    const gaps = extractGaps('AT--CG', 10)
+    expect(gaps).toEqual([{ position: 12, length: 2 }])
+  })
+
+  it('handles consecutive single gaps', () => {
+    // 'A-T-C-G' has three separate single-character gaps
+    const gaps = extractGaps('A-T-C-G', 0)
+    expect(gaps).toEqual([
+      { position: 1, length: 1 },
+      { position: 2, length: 1 },
+      { position: 3, length: 1 }
+    ])
+  })
+
+  it('handles all gaps (edge case)', () => {
+    const gaps = extractGaps('----', 0)
+    expect(gaps).toEqual([{ position: 0, length: 4 }])
+  })
+
+  it('handles empty string', () => {
+    const gaps = extractGaps('', 0)
+    expect(gaps).toEqual([])
   })
 })

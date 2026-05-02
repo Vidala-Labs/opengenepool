@@ -333,3 +333,10 @@ Backend adapters must implement these methods (all optional):
 - `setMetadata(key, value)` - Update metadata
 - `getClipboard()` - Get clipboard content
 - `setClipboard(content)` - Set clipboard content
+
+## IMPORTANT NOTE
+
+When applicable, always use TDD for new features or debugging:
+- write a failing test (RED)
+- apply your proposed fix
+- verify that the test now passes (GREEN)

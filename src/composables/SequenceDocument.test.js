@@ -573,4 +573,64 @@ describe('SequenceDocument', () => {
       expect(doc.annotations[0].span.toJSON()).toBe('6..8')
     })
   })
+
+  describe('gaps', () => {
+    it('defaults to empty array', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG' })
+      expect(doc.gaps).toEqual([])
+    })
+
+    it('can be set via constructor', () => {
+      const gaps = [{ position: 2, length: 3 }]
+      const doc = new SequenceDocument({ sequence: 'ATCG', gaps })
+      expect(doc.gaps).toEqual(gaps)
+    })
+
+    it('setGaps() updates gaps', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG' })
+      const gaps = [{ position: 5, length: 2 }, { position: 10, length: 1 }]
+      doc.setGaps(gaps)
+      expect(doc.gaps).toEqual(gaps)
+    })
+
+    it('clearGaps() sets gaps to empty array', () => {
+      const doc = new SequenceDocument({
+        sequence: 'ATCG',
+        gaps: [{ position: 2, length: 3 }]
+      })
+      doc.clearGaps()
+      expect(doc.gaps).toEqual([])
+    })
+
+    it('gaps getter returns current gaps', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG' })
+      expect(doc.gaps).toEqual([])
+
+      const gaps = [{ position: 1, length: 2 }]
+      doc.setGaps(gaps)
+      expect(doc.gaps).toEqual(gaps)
+    })
+
+    it('includes gaps in toJSON()', () => {
+      const gaps = [{ position: 2, length: 3 }]
+      const doc = new SequenceDocument({ sequence: 'ATCG', gaps })
+      const json = doc.toJSON()
+      expect(json.gaps).toEqual(gaps)
+    })
+
+    it('restores gaps from fromJSON()', () => {
+      const data = {
+        sequence: 'ATCG',
+        gaps: [{ position: 2, length: 3 }]
+      }
+      const doc = SequenceDocument.fromJSON(data)
+      expect(doc.gaps).toEqual(data.gaps)
+    })
+
+    it('fromJSON() defaults gaps to empty array if not provided', () => {
+      const data = { sequence: 'ATCG' }
+      const doc = SequenceDocument.fromJSON(data)
+      expect(doc.gaps).toEqual([])
+    })
+  })
 })

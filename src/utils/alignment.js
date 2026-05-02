@@ -321,6 +321,37 @@ export function buildReverseCoordinateMap(alignedSequence, originalStart) {
 }
 
 /**
+ * Extract gap positions from an aligned sequence string.
+ *
+ * @param {string} alignedSequence - Sequence with gaps ('-')
+ * @param {number} originalStart - Start position in original sequence
+ * @returns {Array<{position: number, length: number}>} Array of gap objects
+ */
+export function extractGaps(alignedSequence, originalStart) {
+  const gaps = []
+  let originalPos = originalStart
+  let i = 0
+
+  while (i < alignedSequence.length) {
+    if (alignedSequence[i] === '-') {
+      // Found a gap, count its length
+      let gapLength = 0
+      while (i < alignedSequence.length && alignedSequence[i] === '-') {
+        gapLength++
+        i++
+      }
+      gaps.push({ position: originalPos, length: gapLength })
+    } else {
+      // Non-gap character
+      originalPos++
+      i++
+    }
+  }
+
+  return gaps
+}
+
+/**
  * Map an annotation through alignment, adjusting coordinates for gaps.
  *
  * @param {Object} annotation - Annotation with span property

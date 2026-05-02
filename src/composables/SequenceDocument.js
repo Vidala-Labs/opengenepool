@@ -30,11 +30,12 @@ export class SequenceDocument {
    * @param {boolean} options.circular - Whether the sequence is circular (plasmid)
    * @param {Object} options.backend - Backend adapter for persistence (insert, delete, annotationCreated, etc.)
    */
-  constructor({ sequence = '', annotations = [], circular = false, backend = null } = {}) {
+  constructor({ sequence = '', annotations = [], circular = false, gaps = [], backend = null } = {}) {
     // Internal reactive refs
     this._sequence = shallowRef(sequence)
     this._annotations = ref(this._normalizeAnnotations(annotations))
     this._circular = ref(circular)
+    this._gaps = shallowRef(gaps)
     this._backend = backend
   }
 
@@ -115,6 +116,14 @@ export class SequenceDocument {
    */
   get circular() {
     return this._circular.value
+  }
+
+  /**
+   * Gap information for alignment display.
+   * @returns {Array<{position: number, length: number}>}
+   */
+  get gaps() {
+    return this._gaps.value
   }
 
   /**
@@ -225,6 +234,21 @@ export class SequenceDocument {
    */
   setCircular(circular) {
     this._circular.value = !!circular
+  }
+
+  /**
+   * Set the gaps array.
+   * @param {Array<{position: number, length: number}>} gaps
+   */
+  setGaps(gaps) {
+    this._gaps.value = gaps
+  }
+
+  /**
+   * Clear all gaps (sets to empty array).
+   */
+  clearGaps() {
+    this._gaps.value = []
   }
 
   // ============================================
@@ -462,7 +486,8 @@ export class SequenceDocument {
         ...annotation,
         span: annotation.span?.toJSON?.() ?? annotation.span
       })),
-      circular: this._circular.value
+      circular: this._circular.value,
+      gaps: this._gaps.value
     }
   }
 
@@ -475,7 +500,8 @@ export class SequenceDocument {
     return new SequenceDocument({
       sequence: data.sequence || '',
       annotations: data.annotations || [],
-      circular: data.circular || false
+      circular: data.circular || false,
+      gaps: data.gaps || []
     })
   }
 }
