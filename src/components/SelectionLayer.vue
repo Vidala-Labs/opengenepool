@@ -51,6 +51,12 @@ const graphics = inject('graphics')
 // Selection is injected from parent (single source of truth)
 const selection = inject('selection')
 
+// Alignment mode: inject the positioning function and lines
+const injectedGetAlignmentLineY = inject('getAlignmentLineY', null)
+const injectedAlignmentLines = inject('alignmentLines', null)
+const injectedLineAnnotationHeights = inject('lineAnnotationHeights', null)
+const injectedAlignmentTopPadding = inject('alignmentTopPadding', 30)
+
 // Handle drag state
 const draggedHandle = ref(null) // { rangeIndex, type: 'start'|'end' }
 const dragLimits = ref({ low: 0, high: 0 })
@@ -60,20 +66,48 @@ const pendingDrag = ref(null) // { startX, touchPoint, handles: [{rangeIndex, ty
 
 // Helper to get Y position for a line (handles alignment mode)
 function getLineYForSelection(lineIndex) {
-  if (props.alignmentMode) {
-    // Target row is at top (offset 0), query row is 2 lines down
+  if (props.alignmentMode && injectedGetAlignmentLineY) {
+    // Use the injected function which accounts for cumulative annotation heights
+    const baseY = injectedGetAlignmentLineY(lineIndex)
+    // Target row is at offset 0, query row is 2 lines down
     const rowOffset = props.alignmentMode === 'query' ? props.lineHeight * 2 : 0
-    return props.alignmentTopPadding + lineIndex * props.alignmentBlockHeight + rowOffset
+    return baseY + rowOffset
   }
   return graphics.getLineY(lineIndex)
 }
 
 // Helper to get line index from Y position (inverse of getLineYForSelection)
 function getLineIndexFromYForSelection(y) {
-  if (props.alignmentMode) {
-    // Subtract the top padding and row offset, then divide by block height
-    const rowOffset = props.alignmentMode === 'query' ? props.lineHeight * 2 : 0
-    return Math.max(0, Math.floor((y - props.alignmentTopPadding - rowOffset) / props.alignmentBlockHeight))
+  if (props.alignmentMode && injectedGetAlignmentLineY && injectedAlignmentLines && injectedLineAnnotationHeights) {
+    const numLines = injectedAlignmentLines.value?.length || 0
+    if (numLines === 0) return 0
+
+    const heights = injectedLineAnnotationHeights.value
+    const padding = injectedAlignmentTopPadding
+    const lh = props.lineHeight
+
+    // Each row's capture zone:
+    // top: baselineY - targetHeight - padding/2
+    // bottom: baselineY + 3*lineHeight + queryHeight + padding/2
+    for (let i = 0; i < numLines; i++) {
+      const baselineY = injectedGetAlignmentLineY(i)
+      const targetH = heights.target.get(i) || 0
+      const queryH = heights.query.get(i) || 0
+
+      const rowTop = baselineY - targetH - padding / 2
+      const rowBottom = baselineY + 3 * lh + queryH + padding / 2
+
+      if (y >= rowTop && y < rowBottom) {
+        return i
+      }
+    }
+
+    // If before first row, return 0; if after last row, return last
+    const firstBaselineY = injectedGetAlignmentLineY(0)
+    const firstTargetH = heights.target.get(0) || 0
+    if (y < firstBaselineY - firstTargetH - padding / 2) return 0
+
+    return numLines - 1
   }
   return graphics.pixelToLineIndex(y, editorState.lineCount.value)
 }

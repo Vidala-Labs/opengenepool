@@ -698,15 +698,147 @@ provide('alignmentLines', alignmentLines)
 
 // Layout constants for alignment view
 const TOP_PADDING = 30  // Space at top of SVG (similar to SequenceEditor's vmargin + tooltipMargin)
-const ROW_SPACING = 20  // Extra space between alignment blocks for annotation overflow
-const ANNOTATION_SPACE = 40  // Space within each block for annotations
+const ANNOTATION_HEIGHT = 18  // Height of a single annotation bar
+const TRANSLATION_HEIGHT = 18  // Height reserved for translation display
 
-// Alignment block height (query + match + target + annotation space + row spacing)
+/**
+ * Compute stacked annotation height for a set of annotations on a given line.
+ * Simulates the collision detection/stacking algorithm.
+ */
+function computeStackedHeight(annotations, line, zoom, showTrans) {
+  const lineAnnotations = []
+
+  for (const ann of annotations) {
+    if (!ann.span?.ranges) continue
+
+    const isCDS = ann.type?.toUpperCase() === 'CDS'
+    const height = isCDS && showTrans
+      ? ANNOTATION_HEIGHT + TRANSLATION_HEIGHT
+      : ANNOTATION_HEIGHT
+
+    for (const range of ann.span.ranges) {
+      const startLine = Math.floor(range.start / zoom)
+      const endLine = Math.floor((range.end - 1) / zoom)
+
+      if (line >= startLine && line <= endLine) {
+        lineAnnotations.push({ start: range.start, end: range.end, height })
+      }
+    }
+  }
+
+  if (lineAnnotations.length === 0) return 0
+
+  // Sort by width (widest first) to simulate stacking order
+  lineAnnotations.sort((a, b) => (b.end - b.start) - (a.end - a.start))
+
+  // Simple overlap detection: count rows needed
+  const rows = []
+  for (const ann of lineAnnotations) {
+    let placed = false
+    for (let i = 0; i < rows.length; i++) {
+      const canFit = rows[i].every(r => r.end <= ann.start || r.start >= ann.end)
+      if (canFit) {
+        rows[i].push(ann)
+        placed = true
+        break
+      }
+    }
+    if (!placed) {
+      rows.push([ann])
+    }
+  }
+
+  // Calculate total height
+  let totalHeight = 0
+  for (const row of rows) {
+    const rowHeight = Math.max(...row.map(a => a.height))
+    totalHeight += rowHeight + 2  // 2px padding between rows
+  }
+
+  return totalHeight
+}
+
+// Compute per-line annotation heights for target (stacking up) and query (stacking down)
+const lineAnnotationHeights = computed(() => {
+  const zoom = editorState.zoomLevel.value
+  if (!zoom) return { target: new Map(), query: new Map() }
+
+  const numLines = alignmentLines.value.length
+  const targetHeights = new Map()
+  const queryHeights = new Map()
+  const showTrans = showTranslation.value
+
+  for (let line = 0; line < numLines; line++) {
+    targetHeights.set(line, computeStackedHeight(alignedTargetAnnotations.value, line, zoom, showTrans))
+    queryHeights.set(line, computeStackedHeight(alignedQueryAnnotations.value, line, zoom, showTrans))
+  }
+
+  return { target: targetHeights, query: queryHeights }
+})
+
+/**
+ * Get the Y position for a given alignment line.
+ * Accounts for cumulative annotation heights from previous rows.
+ *
+ * Formula for row R (0-indexed):
+ * Y[R] = (R + 1) * PADDING
+ *      + sum(TARGET_HEIGHT[r] for r in 0..R)      // inclusive of current row
+ *      + sum(QUERY_HEIGHT[r] for r in 0..R-1)     // exclusive of current row
+ *      + R * 3 * lineHeight                       // previous rows' sequence content
+ */
+function getAlignmentLineY(lineIndex) {
+  const lineHeight = graphics.lineHeight.value
+  const heights = lineAnnotationHeights.value
+
+  // (R + 1) * PADDING - consistent padding before each row
+  let y = (lineIndex + 1) * TOP_PADDING
+
+  // sum(TARGET_HEIGHT[r] for r in 0..R) - target annotations including current row
+  for (let r = 0; r <= lineIndex; r++) {
+    y += heights.target.get(r) || 0
+  }
+
+  // sum(QUERY_HEIGHT[r] for r in 0..R-1) - query annotations from previous rows only
+  for (let r = 0; r < lineIndex; r++) {
+    y += heights.query.get(r) || 0
+  }
+
+  // R * 3 * lineHeight - previous rows' sequence content (target + match + query)
+  y += lineIndex * 3 * lineHeight
+
+  return y
+}
+
+/**
+ * Get the block height for a specific line.
+ */
+function getBlockHeightForLine(lineIndex) {
+  const lineHeight = graphics.lineHeight.value
+  const heights = lineAnnotationHeights.value
+  const targetH = heights.target.get(lineIndex) || 0
+  const queryH = heights.query.get(lineIndex) || 0
+  return lineHeight * 3 + targetH + queryH
+}
+
+// For backwards compatibility, provide a default block height (max of all lines)
 const alignmentBlockHeight = computed(() => {
-  return graphics.lineHeight.value * 3 + ANNOTATION_SPACE + ROW_SPACING
+  const lineHeight = graphics.lineHeight.value
+  const heights = lineAnnotationHeights.value
+  let maxHeight = lineHeight * 3
+
+  for (let i = 0; i < alignmentLines.value.length; i++) {
+    const targetH = heights.target.get(i) || 0
+    const queryH = heights.query.get(i) || 0
+    const blockH = lineHeight * 3 + targetH + queryH
+    maxHeight = Math.max(maxHeight, blockH)
+  }
+
+  return maxHeight
 })
 provide('alignmentBlockHeight', alignmentBlockHeight)
 provide('alignmentTopPadding', TOP_PADDING)
+provide('getAlignmentLineY', getAlignmentLineY)
+provide('lineAnnotationHeights', lineAnnotationHeights)
 
 // Extension API - provides interface for extension panels
 const selectionChangeHandlers = new Set()
@@ -783,7 +915,13 @@ const availableZooms = computed(() => {
 // SVG dimensions for alignment mode
 const svgHeight = computed(() => {
   if (hasAlignment.value) {
-    return TOP_PADDING + alignmentLines.value.length * alignmentBlockHeight.value + 40
+    // Use cumulative heights: sum of all block heights for all lines
+    const numLines = alignmentLines.value.length
+    if (numLines === 0) return 100
+    // Get Y position of last line and add its block height
+    const lastLineY = getAlignmentLineY(numLines - 1)
+    const lastBlockHeight = getBlockHeightForLine(numLines - 1)
+    return lastLineY + lastBlockHeight + 40
   }
   return 100 // Minimal height when no alignment
 })
@@ -1604,7 +1742,7 @@ const toolbarHelpText = `Selection Controls:
               :document="targetDoc"
               :lines="alignmentLines"
               :position-map="targetPositionMap"
-              :y-offset="TOP_PADDING"
+              :y-offset="0"
               :block-height="alignmentBlockHeight"
               :original-sequence-length="editorState.sequenceLength.value"
               @select="handleSelectionChange"
@@ -1616,7 +1754,7 @@ const toolbarHelpText = `Selection Controls:
               :document="queryDoc"
               :lines="alignmentLines"
               :position-map="queryPositionMap"
-              :y-offset="TOP_PADDING + graphics.lineHeight.value * 2"
+              :y-offset="graphics.lineHeight.value * 2"
               :block-height="alignmentBlockHeight"
               :original-sequence-length="queryDoc?.sequence?.length || 0"
               @select="handleSelectionChange"
@@ -1631,25 +1769,12 @@ const toolbarHelpText = `Selection Controls:
               mode="target"
               :document="targetDoc"
               :annotations="alignedTargetAnnotations"
-              :y-offset="TOP_PADDING"
+              :y-offset="0"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
+              :show-translation="showTranslation"
               @contextmenu="handleAnnotationContextMenu"
             />
-            <!-- Query annotations below query sequence -->
-            <AnnotationLayer
-              v-if="alignedQueryAnnotations.length > 0"
-              ref="queryAnnotationLayerRef"
-              mode="query"
-              :document="queryDoc"
-              :annotations="alignedQueryAnnotations"
-              :y-offset="TOP_PADDING + graphics.lineHeight.value * 4"
-              :block-height="alignmentBlockHeight"
-              :show-captions="true"
-              stack-direction="down"
-              @contextmenu="handleAnnotationContextMenu"
-            />
-
             <!-- Translation Layers for CDS annotations -->
             <!-- Target translations above target sequence -->
             <TranslationLayer
@@ -1658,20 +1783,34 @@ const toolbarHelpText = `Selection Controls:
               mode="target"
               :annotations="alignedTargetCdsAnnotations"
               :sequence="alignedTargetSequence"
-              :y-offset="TOP_PADDING"
+              :y-offset="0"
               :block-height="alignmentBlockHeight"
               @hover="handleTranslationHover"
               @click="handleTranslationClick"
               @contextmenu="handleTranslationContextMenu"
             />
-            <!-- Query translations below query sequence -->
+            <!-- Query annotations below query sequence (mirrors target positioning) -->
+            <AnnotationLayer
+              v-if="alignedQueryAnnotations.length > 0"
+              ref="queryAnnotationLayerRef"
+              mode="query"
+              :document="queryDoc"
+              :annotations="alignedQueryAnnotations"
+              :y-offset="graphics.lineHeight.value * 3"
+              :block-height="alignmentBlockHeight"
+              :show-captions="true"
+              :show-translation="showTranslation"
+              stack-direction="down"
+              @contextmenu="handleAnnotationContextMenu"
+            />
+            <!-- Query translations below query sequence, above CDS annotation -->
             <TranslationLayer
               v-if="alignedQueryCdsAnnotations.length > 0"
               ref="queryTranslationLayerRef"
               mode="query"
               :annotations="alignedQueryCdsAnnotations"
               :sequence="alignedQuerySequence"
-              :y-offset="TOP_PADDING + graphics.lineHeight.value * 3"
+              :y-offset="graphics.lineHeight.value * 3"
               :block-height="alignmentBlockHeight"
               stack-direction="down"
               @hover="handleTranslationHover"

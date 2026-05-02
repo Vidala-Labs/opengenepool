@@ -51,6 +51,11 @@ const emit = defineEmits(['select', 'contextmenu'])
 const editorState = inject('editorState')
 const graphics = inject('graphics')
 const selection = inject('selection')
+// Inject alignment line positioning function and lines (provided by AlignmentEditor)
+const getAlignmentLineY = inject('getAlignmentLineY', null)
+const injectedAlignmentLines = inject('alignmentLines', null)
+const injectedLineAnnotationHeights = inject('lineAnnotationHeights', null)
+const injectedAlignmentTopPadding = inject('alignmentTopPadding', 30)
 
 // Normal mode lines (from editorState)
 const normalLines = computed(() => editorState.lines.value)
@@ -85,6 +90,10 @@ function getBarWidth(textLength) {
 // Get Y position for a line
 function getLineY(lineIndex) {
   if (isAlignmentLayer.value) {
+    // Use injected per-line positioning if available, otherwise fall back to uniform spacing
+    if (getAlignmentLineY) {
+      return getAlignmentLineY(lineIndex) + props.yOffset
+    }
     return lineIndex * props.blockHeight + props.yOffset
   }
   return graphics.getLineY(lineIndex)
@@ -171,8 +180,36 @@ function getPositionFromEvent(event, lineIndex) {
 
 // Get line index from Y coordinate
 function getLineIndexFromY(y) {
-  if (isAlignmentLayer.value) {
-    return Math.floor((y - props.yOffset) / props.blockHeight)
+  if (isAlignmentLayer.value && getAlignmentLineY && injectedAlignmentLines && injectedLineAnnotationHeights) {
+    const numLines = injectedAlignmentLines.value?.length || 0
+    if (numLines === 0) return 0
+
+    const heights = injectedLineAnnotationHeights.value
+    const padding = injectedAlignmentTopPadding
+    const lh = lineHeight.value
+
+    // Each row's capture zone:
+    // top: baselineY - targetHeight - padding/2
+    // bottom: baselineY + 3*lineHeight + queryHeight + padding/2
+    for (let i = 0; i < numLines; i++) {
+      const baselineY = getAlignmentLineY(i)
+      const targetH = heights.target.get(i) || 0
+      const queryH = heights.query.get(i) || 0
+
+      const rowTop = baselineY - targetH - padding / 2
+      const rowBottom = baselineY + 3 * lh + queryH + padding / 2
+
+      if (y >= rowTop && y < rowBottom) {
+        return i
+      }
+    }
+
+    // If before first row, return 0; if after last row, return last
+    const firstBaselineY = getAlignmentLineY(0)
+    const firstTargetH = heights.target.get(0) || 0
+    if (y < firstBaselineY - firstTargetH - padding / 2) return 0
+
+    return numLines - 1
   }
   return graphics.pixelToLineIndex(y, editorState.lineCount.value)
 }
