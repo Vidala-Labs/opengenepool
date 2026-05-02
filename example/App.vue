@@ -291,7 +291,7 @@ const hasMetadata = computed(() => {
         :key="currentSequenceData.id + '-alignment'"
         :target="targetDoc"
         :query="queryDoc"
-        :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
+        :extensions="[BlastExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"
