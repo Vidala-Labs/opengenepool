@@ -2677,3 +2677,536 @@ describe('AlignmentEditor Translation Spacing', () => {
     expect(wrapper.vm.hasAlignment).toBe(true)
   })
 })
+
+describe('AlignmentEditor CDS Mutation Annotation', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('findCdsContainingRange returns CDS when range is entirely within', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Create a CDS annotation from positions 0-24
+    const targetDoc = createDoc('ATGATCGATCGATCGATCGATCGA', [
+      new Annotation({ span: Span.parse('0..24'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGATCGATCGATCGATCGATCGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 5-6 is within the CDS (0..24)
+    const cds = wrapper.vm.findCdsContainingRange(5, 6)
+    expect(cds).not.toBeNull()
+    expect(cds.caption).toBe('GFP')
+  })
+
+  it('findCdsContainingRange returns null when range is outside CDS', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // CDS only covers 10-24
+    const targetDoc = createDoc('ATGATCGATCGATCGATCGATCGA', [
+      new Annotation({ span: Span.parse('10..24'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGATCGATCGATCGATCGATCGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 5-6 is outside the CDS
+    const cds = wrapper.vm.findCdsContainingRange(5, 6)
+    expect(cds).toBeNull()
+  })
+
+  it('findCdsContainingRange returns null when range partially overlaps CDS', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // CDS covers 5-15
+    const targetDoc = createDoc('ATGATCGATCGATCGATCGATCGA', [
+      new Annotation({ span: Span.parse('5..15'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGATCGATCGATCGATCGATCGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Range 3-7 only partially overlaps CDS (5..15)
+    const cds = wrapper.vm.findCdsContainingRange(3, 7)
+    expect(cds).toBeNull()
+  })
+
+  it('computeAminoAcidChanges detects single codon missense mutation', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*) - start codon, lysine, stop
+    // Query:  ATGAGATGA (M-R-*) - single base change AAA->AGA (K->R)
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'TestCDS' })
+    ])
+    const queryDoc = createDoc('ATGAGATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Find the CDS
+    const cds = wrapper.vm.findCdsContainingRange(4, 5)
+    expect(cds).not.toBeNull()
+
+    // Compute amino acid changes for mutation at position 4 (A->G)
+    const changes = wrapper.vm.computeAminoAcidChanges(cds, 4, 5, 'A', 'G')
+    expect(changes.length).toBe(1)
+    expect(changes[0].targetAA).toBe('K')  // Lysine
+    expect(changes[0].queryAA).toBe('R')   // Arginine
+    expect(changes[0].codonIndex).toBe(2)  // Second codon (1-indexed)
+    expect(changes[0].isSilent).toBe(false)
+    expect(changes[0].isNonsense).toBe(false)
+  })
+
+  it('computeAminoAcidChanges detects silent mutation', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*) - Lysine codon AAA
+    // Query:  ATGAAGTGA (M-K-*) - Lysine codon AAG (synonymous)
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'TestCDS' })
+    ])
+    const queryDoc = createDoc('ATGAAGTGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const cds = wrapper.vm.findCdsContainingRange(5, 6)
+    const changes = wrapper.vm.computeAminoAcidChanges(cds, 5, 6, 'A', 'G')
+
+    expect(changes.length).toBe(1)
+    expect(changes[0].targetAA).toBe('K')
+    expect(changes[0].queryAA).toBe('K')  // Still lysine
+    expect(changes[0].isSilent).toBe(true)
+    expect(changes[0].isNonsense).toBe(false)
+  })
+
+  it('computeAminoAcidChanges detects nonsense mutation', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*)
+    // Query:  ATGTAATGA (M-*-*) - AAA->TAA (K->Stop)
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'TestCDS' })
+    ])
+    const queryDoc = createDoc('ATGTAATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const cds = wrapper.vm.findCdsContainingRange(3, 4)
+    const changes = wrapper.vm.computeAminoAcidChanges(cds, 3, 4, 'A', 'T')
+
+    expect(changes.length).toBe(1)
+    expect(changes[0].targetAA).toBe('K')
+    expect(changes[0].queryAA).toBe('*')  // Stop codon
+    expect(changes[0].isSilent).toBe(false)
+    expect(changes[0].isNonsense).toBe(true)
+  })
+
+  it('formatCdsSuffix formats single amino acid change', async () => {
+    const targetDoc = createDoc('ATGATG')
+    const queryDoc = createDoc('ATGATG')
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const changes = [{ targetAA: 'K', queryAA: 'R', codonIndex: 5, isSilent: false, isNonsense: false }]
+    const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
+    expect(suffix).toBe('[GFP-K5R]')
+  })
+
+  it('formatCdsSuffix formats silent mutation', async () => {
+    const targetDoc = createDoc('ATGATG')
+    const queryDoc = createDoc('ATGATG')
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const changes = [{ targetAA: 'K', queryAA: 'K', codonIndex: 5, isSilent: true, isNonsense: false }]
+    const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
+    expect(suffix).toBe('[GFP (silent)]')
+  })
+
+  it('formatCdsSuffix formats nonsense mutation', async () => {
+    const targetDoc = createDoc('ATGATG')
+    const queryDoc = createDoc('ATGATG')
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const changes = [{ targetAA: 'K', queryAA: '*', codonIndex: 5, isSilent: false, isNonsense: true }]
+    const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
+    expect(suffix).toBe('[GFP-K5* (nonsense)]')
+  })
+
+  it('formatCdsSuffix formats multiple codon changes', async () => {
+    const targetDoc = createDoc('ATGATG')
+    const queryDoc = createDoc('ATGATG')
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const changes = [
+      { targetAA: 'K', queryAA: 'R', codonIndex: 2, isSilent: false, isNonsense: false },
+      { targetAA: 'L', queryAA: 'M', codonIndex: 3, isSilent: false, isNonsense: false }
+    ]
+    const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
+    expect(suffix).toBe('[GFP-K2R,L3M]')
+  })
+
+  it('createMutationAnnotation adds CDS suffix for mutation within CDS', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*)
+    // Query:  ATGAGATGA (M-R-*) - K->R at codon 2
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGAGATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAATGA')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATGAGATGA')
+
+    // Create mutation annotation at position 4 (A->G)
+    wrapper.vm.createMutationAnnotation(4, 5)
+    await wrapper.vm.$nextTick()
+
+    // Check the annotation was created with CDS suffix
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.caption).toBe('A5G [GFP-K2R]')
+  })
+
+  it('createMutationAnnotation shows (silent) for synonymous mutation', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*) - AAA = Lysine
+    // Query:  ATGAAGTGA (M-K-*) - AAG = Lysine (synonymous)
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGAAGTGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Create mutation annotation at position 5 (A->G in third position of codon)
+    wrapper.vm.createMutationAnnotation(5, 6)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.caption).toBe('A6G [GFP (silent)]')
+  })
+
+  it('createMutationAnnotation shows (nonsense) when mutation creates stop codon', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*)
+    // Query:  ATGTAATGA (M-*-*) - AAA->TAA creates premature stop
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGTAATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Create mutation annotation at position 3 (A->T)
+    wrapper.vm.createMutationAnnotation(3, 4)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.caption).toBe('A4T [GFP-K2* (nonsense)]')
+  })
+
+  it('createMutationAnnotation does not add suffix for mutation outside CDS', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // CDS covers positions 9-18, mutation is at position 3 which is outside CDS
+    // Using a sequence where alignment is predictable
+    const targetDoc = createDoc('AAAGGGAAATGAAATGAAA', [
+      new Annotation({ span: Span.parse('9..18'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('AAACGGAAATGAAATGAAA')  // G->C at position 3
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify the alignment is as expected (no gaps)
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('AAAGGGAAATGAAATGAAA')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('AAACGGAAATGAAATGAAA')
+
+    // Create mutation annotation at position 3 (G->C) which is outside CDS
+    wrapper.vm.createMutationAnnotation(3, 4)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    // Should NOT have CDS suffix since mutation is outside CDS (at position 4 in GenBank notation)
+    expect(ann.caption).toBe('G4C')
+  })
+
+  it('createMutationAnnotation does not add suffix for mutation in stop codon region', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATGA (M-K-*) - TGA is the stop codon at positions 6-8
+    // Query:  ATGAAATAA (M-K-*) - TGA->TAA (both are stop codons)
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGAAATAA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Create mutation annotation at position 7 (G->A)
+    wrapper.vm.createMutationAnnotation(7, 8)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    // Should NOT have CDS suffix since original was already a stop codon
+    expect(ann.caption).toBe('G8A')
+  })
+
+  it('createMutationAnnotation handles multi-base mutation spanning two codons', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATTTTGA (M-K-F-*) codons: ATG AAA TTT TGA
+    // Query:  ATGAAGCTTTGA - positions 5-6 change from AT to GC
+    // This spans codon boundary: codon 2 (AAA->AAG = K->K silent) and codon 3 (TTT->CTT = F->L)
+    const targetDoc = createDoc('ATGAAATTTTGA', [
+      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGAAGCTTTGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify the alignment (no gaps expected for similar length sequences)
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAATTTTGA')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATGAAGCTTTGA')
+
+    // Create mutation annotation for positions 5-7 (AT->GC in aligned coordinates)
+    wrapper.vm.createMutationAnnotation(5, 7)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    // The caption should show the mutation with CDS suffix
+    // Position 5-6 (0-indexed) = 6..7 (1-indexed GenBank notation)
+    // AT->GC spans codons, affecting F->L in codon 3 (codon 2 becomes AAG which is still K - silent)
+    expect(ann.caption).toBe('AT(6..7)GC [GFP-F3L]')
+  })
+
+  it('uses gene attribute from CDS when caption is not available', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // CDS without caption but with gene attribute
+    const targetDoc = createDoc('ATGAAATGA', [
+      new Annotation({
+        span: Span.parse('0..9'),
+        type: 'CDS',
+        attributes: { gene: 'mCherry' }
+      })
+    ])
+    const queryDoc = createDoc('ATGAGATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    wrapper.vm.createMutationAnnotation(4, 5)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.caption).toBe('A5G [mCherry-K2R]')
+  })
+
+  it('findAllCdsContainingRange returns all overlapping CDS annotations', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Two overlapping CDS annotations
+    // CDS1: 0..12 (GFP)
+    // CDS2: 6..18 (mCherry) - overlaps with CDS1 at positions 6-11
+    const targetDoc = createDoc('ATGAAATGAAATGAAATGA', [
+      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' }),
+      new Annotation({ span: Span.parse('6..18'), type: 'CDS', caption: 'mCherry' })
+    ])
+    const queryDoc = createDoc('ATGAAATGAAATGAAATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 8 is in the overlap region (within both CDS annotations)
+    // findAllCdsContainingRange should return both
+    const allCds = wrapper.vm.findAllCdsContainingRange(8, 9)
+    expect(allCds.length).toBe(2)
+    expect(allCds[0].caption).toBe('GFP')
+    expect(allCds[1].caption).toBe('mCherry')
+
+    // findCdsContainingRange should still return first one for backwards compatibility
+    const firstCds = wrapper.vm.findCdsContainingRange(8, 9)
+    expect(firstCds).not.toBeNull()
+    expect(firstCds.caption).toBe('GFP')
+  })
+
+  it('shows suffixes for all overlapping CDS when mutation is in overlap region', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Two overlapping CDS annotations with a mutation in the overlap
+    // Target: ATGAAAAAAAAATGA (codons for GFP: ATG AAA AAA AAA TGA = M-K-K-K-*)
+    // Both CDS cover positions 3-12 (AAA AAA AAA)
+    // CDS1 (GFP): 0..15 - full sequence
+    // CDS2 (mCherry): 3..15 - starts at second codon
+    // Mutation at position 4: A->G changes AAA->AGA (K->R) in both frames
+    const targetDoc = createDoc('ATGAAAAAAAAATGA', [
+      new Annotation({ span: Span.parse('0..15'), type: 'CDS', caption: 'GFP' }),
+      new Annotation({ span: Span.parse('3..15'), type: 'CDS', caption: 'mCherry' })
+    ])
+    const queryDoc = createDoc('ATGAGAAAAAAATGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAAAAAAAATGA')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATGAGAAAAAAATGA')
+
+    // Create mutation at position 4 (A->G), which is in both CDS regions
+    wrapper.vm.createMutationAnnotation(4, 5)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    // Should show suffixes for both CDS
+    // GFP: position 4 is in codon 2 (AAA->AGA = K->R)
+    // mCherry: position 4 is in codon 1 (AAA->AGA = K->R, since mCherry starts at position 3)
+    expect(ann.caption).toBe('A5G [GFP-K2R] [mCherry-K1R]')
+  })
+
+  it('shows two amino acid changes when mutation spans codon boundary', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAATTTGAA (codons: ATG AAA TTT GAA = M-K-F-E)
+    // Query:  ATGAAGCTGGAA (mutation at positions 5-8: ATTT -> GCTG)
+    // This changes: AAA->AAG (K->K silent), TTT->CTG (F->L), and first base of GAA
+    // Actually let's simplify - make a 2-base mutation that clearly affects 2 codons
+    // Target: ATGAAATTTTGA (codons: ATG AAA TTT TGA = M-K-F-*)
+    // Query:  ATGAAGGCTTGA (positions 5-7 change: AT->GG and T->C)
+    // Hmm, this is getting complex. Let me create a cleaner example.
+
+    // Cleaner example:
+    // Target: ATGAAAAATTGA (codons: ATG AAA AAT TGA = M-K-N-*)
+    // Query:  ATGAAGGATTGA (positions 5-6: AA->GG changes codon 2 AAA->AAG (K->K) and codon 3 AAT->GAT (N->D))
+    const targetDoc = createDoc('ATGAAAAATTGA', [
+      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGAAGGATTGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAAAATTGA')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATGAAGGATTGA')
+
+    // Create mutation at positions 5-7 (AA->GG)
+    wrapper.vm.createMutationAnnotation(5, 7)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    // Codon 2 (positions 3-5): AAA -> AAG = K -> K (silent, not shown)
+    // Codon 3 (positions 6-8): AAT -> GAT = N -> D
+    // Since codon 2 is silent, only codon 3 change is shown
+    expect(ann.caption).toBe('AA(6..7)GG [GFP-N3D]')
+  })
+
+  it('shows both amino acid changes when both codons have non-silent mutations', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+    // Target: ATGAAACATTGA (codons: ATG AAA CAT TGA = M-K-H-*)
+    // Query:  ATGAGATATATA (positions 4-5: AA->GA and positions 6-7: CA->TA)
+    // Let me create a mutation that affects 2 codons with non-silent changes
+    // Target: ATGAAACATTGA (M-K-H-*)
+    // Mutation at positions 4-7: AACA -> GATA
+    // Codon 2: AAA -> AGA = K -> R
+    // Codon 3: CAT -> TAT = H -> Y
+    const targetDoc = createDoc('ATGAAACATTGA', [
+      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' })
+    ])
+    const queryDoc = createDoc('ATGAGATATTGA')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAACATTGA')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATGAGATATTGA')
+
+    // Create mutation at positions 4-7 (AACA->GATA)
+    wrapper.vm.createMutationAnnotation(4, 7)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    // Codon 2: AAA -> AGA = K -> R
+    // Codon 3: CAT -> TAT = H -> Y
+    // Both are non-silent, should show both
+    expect(ann.caption).toBe('AAC(5..7)GAT [GFP-K2R,H3Y]')
+  })
+})

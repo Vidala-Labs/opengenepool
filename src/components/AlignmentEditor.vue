@@ -8,6 +8,7 @@ import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
+import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
 import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer from './AnnotationLayer.vue'
@@ -581,9 +582,198 @@ function createInsertionAnnotation(alignedStart, alignedEnd) {
 }
 
 /**
+ * Find a CDS annotation on the TARGET that entirely contains a range.
+ * @param {number} start - Start position in target (0-indexed)
+ * @param {number} end - End position in target (0-indexed, exclusive)
+ * @returns {Object|null} CDS annotation or null if not entirely within a CDS
+ */
+function findCdsContainingRange(start, end) {
+  const all = findAllCdsContainingRange(start, end)
+  return all.length > 0 ? all[0] : null
+}
+
+/**
+ * Find ALL CDS annotations on the TARGET that entirely contain a range.
+ * @param {number} start - Start position in target (0-indexed)
+ * @param {number} end - End position in target (0-indexed, exclusive)
+ * @returns {Array} Array of CDS annotations that entirely contain the range
+ */
+function findAllCdsContainingRange(start, end) {
+  const annotations = targetDoc.value?.annotations
+  if (!annotations) return []
+
+  const result = []
+
+  for (const ann of annotations) {
+    if (ann.type?.toUpperCase() !== 'CDS') continue
+    if (!ann.span?.ranges) continue
+
+    // Check if [start, end) is entirely within this CDS span
+    // A range is entirely within if every position from start to end-1 is covered by the CDS
+    let allCovered = true
+    for (let pos = start; pos < end; pos++) {
+      let posCovered = false
+      for (const range of ann.span.ranges) {
+        if (pos >= range.start && pos < range.end) {
+          posCovered = true
+          break
+        }
+      }
+      if (!posCovered) {
+        allCovered = false
+        break
+      }
+    }
+
+    if (allCovered) {
+      result.push(ann)
+    }
+  }
+
+  return result
+}
+
+/**
+ * Compute amino acid changes for a mutation within a CDS.
+ * @param {Object} cds - The CDS annotation
+ * @param {number} targetStart - Start position in target sequence (0-indexed)
+ * @param {number} targetEnd - End position in target sequence (0-indexed, exclusive)
+ * @param {string} targetBases - Original bases from target
+ * @param {string} queryBases - Mutated bases from query
+ * @returns {Array} Array of {targetAA, queryAA, codonIndex, isSilent, isNonsense}
+ */
+function computeAminoAcidChanges(cds, targetStart, targetEnd, targetBases, queryBases) {
+  const targetSeq = targetDoc.value?.sequence
+  if (!targetSeq || !cds.span?.ranges) return []
+
+  // Build the full CDS sequence and track position mapping
+  // For simplicity, we handle contiguous CDS ranges on the plus strand
+  const cdsRanges = [...cds.span.ranges].sort((a, b) => a.start - b.start)
+  const cdsStart = cdsRanges[0].start
+
+  // Build a map from target position to CDS-relative position
+  const positionToCdsOffset = new Map()
+  let cdsOffset = 0
+  for (const range of cdsRanges) {
+    for (let pos = range.start; pos < range.end; pos++) {
+      positionToCdsOffset.set(pos, cdsOffset)
+      cdsOffset++
+    }
+  }
+
+  // Get the full CDS sequence
+  let cdsSequence = ''
+  for (const range of cdsRanges) {
+    cdsSequence += targetSeq.slice(range.start, range.end)
+  }
+
+  // Handle minus strand - reverse complement the CDS sequence
+  const isMinus = cds.orientation === Orientation.MINUS ||
+                  (cds.span.ranges[0]?.orientation === Orientation.MINUS)
+  if (isMinus) {
+    cdsSequence = reverseComplement(cdsSequence)
+  }
+
+  const changes = []
+  const affectedCodons = new Set()
+
+  // Find which codons are affected by the mutation
+  for (let pos = targetStart; pos < targetEnd; pos++) {
+    const cdsPos = positionToCdsOffset.get(pos)
+    if (cdsPos === undefined) continue
+
+    // For minus strand, positions are reversed
+    const effectiveCdsPos = isMinus ? (cdsSequence.length - 1 - cdsPos) : cdsPos
+    const codonIndex = Math.floor(effectiveCdsPos / 3)
+    affectedCodons.add(codonIndex)
+  }
+
+  // For each affected codon, compute the amino acid change
+  for (const codonIndex of [...affectedCodons].sort((a, b) => a - b)) {
+    const codonStart = codonIndex * 3
+    const codonEnd = codonStart + 3
+
+    if (codonEnd > cdsSequence.length) continue
+
+    // Get the original codon
+    const originalCodon = cdsSequence.slice(codonStart, codonEnd).toUpperCase()
+    const originalAA = CODON_TABLE[originalCodon] || '?'
+
+    // Build the mutated codon by applying the mutation
+    let mutatedCodon = originalCodon.split('')
+
+    // Apply each mutation position to the codon
+    for (let i = 0; i < targetEnd - targetStart; i++) {
+      const targetPos = targetStart + i
+      const cdsPos = positionToCdsOffset.get(targetPos)
+      if (cdsPos === undefined) continue
+
+      const effectiveCdsPos = isMinus ? (cdsSequence.length - 1 - cdsPos) : cdsPos
+      const posCodonIndex = Math.floor(effectiveCdsPos / 3)
+
+      if (posCodonIndex !== codonIndex) continue
+
+      const posInCodon = effectiveCdsPos % 3
+      let mutatedBase = queryBases[i]
+
+      // For minus strand, we need to complement the query base
+      if (isMinus) {
+        mutatedBase = reverseComplement(mutatedBase)
+      }
+
+      mutatedCodon[posInCodon] = mutatedBase.toUpperCase()
+    }
+
+    const mutatedCodonStr = mutatedCodon.join('')
+    const mutatedAA = CODON_TABLE[mutatedCodonStr] || '?'
+
+    changes.push({
+      targetAA: originalAA,
+      queryAA: mutatedAA,
+      codonIndex: codonIndex + 1, // 1-indexed for display
+      isSilent: originalAA === mutatedAA,
+      isNonsense: mutatedAA === '*' && originalAA !== '*'
+    })
+  }
+
+  return changes
+}
+
+/**
+ * Format the CDS suffix for a mutation caption.
+ * @param {string} geneName - Gene name from CDS annotation
+ * @param {Array} changes - Array of amino acid changes
+ * @returns {string} Formatted suffix like "[GFP-K5R]" or "[GFP (silent)]"
+ */
+function formatCdsSuffix(geneName, changes) {
+  if (changes.length === 0) return ''
+
+  // Check if all changes are silent
+  const allSilent = changes.every(c => c.isSilent)
+  if (allSilent) {
+    return `[${geneName} (silent)]`
+  }
+
+  // Build the change list
+  const changeStrs = changes
+    .filter(c => !c.isSilent)
+    .map(c => `${c.targetAA}${c.codonIndex}${c.queryAA}`)
+
+  // Check if any change is nonsense
+  const hasNonsense = changes.some(c => c.isNonsense)
+
+  if (hasNonsense) {
+    return `[${geneName}-${changeStrs.join(',')} (nonsense)]`
+  }
+
+  return `[${geneName}-${changeStrs.join(',')}]`
+}
+
+/**
  * Create annotation for mutation (base mismatch).
  * Annotates the mutated bases in the query.
  * Caption format: A5T (single base) or ATCG(5..8)TGAA (multi-base)
+ * When entirely within a CDS, adds amino acid change suffix.
  * @param {number} alignedStart - Start position in aligned sequence
  * @param {number} alignedEnd - End position in aligned sequence
  */
@@ -617,6 +807,20 @@ function createMutationAnnotation(alignedStart, alignedEnd) {
   } else {
     // Multi-base: ATCG(5..8)TGAA
     caption = `${targetBases}(${genbankStart}..${genbankEnd})${queryBases}`
+  }
+
+  // Check if mutation is entirely within any CDS on target
+  // Use 0-indexed coordinates for CDS lookup
+  const cdsAnnotations = findAllCdsContainingRange(targetStart, targetEnd + 1)
+  for (const cds of cdsAnnotations) {
+    const changes = computeAminoAcidChanges(cds, targetStart, targetEnd + 1, targetBases, queryBases)
+    // Skip suffix if original contains a stop codon (already at terminus)
+    const hasOriginalStop = changes.some(c => c.targetAA === '*')
+    if (!hasOriginalStop && changes.length > 0) {
+      const geneName = cds.caption || cds.attributes?.gene || cds.attributes?.product || 'CDS'
+      const suffix = formatCdsSuffix(geneName, changes)
+      caption = `${caption} ${suffix}`
+    }
   }
 
   const span = Span.parse(`${origStart}..${origEnd + 1}`)
@@ -1841,6 +2045,11 @@ defineExpose({
   createMutationAnnotation,
   getAlignmentMenuItems,
   findContiguousFeatureRegion,
+  // CDS mutation annotation helpers
+  findCdsContainingRange,
+  findAllCdsContainingRange,
+  computeAminoAcidChanges,
+  formatCdsSuffix,
   // For delete testing
   deleteConfirmVisible,
   confirmDelete

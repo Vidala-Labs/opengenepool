@@ -52,6 +52,8 @@ const props = defineProps({
 const editorState = inject('editorState')
 const graphics = inject('graphics')
 const showTranslation = inject('showTranslation', ref(true))
+// Inject alignment line positioning function (provided by AlignmentEditor)
+const getAlignmentLineYFn = inject('getAlignmentLineY', null)
 
 // Check if in alignment mode
 const isAlignmentMode = computed(() => props.mode !== null)
@@ -279,7 +281,10 @@ const lines = computed(() => {
 // Get y position for a line (translation sits just above the sequence)
 function getLineY(lineIndex) {
   if (isAlignmentMode.value) {
-    // In alignment mode, use block-based positioning
+    // Use injected per-line positioning if available, otherwise fall back to uniform spacing
+    if (getAlignmentLineYFn) {
+      return getAlignmentLineYFn(lineIndex) + props.yOffset
+    }
     return lineIndex * props.blockHeight + props.yOffset
   }
   return graphics.getLineY(lineIndex)
