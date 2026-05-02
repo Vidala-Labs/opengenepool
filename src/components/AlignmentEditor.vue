@@ -17,6 +17,7 @@ import AnnotationModal from './AnnotationModal.vue'
 import InsertModal from './InsertModal.vue'
 import SequenceLayer from './SequenceLayer.vue'
 import AlignmentTicksLayer from './AlignmentTicksLayer.vue'
+import TranslationLayer from './TranslationLayer.vue'
 import Toolbar from './Toolbar.vue'
 import Indicator from './Indicator.vue'
 
@@ -336,6 +337,18 @@ const alignedQueryAnnotations = computed(() => {
 
   return mapped
 })
+
+// CDS annotations for translation display - use ALIGNED annotations for correct positioning
+const alignedTargetCdsAnnotations = computed(() => {
+  return alignedTargetAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
+})
+
+const alignedQueryCdsAnnotations = computed(() => {
+  return alignedQueryAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
+})
+
+// Show translation toggle
+const showTranslation = ref(true)
 
 // ============================================
 // Gap Annotation Feature Detection and Creation
@@ -734,6 +747,7 @@ const extensionAPI = {
   }
 }
 provide('extensionAPI', extensionAPI)
+provide('showTranslation', showTranslation)
 
 // ============================================
 // Template refs and layout
@@ -1216,6 +1230,68 @@ function handleTicksLayerContextMenu({ event, lineIndex }) {
   showContextMenu(event, { source: 'alignment-ticks', lineIndex })
 }
 
+// Translation layer event handlers
+function handleTranslationHover(data) {
+  // TODO: Add tooltip support for translation hover
+  // For now, just ignore hover events
+}
+
+function handleTranslationClick(data) {
+  const { event, element, codonStart, codonEnd } = data
+
+  // Create span for the codon with correct orientation
+  const isMinus = element.orientation === -1
+  const spanStr = isMinus
+    ? `(${codonStart}..${codonEnd})`
+    : `${codonStart}..${codonEnd}`
+
+  if (event?.shiftKey) {
+    selection.extendToPosition(codonStart)
+    selection.extendToPosition(codonEnd)
+  } else if (event?.ctrlKey) {
+    const codonSpan = Span.parse(spanStr)
+    const newDomain = new SelectionDomain(codonSpan)
+    selection.extendSelection(newDomain)
+  } else {
+    const codonSpan = Span.parse(spanStr)
+    const newDomain = new SelectionDomain(codonSpan)
+    selection.select(newDomain)
+  }
+}
+
+function handleTranslationContextMenu(data) {
+  const { event, element, translation } = data
+
+  const items = [{
+    label: 'Copy translation',
+    action: async () => {
+      try {
+        await navigator.clipboard.writeText(translation)
+      } catch (err) {
+        console.error('Failed to copy translation:', err)
+      }
+    }
+  }]
+
+  // Extension context menu items for translation
+  const annotations = element.annotationId
+    ? [...(localAnnotations.value || []), ...(queryDoc.value?.annotations || [])]
+    : []
+  const annotation = annotations.find(a => a.id === element.annotationId)
+  const extItems = getExtensionContextMenuItems({
+    type: 'translation',
+    data: { translation, annotation }
+  })
+  if (extItems.length > 0) {
+    items.push({ separator: true }, ...extItems)
+  }
+
+  contextMenuItems.value = items
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuVisible.value = true
+}
+
 // Focus the SVG element
 function focusSvg() {
   svgRef.value?.focus()
@@ -1572,6 +1648,35 @@ const toolbarHelpText = `Selection Controls:
               :show-captions="true"
               stack-direction="down"
               @contextmenu="handleAnnotationContextMenu"
+            />
+
+            <!-- Translation Layers for CDS annotations -->
+            <!-- Target translations above target sequence -->
+            <TranslationLayer
+              v-if="alignedTargetCdsAnnotations.length > 0"
+              ref="targetTranslationLayerRef"
+              mode="target"
+              :annotations="alignedTargetCdsAnnotations"
+              :sequence="alignedTargetSequence"
+              :y-offset="TOP_PADDING"
+              :block-height="alignmentBlockHeight"
+              @hover="handleTranslationHover"
+              @click="handleTranslationClick"
+              @contextmenu="handleTranslationContextMenu"
+            />
+            <!-- Query translations below query sequence -->
+            <TranslationLayer
+              v-if="alignedQueryCdsAnnotations.length > 0"
+              ref="queryTranslationLayerRef"
+              mode="query"
+              :annotations="alignedQueryCdsAnnotations"
+              :sequence="alignedQuerySequence"
+              :y-offset="TOP_PADDING + graphics.lineHeight.value * 3"
+              :block-height="alignmentBlockHeight"
+              stack-direction="down"
+              @hover="handleTranslationHover"
+              @click="handleTranslationClick"
+              @contextmenu="handleTranslationContextMenu"
             />
           </template>
 

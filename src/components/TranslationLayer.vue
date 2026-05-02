@@ -18,6 +18,33 @@ const props = defineProps({
   annotationDeltaYByLine: {
     type: Map,
     default: () => new Map()
+  },
+  /** Mode: null (normal), 'target', or 'query' (for alignment mode) */
+  mode: {
+    type: String,
+    default: null,
+    validator: (v) => v === null || v === 'target' || v === 'query'
+  },
+  /** Y offset within each alignment block (for alignment mode) */
+  yOffset: {
+    type: Number,
+    default: 0
+  },
+  /** Block height for alignment mode (height of target+match+query block) */
+  blockHeight: {
+    type: Number,
+    default: 0
+  },
+  /** Custom sequence to use (for alignment mode, overrides editorState.sequence) */
+  sequence: {
+    type: String,
+    default: null
+  },
+  /** Stack direction: 'up' renders above sequence, 'down' renders below */
+  stackDirection: {
+    type: String,
+    default: 'up',
+    validator: (v) => v === 'up' || v === 'down'
   }
 })
 
@@ -25,6 +52,14 @@ const props = defineProps({
 const editorState = inject('editorState')
 const graphics = inject('graphics')
 const showTranslation = inject('showTranslation', ref(true))
+
+// Check if in alignment mode
+const isAlignmentMode = computed(() => props.mode !== null)
+
+// Computed vertical offset for chevrons based on stack direction
+const chevronYOffset = computed(() => props.stackDirection === 'down' ? 0 : -props.height)
+const textYOffset = computed(() => props.stackDirection === 'down' ? props.height / 2 + 1 : -props.height / 2 + 1)
+const stopSignYOffset = computed(() => props.stackDirection === 'down' ? props.height / 2 : -props.height / 2)
 
 // Minimum codon width (3 bases) needed to display amino acid letter (~8px for 12px font)
 const MIN_CODON_WIDTH = 8
@@ -96,6 +131,22 @@ function getChevronPath(x, width, h, orientation, leftEdge, rightEdge) {
 }
 
 /**
+ * Filter out gap characters from a base iterator.
+ * Used in alignment mode where sequences may contain '-' for gaps.
+ * The positions are preserved (aligned coordinates) but gap bases are skipped.
+ *
+ * @param {Iterator} baseIterator - Iterator yielding {position, letter, ...}
+ * @yields {Object} Non-gap bases
+ */
+function* filterGaps(baseIterator) {
+  for (const base of baseIterator) {
+    if (base.letter !== '-') {
+      yield base
+    }
+  }
+}
+
+/**
  * Walk a CDS annotation and produce components using the translation iterators.
  * Each component represents a piece of a codon, bounded by segment or line boundaries.
  *
@@ -118,7 +169,10 @@ function walkCDS(annotation, sequence, zoom) {
                    'Unknown'
 
   // Use the three-level iterator pipeline
-  const bases = iterateSequence(span, sequence)
+  // In alignment mode, sequences may contain gaps ('-'). Filter them out before
+  // codon formation, but keep the aligned positions for correct display.
+  const basesRaw = iterateSequence(span, sequence)
+  const bases = filterGaps(basesRaw)
   const codons = [...iterateCodons(bases)]
   const rawComponents = [...iterateCodonFragments(codons, zoom)]
 
@@ -169,7 +223,8 @@ function walkCDS(annotation, sequence, zoom) {
 const elementsByLine = computed(() => {
   const result = new Map()
   const zoom = editorState.zoomLevel.value
-  const sequence = editorState.sequence.value
+  // Use prop sequence in alignment mode, otherwise use editor state
+  const sequence = props.sequence ?? editorState.sequence.value
 
   if (!zoom || !sequence) return result
 
@@ -223,6 +278,10 @@ const lines = computed(() => {
 
 // Get y position for a line (translation sits just above the sequence)
 function getLineY(lineIndex) {
+  if (isAlignmentMode.value) {
+    // In alignment mode, use block-based positioning
+    return lineIndex * props.blockHeight + props.yOffset
+  }
   return graphics.getLineY(lineIndex)
 }
 
@@ -348,14 +407,14 @@ defineExpose({ showTranslation, visible })
           <path
             :d="getChevronPath(toPixels(comp).x, toPixels(comp).width, height, comp.orientation, comp.left, comp.right)"
             :fill="getAminoAcidColor(comp.aminoAcid)"
-            :transform="`translate(0, ${-height})`"
+            :transform="`translate(0, ${chevronYOffset})`"
             class="aa-chevron"
           />
           <!-- Amino acid letter (only on component with letter !== null) -->
           <text
             v-if="comp.letter !== null && comp.aminoAcid !== '*'"
             :x="getLetterX(comp)"
-            :y="-height / 2 + 1"
+            :y="textYOffset"
             text-anchor="middle"
             dominant-baseline="middle"
             class="translation-text"
@@ -363,7 +422,7 @@ defineExpose({ showTranslation, visible })
           <!-- Stop sign for stop codons (red octagon) -->
           <g
             v-if="comp.letter !== null && comp.aminoAcid === '*'"
-            :transform="`translate(${getLetterX(comp)}, ${-height / 2})`"
+            :transform="`translate(${getLetterX(comp)}, ${stopSignYOffset})`"
           >
             <polygon
               points="-2,-5 2,-5 5,-2 5,2 2,5 -2,5 -5,2 -5,-2"
