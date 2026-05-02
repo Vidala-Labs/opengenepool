@@ -121,6 +121,36 @@ function getLineWidth(line) {
   return text ? text.length * metrics.value.charWidth : getBarWidth(line.end - line.start)
 }
 
+// Compute bar segments that skip gaps (for alignment mode, zoomed out)
+function getBarSegments(line) {
+  if (!isAlignmentLayer.value || isTextMode.value) return null
+
+  const text = getLineText(line)
+  if (!text) return null
+
+  const charWidth = metrics.value.charWidth
+  const segments = []
+  let segmentStart = null
+
+  for (let i = 0; i <= text.length; i++) {
+    const isGap = i < text.length && text[i] === '-'
+
+    if (!isGap && segmentStart === null) {
+      // Start a new segment
+      segmentStart = i
+    } else if ((isGap || i === text.length) && segmentStart !== null) {
+      // End the current segment
+      segments.push({
+        x: segmentStart * charWidth,
+        width: (i - segmentStart) * charWidth
+      })
+      segmentStart = null
+    }
+  }
+
+  return segments.length > 0 ? segments : null
+}
+
 // --- Selection handling ---
 
 const isDragging = ref(false)
@@ -389,8 +419,21 @@ defineExpose({
         >{{ preserveSpaces(getLineText(line)) }}</text>
 
         <!-- Bar mode - thin bar above center -->
+        <!-- For alignment mode: multiple segments that skip gaps -->
+        <template v-else-if="isAlignmentLayer && getBarSegments(line)">
+          <rect
+            v-for="(seg, idx) in getBarSegments(line)"
+            :key="idx"
+            :x="seg.x"
+            :y="lineHeight * 3 / 8"
+            :width="seg.width"
+            :height="lineHeight / 4"
+            class="sequence-bar"
+          />
+        </template>
+        <!-- Normal mode: single bar -->
         <rect
-          v-else
+          v-else-if="!isTextMode"
           x="0"
           :y="lineHeight * 3 / 8"
           :width="getLineWidth(line)"

@@ -354,6 +354,17 @@ const alignedQueryCdsAnnotations = computed(() => {
 // Show translation toggle
 const showTranslation = ref(true)
 
+// Minimum codon width needed to display amino acid letter (matches TranslationLayer)
+const MIN_CODON_WIDTH = 8
+
+// Effective show translation - only true when user wants it AND zoom allows readable text
+// This mirrors TranslationLayer's visibility logic to keep annotation spacing in sync
+const effectiveShowTranslation = computed(() => {
+  if (!showTranslation.value) return false
+  const codonWidth = 3 * graphics.metrics.value.charWidth
+  return codonWidth >= MIN_CODON_WIDTH
+})
+
 // Show annotations toggle
 const showAnnotations = ref(true)
 
@@ -859,7 +870,7 @@ const lineAnnotationHeights = computed(() => {
   const numLines = alignmentLines.value.length
   const targetHeights = new Map()
   const queryHeights = new Map()
-  const showTrans = showTranslation.value
+  const showTrans = effectiveShowTranslation.value
 
   for (let line = 0; line < numLines; line++) {
     targetHeights.set(line, computeStackedHeight(alignedTargetAnnotations.value, line, zoom, showTrans))
@@ -1989,7 +2000,7 @@ const toolbarHelpText = `Selection Controls:
               :y-offset="0"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
-              :show-translation="showTranslation"
+              :show-translation="effectiveShowTranslation"
               @contextmenu="handleAnnotationContextMenu"
             />
             <!-- Translation Layers for CDS annotations -->
@@ -2016,7 +2027,7 @@ const toolbarHelpText = `Selection Controls:
               :y-offset="graphics.lineHeight.value * 3"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
-              :show-translation="showTranslation"
+              :show-translation="effectiveShowTranslation"
               stack-direction="down"
               @contextmenu="handleAnnotationContextMenu"
             />

@@ -18,49 +18,49 @@ import { rangesOverlap } from '../utils/layout.js'
  * @param {number} params.blockWidth - Width of arrow point
  * @param {number} params.arrowEdge - Rounded edge offset
  * @param {number} params.orientation - Strand orientation
+ * @param {string} params.stackDirection - 'up' (extends into negative Y) or 'down' (extends into positive Y)
  * @returns {string} SVG path string
  */
-export function generateArrowPath({ left, right, height, blockWidth, arrowEdge, orientation }) {
+export function generateArrowPath({ left, right, height, blockWidth, arrowEdge, orientation, stackDirection = 'up' }) {
   const width = right - left
   const halfHeight = height / 2
+  // Y multiplier: -1 for up (negative Y), +1 for down (positive Y)
+  const yDir = stackDirection === 'down' ? 1 : -1
 
   // For narrow annotations, use a rectangle
   if (width <= blockWidth * 1.5) {
-    return `M ${left} ${-arrowEdge} ` +
+    return `M ${left} ${yDir * arrowEdge} ` +
            `H ${right} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${left} ` +
            `Z`
   }
 
   if (orientation === Orientation.PLUS) {
     // Plus strand: arrow pointing right
-    // Path starts at arrow tip (right edge, middle)
-    // Then draws to arrow base, down to edge, left to start, up to edge, to arrow base, close
-    return `M ${right} ${-halfHeight} ` +
+    return `M ${right} ${yDir * halfHeight} ` +
            `L ${right - blockWidth} 0 ` +
-           `V ${-arrowEdge} ` +
+           `V ${yDir * arrowEdge} ` +
            `H ${left} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${right - blockWidth} ` +
-           `V ${-height} ` +
+           `V ${yDir * height} ` +
            `Z`
   } else if (orientation === Orientation.MINUS) {
     // Minus strand: arrow pointing left
-    // Path starts at arrow tip (left edge, middle)
-    return `M ${left} ${-halfHeight} ` +
+    return `M ${left} ${yDir * halfHeight} ` +
            `L ${left + blockWidth} 0 ` +
-           `V ${-arrowEdge} ` +
+           `V ${yDir * arrowEdge} ` +
            `H ${right} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${left + blockWidth} ` +
-           `V ${-height} ` +
+           `V ${yDir * height} ` +
            `Z`
   } else {
     // Undirected: simple rectangle
-    return `M ${left} ${-arrowEdge} ` +
+    return `M ${left} ${yDir * arrowEdge} ` +
            `H ${right} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${left} ` +
            `Z`
   }
@@ -168,14 +168,18 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
           fragOrientation = Orientation.MINUS
         }
 
-        // Generate path
+        // Get stack direction
+        const stackDir = getStackDirection()
+
+        // Generate path (direction-aware)
         const path = generateArrowPath({
           left,
           right,
           height: annotationHeight,
           blockWidth,
           arrowEdge,
-          orientation: fragOrientation
+          orientation: fragOrientation,
+          stackDirection: stackDir
         })
 
         // Check if this is a CDS with translation enabled
@@ -184,16 +188,16 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
         const reserveTranslationSpace = isCDS && showTrans
 
         // Create element with bounding box
-        // Annotations are positioned ABOVE the sequence line (negative y)
-        // CDS annotations with translation reserve extra space below for the translation display
+        // stack-direction="up": positioned ABOVE the line (negative y), path extends upward
+        // stack-direction="down": positioned BELOW the line (positive y), path extends downward
         const totalHeight = reserveTranslationSpace
           ? annotationHeight + TRANSLATION_HEIGHT
           : annotationHeight
         const elem = new AnnotationElement({
           left,
-          top: -totalHeight,
+          top: stackDir === 'down' ? 0 : -totalHeight,
           right,
-          bottom: 0,
+          bottom: stackDir === 'down' ? totalHeight : 0,
           fragment: frag,
           path,
           reserveTranslationSpace
