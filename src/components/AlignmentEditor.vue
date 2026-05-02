@@ -14,6 +14,7 @@ import AnnotationLayer from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import AnnotationModal from './AnnotationModal.vue'
+import InsertModal from './InsertModal.vue'
 import SequenceLayer from './SequenceLayer.vue'
 import AlignmentTicksLayer from './AlignmentTicksLayer.vue'
 import Toolbar from './Toolbar.vue'
@@ -810,6 +811,27 @@ const annotationModalSpan = ref('0..0')
 const editingAnnotation = ref(null)  // null = create mode, annotation object = edit mode
 const annotationModalMode = ref('target')  // Track which document to add annotation to
 
+// Insert modal state
+const insertModalVisible = ref(false)
+const insertModalIsReplace = ref(false)
+const insertModalPosition = ref(0)
+const insertModalSelectionEnd = ref(0)
+const insertModalText = ref('')
+
+// Get context menu items from extensions
+function getExtensionContextMenuItems(context) {
+  const items = []
+  for (const ext of props.extensions || []) {
+    if (typeof ext.contextMenuItems === 'function') {
+      const extItems = ext.contextMenuItems(context, extensionAPI)
+      if (Array.isArray(extItems) && extItems.length > 0) {
+        items.push(...extItems)
+      }
+    }
+  }
+  return items
+}
+
 // Build context menu items
 function buildContextMenuItems(context) {
   const items = []
@@ -834,11 +856,42 @@ function buildContextMenuItems(context) {
   // Note: "Select all" is provided by SequenceLayer via getMenuItemsForElement
   // This ensures it only appears when clicking on a sequence layer (not background)
 
-  // Group 2: Delete sequence option
+  // Group 2: Insert / Replace / Delete sequence
   if (isSelected && domain && domain.ranges.length > 0 && !props.readonly) {
-    const range = domain.ranges[0]
-    if (range.start !== range.end) {
-      items.push({ separator: true })
+    const firstRange = domain.ranges[0]
+    const isZeroLength = firstRange.start === firstRange.end
+
+    items.push({ separator: true })
+
+    // Insert sequence option for zero-length selections (cursor position)
+    if (isZeroLength) {
+      items.push({
+        label: 'Insert sequence...',
+        action: () => {
+          insertModalIsReplace.value = false
+          insertModalPosition.value = firstRange.start
+          insertModalText.value = ''
+          insertModalVisible.value = true
+        }
+      })
+    }
+
+    // Replace sequence option for single non-zero-length selections only
+    if (!isZeroLength && domain.ranges.length === 1) {
+      items.push({
+        label: 'Replace sequence with...',
+        action: () => {
+          insertModalIsReplace.value = true
+          insertModalPosition.value = firstRange.start
+          insertModalSelectionEnd.value = firstRange.end
+          insertModalText.value = ''
+          insertModalVisible.value = true
+        }
+      })
+    }
+
+    // Delete sequence option for non-zero-length selections
+    if (!isZeroLength) {
       items.push({
         label: 'Delete sequence',
         action: () => handleDelete()
@@ -848,7 +901,10 @@ function buildContextMenuItems(context) {
 
   // Group 3: Create / Edit / Delete Annotation
   if (!props.readonly) {
-    items.push({ separator: true })
+    // Only add separator if there are preceding items
+    if (items.length > 0) {
+      items.push({ separator: true })
+    }
 
     // Create annotation option - always available when not readonly
     items.push({
@@ -892,6 +948,23 @@ function buildContextMenuItems(context) {
           action: () => selection.subtractSpan(annotationSpan)
         })
       }
+    }
+  }
+
+  // Extension context menu items
+  let extContext = null
+  if (isSelected && domain) {
+    const selectedSeq = getSelectedAlignmentSequenceText()
+    extContext = {
+      type: 'selection',
+      data: { sequence: selectedSeq, domain }
+    }
+  }
+
+  if (extContext) {
+    const extItems = getExtensionContextMenuItems(extContext)
+    if (extItems.length > 0) {
+      items.push({ separator: true }, ...extItems)
     }
   }
 
@@ -1197,6 +1270,46 @@ function confirmDelete() {
 
 function cancelDelete() {
   deleteConfirmVisible.value = false
+}
+
+// Insert/Replace handler
+function handleInsert(text) {
+  if (!text) return
+
+  // Determine which document to modify based on selection source
+  const isQueryEdit = selection.source.value === 'query'
+  const doc = isQueryEdit ? queryDoc.value : targetDoc.value
+
+  if (!doc) return
+
+  if (insertModalIsReplace.value) {
+    // Replace mode: delete selected range then insert
+    const range = { start: insertModalPosition.value, end: insertModalSelectionEnd.value }
+    doc.delete([range])
+    doc.insert(insertModalPosition.value, text)
+    emit('edit', {
+      type: 'replace',
+      range,
+      text,
+      to: selection.source.value
+    })
+  } else {
+    // Insert mode
+    doc.insert(insertModalPosition.value, text)
+    emit('edit', {
+      type: 'insert',
+      position: insertModalPosition.value,
+      text,
+      to: selection.source.value
+    })
+  }
+
+  emit('annotations-update')
+  insertModalVisible.value = false
+
+  // Place cursor after inserted text
+  const newCursorPos = insertModalPosition.value + text.length
+  selection.select(`${newCursorPos}..${newCursorPos}`)
 }
 
 // Copy handler
@@ -1513,6 +1626,17 @@ const toolbarHelpText = `Selection Controls:
       @close="closeAnnotationModal"
       @create="handleAnnotationCreate"
       @update="handleAnnotationUpdate"
+    />
+
+    <!-- Insert/Replace Modal -->
+    <InsertModal
+      :visible="insertModalVisible"
+      :initial-text="insertModalText"
+      :is-replace="insertModalIsReplace"
+      :position="insertModalPosition"
+      :selection-length="insertModalSelectionEnd - insertModalPosition"
+      @submit="handleInsert"
+      @cancel="insertModalVisible = false"
     />
 
     <!-- Extension panels/overlays -->

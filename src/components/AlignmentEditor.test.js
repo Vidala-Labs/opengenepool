@@ -2103,3 +2103,95 @@ describe('AlignmentTicksLayer context menu integration', () => {
     wrapper.unmount()
   })
 })
+
+describe('Context menu parity with SequenceEditor', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  describe('Insert/Replace sequence options', () => {
+    it('shows "Insert sequence..." when cursor is at a position (zero-length selection)', async () => {
+      const targetDoc = createDoc('ATCGATCGATCG')
+      const queryDoc = createDoc('ATCGATCGATCG')
+
+      const wrapper = mount(AlignmentEditor, {
+        props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+        global: { stubs: { Teleport: true } }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Set cursor position (zero-length selection)
+      wrapper.vm.selection.select('5..5')
+      wrapper.vm.selection.source.value = 'target'
+      await wrapper.vm.$nextTick()
+
+      const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+      expect(items.some(item => item.label === 'Insert sequence...')).toBe(true)
+    })
+
+    it('shows "Replace sequence with..." when selection has non-zero length', async () => {
+      const targetDoc = createDoc('ATCGATCGATCG')
+      const queryDoc = createDoc('ATCGATCGATCG')
+
+      const wrapper = mount(AlignmentEditor, {
+        props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+        global: { stubs: { Teleport: true } }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Set selection with range
+      wrapper.vm.selection.select('2..6')
+      wrapper.vm.selection.source.value = 'target'
+      await wrapper.vm.$nextTick()
+
+      const items = wrapper.vm.buildContextMenuItems({ source: 'sequence' })
+      expect(items.some(item => item.label === 'Replace sequence with...')).toBe(true)
+    })
+  })
+
+  // Note: Tests for "Merge with left segment", "Split annotation", "Flip strand",
+  // "Delete this range", "Move range up/down" are NOT included here because those
+  // menu items come from the shared layers (AnnotationLayer, SelectionLayer) via
+  // getMenuItemsForElement(), not from buildContextMenuItems().
+  // Those features are tested in the respective layer test files and work
+  // automatically in AlignmentEditor since it uses the same layers.
+
+  describe('Extension context menu items', () => {
+    it('includes extension menu items when extensions provide them', async () => {
+      const targetDoc = createDoc('ATCGATCGATCG')
+      const queryDoc = createDoc('ATCGATCGATCG')
+
+      // Mock extension with contextMenuItems
+      const mockExtension = {
+        contextMenuItems: (context, api) => {
+          if (context.type === 'selection') {
+            return [{ label: 'Mock Extension Action', action: () => {} }]
+          }
+          return []
+        }
+      }
+
+      const wrapper = mount(AlignmentEditor, {
+        props: {
+          target: targetDoc,
+          query: queryDoc,
+          initialZoom: 100,
+          extensions: [mockExtension]
+        },
+        global: { stubs: { Teleport: true } }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Set selection
+      wrapper.vm.selection.select('2..6')
+      wrapper.vm.selection.source.value = 'target'
+      await wrapper.vm.$nextTick()
+
+      const items = wrapper.vm.buildContextMenuItems({
+        source: 'selection'
+      })
+
+      expect(items.some(item => item.label === 'Mock Extension Action')).toBe(true)
+    })
+  })
+})
