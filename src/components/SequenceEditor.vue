@@ -562,6 +562,9 @@ const DEFAULT_ANNOTATION_COLORS = {
   protein_bind: '#795548',   // brown
   regulatory: '#FFEB3B',     // yellow
   source: '#B0BEC5',         // light blue-gray
+  mutation: '#F44336',       // red (alignment diff)
+  insertion: '#FFEB3B',      // yellow (alignment diff)
+  deletion: '#FFEB3B',       // yellow (alignment diff)
   _default: '#607D8B'        // default blue-gray for unknown types
 }
 

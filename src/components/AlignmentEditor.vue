@@ -354,6 +354,95 @@ const alignedQueryCdsAnnotations = computed(() => {
 // Show translation toggle
 const showTranslation = ref(true)
 
+// Show annotations toggle
+const showAnnotations = ref(true)
+
+// Hidden annotation types (stored per session, not persisted)
+const hiddenTypes = ref(new Set())
+
+// Annotation colors - shared with SequenceEditor via localStorage
+const COLORS_KEY = 'opengenepool-annotation-colors'
+const DEFAULT_ANNOTATION_COLORS = {
+  gene: '#4CAF50',           // green
+  CDS: '#2196F3',            // blue
+  promoter: '#FF9800',       // orange
+  terminator: '#F44336',     // red
+  misc_feature: '#9E9E9E',   // gray
+  rep_origin: '#9C27B0',     // purple
+  origin: '#9C27B0',         // purple (alias)
+  primer_bind: '#00BCD4',    // cyan
+  protein_bind: '#795548',   // brown
+  regulatory: '#FFEB3B',     // yellow
+  source: '#B0BEC5',         // light blue-gray
+  mutation: '#F44336',       // red (alignment diff)
+  insertion: '#FFEB3B',      // yellow (alignment diff)
+  deletion: '#FFEB3B',       // yellow (alignment diff)
+  _default: '#607D8B'        // default blue-gray for unknown types
+}
+
+function loadAnnotationColors() {
+  const stored = localStorage.getItem(COLORS_KEY)
+  if (stored) {
+    try {
+      return { ...DEFAULT_ANNOTATION_COLORS, ...JSON.parse(stored) }
+    } catch {
+      return { ...DEFAULT_ANNOTATION_COLORS }
+    }
+  }
+  return { ...DEFAULT_ANNOTATION_COLORS }
+}
+
+const annotationColors = ref(loadAnnotationColors())
+
+// Extract unique annotation types from both target and query
+const annotationTypes = computed(() => {
+  const targetTypes = localAnnotations.value.map(a => a.type || 'misc_feature')
+  const queryTypes = (queryDoc.value?.annotations || []).map(a => a.type || 'misc_feature')
+  const types = new Set([...targetTypes, ...queryTypes])
+  return [...types].sort()
+})
+
+// Toggle visibility of an annotation type
+function toggleAnnotationType(type) {
+  const newSet = new Set(hiddenTypes.value)
+  if (newSet.has(type)) {
+    newSet.delete(type)
+  } else {
+    newSet.add(type)
+  }
+  hiddenTypes.value = newSet
+}
+
+// Check if a type is hidden
+function isTypeHidden(type) {
+  return hiddenTypes.value.has(type)
+}
+
+// Get color for annotation type
+function getTypeColor(type) {
+  return annotationColors.value[type] || annotationColors.value._default
+}
+
+// Filter aligned annotations based on visibility settings
+const visibleAlignedTargetAnnotations = computed(() => {
+  if (!showAnnotations.value) return []
+  return alignedTargetAnnotations.value.filter(ann => !hiddenTypes.value.has(ann.type || 'misc_feature'))
+})
+
+const visibleAlignedQueryAnnotations = computed(() => {
+  if (!showAnnotations.value) return []
+  return alignedQueryAnnotations.value.filter(ann => !hiddenTypes.value.has(ann.type || 'misc_feature'))
+})
+
+// CDS annotations for translation (filtered by visibility)
+const visibleAlignedTargetCdsAnnotations = computed(() => {
+  return visibleAlignedTargetAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
+})
+
+const visibleAlignedQueryCdsAnnotations = computed(() => {
+  return visibleAlignedQueryAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
+})
+
 // ============================================
 // Gap Annotation Feature Detection and Creation
 // ============================================
@@ -884,6 +973,7 @@ const extensionAPI = {
 }
 provide('extensionAPI', extensionAPI)
 provide('showTranslation', showTranslation)
+provide('showAnnotations', showAnnotations)
 
 // ============================================
 // Template refs and layout
@@ -1779,6 +1869,36 @@ const toolbarHelpText = `Selection Controls:
       </template>
 
       <template #config>
+        <label class="config-header-toggle">
+          <input
+            type="checkbox"
+            v-model="showAnnotations"
+          >
+          <span>Annotations</span>
+        </label>
+        <div v-if="showAnnotations && annotationTypes.length > 0" class="config-types">
+          <label v-for="type in annotationTypes" :key="type" class="type-row">
+            <input type="checkbox" :checked="!isTypeHidden(type)" @change="toggleAnnotationType(type)">
+            <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
+              <rect
+                x="0" y="0" width="14" height="14" rx="2"
+                :fill="getTypeColor(type)"
+                stroke="black"
+                stroke-width="1"
+              />
+            </svg>
+            <span class="type-name">{{ type }}</span>
+          </label>
+        </div>
+
+        <label v-if="visibleAlignedTargetCdsAnnotations.length > 0 || visibleAlignedQueryCdsAnnotations.length > 0" class="config-header-toggle">
+          <input
+            type="checkbox"
+            v-model="showTranslation"
+          >
+          <span>Translation</span>
+        </label>
+
         <slot name="config"></slot>
       </template>
     </Toolbar>
@@ -1861,11 +1981,11 @@ const toolbarHelpText = `Selection Controls:
             <!-- Annotation Layers for alignment mode -->
             <!-- Target annotations above target sequence (paths extend upward with negative Y) -->
             <AnnotationLayer
-              v-if="alignedTargetAnnotations.length > 0"
+              v-if="visibleAlignedTargetAnnotations.length > 0"
               ref="targetAnnotationLayerRef"
               mode="target"
               :document="targetDoc"
-              :annotations="alignedTargetAnnotations"
+              :annotations="visibleAlignedTargetAnnotations"
               :y-offset="0"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
@@ -1875,10 +1995,10 @@ const toolbarHelpText = `Selection Controls:
             <!-- Translation Layers for CDS annotations -->
             <!-- Target translations above target sequence -->
             <TranslationLayer
-              v-if="alignedTargetCdsAnnotations.length > 0"
+              v-if="visibleAlignedTargetCdsAnnotations.length > 0"
               ref="targetTranslationLayerRef"
               mode="target"
-              :annotations="alignedTargetCdsAnnotations"
+              :annotations="visibleAlignedTargetCdsAnnotations"
               :sequence="alignedTargetSequence"
               :y-offset="0"
               :block-height="alignmentBlockHeight"
@@ -1888,11 +2008,11 @@ const toolbarHelpText = `Selection Controls:
             />
             <!-- Query annotations below query sequence (mirrors target positioning) -->
             <AnnotationLayer
-              v-if="alignedQueryAnnotations.length > 0"
+              v-if="visibleAlignedQueryAnnotations.length > 0"
               ref="queryAnnotationLayerRef"
               mode="query"
               :document="queryDoc"
-              :annotations="alignedQueryAnnotations"
+              :annotations="visibleAlignedQueryAnnotations"
               :y-offset="graphics.lineHeight.value * 3"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
@@ -1902,10 +2022,10 @@ const toolbarHelpText = `Selection Controls:
             />
             <!-- Query translations below query sequence, above CDS annotation -->
             <TranslationLayer
-              v-if="alignedQueryCdsAnnotations.length > 0"
+              v-if="visibleAlignedQueryCdsAnnotations.length > 0"
               ref="queryTranslationLayerRef"
               mode="query"
-              :annotations="alignedQueryCdsAnnotations"
+              :annotations="visibleAlignedQueryCdsAnnotations"
               :sequence="alignedQuerySequence"
               :y-offset="graphics.lineHeight.value * 3"
               :block-height="alignmentBlockHeight"
