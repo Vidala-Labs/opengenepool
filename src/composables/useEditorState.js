@@ -53,7 +53,7 @@ export function useEditorState() {
         start,
         end,
         text: seq.slice(start, end),
-        position: start  // 0-based position for display
+        position: start + 1  // 1-based GenBank position for display
       })
     }
     return result

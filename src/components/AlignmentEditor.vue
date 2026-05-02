@@ -261,8 +261,9 @@ const alignmentLines = computed(() => {
       queryText: querySeq.slice(i, end),
       targetText: targetSeq.slice(i, end),
       matchText: matchLine.slice(i, end),
-      queryPosition: queryLabelPos,
-      targetPosition: targetLabelPos
+      // Convert to 1-based GenBank positions for display
+      queryPosition: queryLabelPos !== null ? queryLabelPos + 1 : null,
+      targetPosition: targetLabelPos !== null ? targetLabelPos + 1 : null
     })
   }
 

@@ -145,9 +145,9 @@ describe('SequenceEditor', () => {
 
       const labels = wrapper.findAll('.position-label')
       expect(labels).toHaveLength(3)
-      expect(labels[0].text()).toBe('0')
-      expect(labels[1].text()).toBe('50')
-      expect(labels[2].text()).toBe('100')
+      expect(labels[0].text()).toBe('1')    // GenBank 1-indexed
+      expect(labels[1].text()).toBe('51')   // GenBank 1-indexed
+      expect(labels[2].text()).toBe('101')  // GenBank 1-indexed
     })
   })
 
