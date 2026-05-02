@@ -37,6 +37,11 @@ const props = defineProps({
   originalSequenceLength: {
     type: Number,
     default: null
+  },
+  /** Callback to get alignment-specific menu items (for gap/mutation annotation) */
+  getAlignmentMenuItems: {
+    type: Function,
+    default: null
   }
 })
 
@@ -366,6 +371,7 @@ defineExpose({
           data-layer="sequence"
           :data-mode="mode || undefined"
           :data-line-index="line.index"
+          :data-line-start="line.start"
           @mousedown="handleMouseDown($event, line.index)"
           @contextmenu="handleContextMenu($event, line.index)"
         />

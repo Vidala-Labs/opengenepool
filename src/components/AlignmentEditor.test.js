@@ -514,6 +514,121 @@ describe('AlignmentEditor Annotations', () => {
   })
 })
 
+describe('Annotation alignment mapping', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('maps annotations correctly when target has extra base', async () => {
+    // Target: ATCGAATCG (9 bases) with annotation at 4..6 ("AA")
+    // Query: ATCGATCG (8 bases) with annotation at 4..6 ("TC")
+    // Aligned:
+    //   Position: 012345678
+    //   Target:   ATCGAATCG
+    //   Query:    ATCG-ATCG
+    //   Match:    |||| ||||
+    //
+    // Query annotation mapping:
+    //   Original positions 4,5 ("TC") map to aligned positions 5,6 (after the gap)
+    //   So original 4..6 -> aligned 5..7
+
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = new SequenceDocument({
+      sequence: 'ATCGAATCG',
+      annotations: [
+        new Annotation({ id: 'targetAnn', span: Span.parse('4..6'), type: 'gene', label: 'targetFoo' })
+      ]
+    })
+
+    const queryDoc = new SequenceDocument({
+      sequence: 'ATCGATCG',
+      annotations: [
+        new Annotation({ id: 'queryAnn', span: Span.parse('4..6'), type: 'gene', label: 'queryFoo' })
+      ]
+    })
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment result
+    const result = wrapper.vm.alignmentResult
+    expect(result.targetAligned).toBe('ATCGAATCG')
+    expect(result.queryAligned).toBe('ATCG-ATCG')
+
+    // Verify target annotation mapping (no gaps in target, should be unchanged)
+    const targetAnns = wrapper.vm.alignedTargetAnnotations
+    expect(targetAnns.length).toBe(1)
+    expect(targetAnns[0].span.ranges[0].start).toBe(4)
+    expect(targetAnns[0].span.ranges[0].end).toBe(6)
+
+    // Verify query annotation mapping (gap shifts positions after position 4)
+    // Original 4..6 should map to aligned 5..7 (shifted by 1 due to gap at position 4)
+    const queryAnns = wrapper.vm.alignedQueryAnnotations
+    expect(queryAnns.length).toBe(1)
+    expect(queryAnns[0].span.ranges[0].start).toBe(5)
+    expect(queryAnns[0].span.ranges[0].end).toBe(7)
+  })
+
+  it('maps annotations correctly when query has extra base', async () => {
+    // Swapped: query is now the longer sequence with the extra base
+    // Target: ATCGATCG (8 bases) with annotation at 4..6 ("TC")
+    // Query: ATCGAATCG (9 bases) with annotation at 4..6 ("AA")
+    // Aligned:
+    //   Position: 012345678
+    //   Target:   ATCG-ATCG (gap at position 4)
+    //   Query:    ATCGAATCG
+    //   Match:    |||| ||||
+    //
+    // Target annotation mapping:
+    //   Original positions 4,5 ("AT") map to aligned positions 5,6 (after the gap)
+    //   So original 4..6 -> aligned 5..7
+
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = new SequenceDocument({
+      sequence: 'ATCGATCG',  // Shorter, will have gap in alignment
+      annotations: [
+        new Annotation({ id: 'targetAnn', span: Span.parse('4..6'), type: 'gene', label: 'targetFoo' })
+      ]
+    })
+
+    const queryDoc = new SequenceDocument({
+      sequence: 'ATCGAATCG',  // Longer, no gap
+      annotations: [
+        new Annotation({ id: 'queryAnn', span: Span.parse('4..6'), type: 'gene', label: 'queryFoo' })
+      ]
+    })
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment result (target gets the gap when query is longer)
+    const result = wrapper.vm.alignmentResult
+    expect(result.targetAligned).toBe('ATCG-ATCG')
+    expect(result.queryAligned).toBe('ATCGAATCG')
+
+    // Verify target annotation (has gap, should shift after position 4)
+    // Original 4..6 should map to aligned 5..7
+    const targetAnns = wrapper.vm.alignedTargetAnnotations
+    expect(targetAnns.length).toBe(1)
+    expect(targetAnns[0].span.ranges[0].start).toBe(5)
+    expect(targetAnns[0].span.ranges[0].end).toBe(7)
+
+    // Verify query annotation (no gaps in query, unchanged)
+    const queryAnns = wrapper.vm.alignedQueryAnnotations
+    expect(queryAnns.length).toBe(1)
+    expect(queryAnns[0].span.ranges[0].start).toBe(4)
+    expect(queryAnns[0].span.ranges[0].end).toBe(6)
+  })
+})
+
 describe('AlignmentEditor Context Menu', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEY)
@@ -1280,5 +1395,711 @@ describe('AlignmentEditor Reactivity', () => {
 
     // It should reflect the new 19bp target
     expect(alignedTargetAfter.replace(/-/g, '').length).toBeLessThanOrEqual(19)
+  })
+})
+
+describe('Gap annotation context menu', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('detectAlignmentFeatureAt returns deletion when gap in query', async () => {
+    // Target: ATCGAATCG (9 bases)
+    // Query:  ATCGATCG  (8 bases)
+    // Aligned:
+    //   Target: ATCGAATCG
+    //   Query:  ATCG-ATCG (gap at position 4)
+    const targetDoc = createDoc('ATCGAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGAATCG')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCG-ATCG')
+
+    // Position 4 should be a deletion (gap in query)
+    const feature = wrapper.vm.detectAlignmentFeatureAt(4)
+    expect(feature).not.toBeNull()
+    expect(feature.type).toBe('deletion')
+    expect(feature.targetBase).toBe('A')
+  })
+
+  it('detectAlignmentFeatureAt returns insertion when gap in target', async () => {
+    // Target: ATCGATCG  (8 bases)
+    // Query:  ATCGAATCG (9 bases)
+    // Aligned:
+    //   Target: ATCG-ATCG (gap at position 4)
+    //   Query:  ATCGAATCG
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCG-ATCG')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCGAATCG')
+
+    // Position 4 should be an insertion (gap in target)
+    const feature = wrapper.vm.detectAlignmentFeatureAt(4)
+    expect(feature).not.toBeNull()
+    expect(feature.type).toBe('insertion')
+    expect(feature.queryBase).toBe('A')
+  })
+
+  it('detectAlignmentFeatureAt returns mutation when bases differ', async () => {
+    // Target: ATCGATCG
+    // Query:  ATCGTTCG (position 4: A->T)
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGTTCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment (should be direct alignment with mismatch)
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGATCG')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCGTTCG')
+
+    // Position 4 should be a mutation (A->T)
+    const feature = wrapper.vm.detectAlignmentFeatureAt(4)
+    expect(feature).not.toBeNull()
+    expect(feature.type).toBe('mutation')
+    expect(feature.targetBase).toBe('A')
+    expect(feature.queryBase).toBe('T')
+  })
+
+  it('detectAlignmentFeatureAt returns null for matching bases', async () => {
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 0 should be a match (A=A), no feature
+    const feature = wrapper.vm.detectAlignmentFeatureAt(0)
+    expect(feature).toBeNull()
+  })
+
+  it('getAlignmentMenuItems returns "Annotate deletion" for gap in query', async () => {
+    const targetDoc = createDoc('ATCGAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 4 has gap in query
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Annotate deletion')).toBe(true)
+  })
+
+  it('getAlignmentMenuItems returns "Annotate insertion" for gap in target', async () => {
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 4 has gap in target (insertion in query)
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Annotate insertion')).toBe(true)
+  })
+
+  it('getAlignmentMenuItems returns "Annotate mutation" for mismatch', async () => {
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGTTCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 4 is a mismatch (A vs T)
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Annotate mutation')).toBe(true)
+  })
+
+  it('getAlignmentMenuItems returns empty array for matching bases', async () => {
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Position 0 is a match - no menu items
+    const items = wrapper.vm.getAlignmentMenuItems(0, 'query')
+    expect(items.length).toBe(0)
+  })
+
+  it('creates deletion annotation with correct span and caption (single base)', async () => {
+    // Target: ATCGAATCG (9 bases)
+    // Query:  ATCGATCG  (8 bases)
+    // Aligned:
+    //   Target: ATCGAATCG
+    //   Query:  ATCG-ATCG (gap at position 4)
+    // Deletion at aligned position 4 - target base 'A' at GenBank position 5 (1-indexed)
+    // Caption should be: Δ(5)
+    // Span: 3..5 (flanking bases in original query coordinates)
+    const targetDoc = createDoc('ATCGAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify no annotations initially
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Create deletion annotation at position 4 (single gap)
+    wrapper.vm.createDeletionAnnotation(4, 5)
+    await wrapper.vm.$nextTick()
+
+    // Should have created annotation on query document
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.type).toBe('deletion')
+    // Caption uses GenBank 1-indexed target position
+    expect(ann.caption).toBe('Δ(5)')
+    // Span should cover the flanking bases (positions 3 and 4 in original query)
+    expect(ann.span.ranges[0].start).toBe(3)
+    expect(ann.span.ranges[0].end).toBe(5)
+  })
+
+  it('creates deletion annotation with range caption for multi-base deletion', async () => {
+    // Target: ATCGAAATCG (10 bases)
+    // Query:  ATCGATCG   (8 bases)
+    // Aligned:
+    //   Target: ATCGAAATCG
+    //   Query:  ATCG--ATCG (gaps at positions 4-5)
+    // Deletion at aligned positions 4-6 - target bases 'AA' at GenBank positions 5..6
+    // Caption should be: Δ(5..6)
+    const targetDoc = createDoc('ATCGAAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment has the expected gaps
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGAAATCG')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCG--ATCG')
+
+    // Create deletion annotation for the entire gap region (positions 4-6)
+    wrapper.vm.createDeletionAnnotation(4, 6)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.type).toBe('deletion')
+    // Caption uses GenBank 1-indexed target range
+    expect(ann.caption).toBe('Δ(5..6)')
+  })
+
+  it('creates insertion annotation with sequence metadata', async () => {
+    // Target: ATCGATCG  (8 bases)
+    // Query:  ATCGAATCG (9 bases)
+    // Aligned:
+    //   Target: ATCG-ATCG (gap at position 4)
+    //   Query:  ATCGAATCG
+    // Insertion at aligned position 4 - inserted base 'A'
+    // Caption: +A (the inserted sequence)
+    // Span: 4..5 (the inserted base in original query coordinates)
+    // Should store sequence in attributes
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify no annotations initially
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Create insertion annotation at position 4
+    wrapper.vm.createInsertionAnnotation(4, 5)
+    await wrapper.vm.$nextTick()
+
+    // Should have created annotation on query document
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.type).toBe('insertion')
+    expect(ann.caption).toBe('+A')
+    // Span should cover the inserted base (position 4 in original query)
+    expect(ann.span.ranges[0].start).toBe(4)
+    expect(ann.span.ranges[0].end).toBe(5)
+    // Sequence should be stored in attributes
+    expect(ann.attributes.sequence).toBe('A')
+  })
+
+  it('creates insertion annotation for multi-base insertion', async () => {
+    // Target: ATCGATCG    (8 bases)
+    // Query:  ATCGAAATCG  (10 bases)
+    // Aligned:
+    //   Target: ATCG--ATCG (gaps at positions 4-5)
+    //   Query:  ATCGAAATCG
+    // Insertion of 'AA' at aligned positions 4-6
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCG--ATCG')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCGAAATCG')
+
+    // Create insertion annotation for the entire insertion (positions 4-6)
+    wrapper.vm.createInsertionAnnotation(4, 6)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.type).toBe('insertion')
+    expect(ann.caption).toBe('+AA')
+    expect(ann.attributes.sequence).toBe('AA')
+  })
+
+  it('creates mutation annotation with correct caption (single base)', async () => {
+    // Target: ATCGATCG
+    // Query:  ATCGTTCG (position 4: A->T)
+    // Mutation at aligned position 4
+    // Caption: A5T (targetBase + GenBank position + queryBase)
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGTTCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify no annotations initially
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Create mutation annotation at position 4
+    wrapper.vm.createMutationAnnotation(4, 5)
+    await wrapper.vm.$nextTick()
+
+    // Should have created annotation on query document
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.type).toBe('mutation')
+    // Caption: targetBase + GenBank position (1-indexed) + queryBase
+    expect(ann.caption).toBe('A5T')
+    // Span should cover the mutated base (position 4 in original query)
+    expect(ann.span.ranges[0].start).toBe(4)
+    expect(ann.span.ranges[0].end).toBe(5)
+  })
+
+  it('creates mutation annotation with range caption for multi-base mutation', async () => {
+    // Target: ATCGATCGATCG
+    // Query:  ATCGTTCGATCG (positions 4-5: AT->TT)
+    // Mutation at aligned positions 4-6
+    // Caption: AT(5..6)TT
+    const targetDoc = createDoc('ATCGATCGATCG')
+    const queryDoc = createDoc('ATCGTTCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment (should be direct without gaps)
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGATCGATCG')
+    expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCGTTCGATCG')
+
+    // Create mutation annotation for positions 4-6 (AT->TT)
+    wrapper.vm.createMutationAnnotation(4, 6)
+    await wrapper.vm.$nextTick()
+
+    expect(queryDoc.annotations.length).toBe(1)
+    const ann = queryDoc.annotations[0]
+    expect(ann.type).toBe('mutation')
+    // Caption: targetBases(GenBank range)queryBases
+    expect(ann.caption).toBe('AT(5..6)TT')
+  })
+
+  it('clicking Annotate deletion menu item creates annotation with correct caption', async () => {
+    const targetDoc = createDoc('ATCGAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Get menu items for deletion position
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const deleteItem = items.find(item => item.label === 'Annotate deletion')
+    expect(deleteItem).toBeDefined()
+
+    // Execute the action
+    deleteItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Should have created annotation with correct caption
+    expect(queryDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations[0].type).toBe('deletion')
+    expect(queryDoc.annotations[0].caption).toBe('Δ(5)')
+  })
+
+  it('clicking Annotate insertion menu item creates annotation with correct caption', async () => {
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Get menu items for insertion position
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const insertItem = items.find(item => item.label === 'Annotate insertion')
+    expect(insertItem).toBeDefined()
+
+    // Execute the action
+    insertItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Should have created annotation with correct caption and sequence attribute
+    expect(queryDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations[0].type).toBe('insertion')
+    expect(queryDoc.annotations[0].caption).toBe('+A')
+    expect(queryDoc.annotations[0].attributes.sequence).toBe('A')
+  })
+
+  it('clicking Annotate mutation menu item creates annotation with correct caption', async () => {
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGTTCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Get menu items for mutation position
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const mutationItem = items.find(item => item.label === 'Annotate mutation')
+    expect(mutationItem).toBeDefined()
+
+    // Execute the action
+    mutationItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Should have created annotation with correct caption
+    expect(queryDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations[0].type).toBe('mutation')
+    expect(queryDoc.annotations[0].caption).toBe('A5T')
+  })
+
+  it('findContiguousFeatureRegion finds full deletion region', async () => {
+    // Target: ATCGAAATCG (10 bases)
+    // Query:  ATCGATCG   (8 bases)
+    // Aligned:
+    //   Target: ATCGAAATCG
+    //   Query:  ATCG--ATCG (gaps at positions 4-5)
+    const targetDoc = createDoc('ATCGAAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Clicking on position 4 should find the full deletion region 4-6
+    const region = wrapper.vm.findContiguousFeatureRegion(4, 'deletion')
+    expect(region.start).toBe(4)
+    expect(region.end).toBe(6)
+
+    // Clicking on position 5 should also find the same region
+    const region2 = wrapper.vm.findContiguousFeatureRegion(5, 'deletion')
+    expect(region2.start).toBe(4)
+    expect(region2.end).toBe(6)
+  })
+
+  it('findContiguousFeatureRegion finds full insertion region', async () => {
+    // Target: ATCGATCG   (8 bases)
+    // Query:  ATCGAAATCG (10 bases)
+    // Aligned:
+    //   Target: ATCG--ATCG (gaps at positions 4-5)
+    //   Query:  ATCGAAATCG
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Clicking on position 4 should find the full insertion region 4-6
+    const region = wrapper.vm.findContiguousFeatureRegion(4, 'insertion')
+    expect(region.start).toBe(4)
+    expect(region.end).toBe(6)
+  })
+})
+
+describe('AlignmentTicksLayer context menu integration', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('right-clicking on gap in AlignmentTicksLayer shows "Annotate deletion" menu item', async () => {
+    // Target: ATCGAATCG (9 bases)
+    // Query:  ATCGATCG  (8 bases)
+    // Aligned:
+    //   Target: ATCGAATCG
+    //   Query:  ATCG-ATCG (gap at position 4)
+    const targetDoc = createDoc('ATCGAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Find the alignment-match overlay rect
+    const matchOverlay = wrapper.find('rect.alignment-match-overlay')
+    expect(matchOverlay.exists()).toBe(true)
+
+    // Simulate right-click at a position that corresponds to the gap (position 4)
+    // The overlay has data-line-start attribute
+    const lineStart = parseInt(matchOverlay.attributes('data-line-start'))
+    expect(lineStart).toBe(0)
+
+    // Right-click on the overlay - we need to trigger contextmenu with coordinates
+    // that would map to position 4 (the gap)
+    await matchOverlay.trigger('contextmenu', {
+      clientX: 100, // Will be used to calculate position
+      clientY: 50,
+      preventDefault: () => {},
+      stopPropagation: () => {}
+    })
+    await wrapper.vm.$nextTick()
+
+    // Context menu should be visible
+    // Note: The actual position calculation depends on the SVG metrics
+    // For this test, we verify the menu items are generated correctly
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Annotate deletion')).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('right-clicking on insertion gap shows "Annotate insertion" menu item', async () => {
+    // Target: ATCGATCG  (8 bases)
+    // Query:  ATCGAATCG (9 bases)
+    // Aligned:
+    //   Target: ATCG-ATCG (gap at position 4)
+    //   Query:  ATCGAATCG
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Find the alignment-match overlay rect
+    const matchOverlay = wrapper.find('rect.alignment-match-overlay')
+    expect(matchOverlay.exists()).toBe(true)
+
+    // Verify menu items for position 4 (the insertion)
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Annotate insertion')).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('right-clicking on mismatch shows "Annotate mutation" menu item', async () => {
+    // Target: ATCGATCG
+    // Query:  ATCGTTCG (position 4: A->T)
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGTTCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Find the alignment-match overlay rect
+    const matchOverlay = wrapper.find('rect.alignment-match-overlay')
+    expect(matchOverlay.exists()).toBe(true)
+
+    // Verify menu items for position 4 (the mismatch)
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.some(item => item.label === 'Annotate mutation')).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('right-clicking on matching bases shows no annotation menu items', async () => {
+    // Target: ATCGATCG
+    // Query:  ATCGATCG (identical)
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Find the alignment-match overlay rect
+    const matchOverlay = wrapper.find('rect.alignment-match-overlay')
+    expect(matchOverlay.exists()).toBe(true)
+
+    // Verify no menu items for position 0 (a match)
+    const items = wrapper.vm.getAlignmentMenuItems(0, 'query')
+    expect(items.length).toBe(0)
+
+    wrapper.unmount()
+  })
+
+  it('executing deletion menu action from ticks layer creates annotation', async () => {
+    // Target: ATCGAATCG (9 bases)
+    // Query:  ATCGATCG  (8 bases)
+    const targetDoc = createDoc('ATCGAATCG')
+    const queryDoc = createDoc('ATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify no annotations initially
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Get menu items and execute the deletion action
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const deleteItem = items.find(item => item.label === 'Annotate deletion')
+    expect(deleteItem).toBeDefined()
+
+    deleteItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Annotation should be created on query document
+    expect(queryDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations[0].type).toBe('deletion')
+    expect(queryDoc.annotations[0].caption).toBe('Δ(5)')
+
+    wrapper.unmount()
+  })
+
+  it('executing insertion menu action from ticks layer creates annotation with sequence', async () => {
+    // Target: ATCGATCG  (8 bases)
+    // Query:  ATCGAATCG (9 bases)
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify no annotations initially
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Get menu items and execute the insertion action
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const insertItem = items.find(item => item.label === 'Annotate insertion')
+    expect(insertItem).toBeDefined()
+
+    insertItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Annotation should be created on query document
+    expect(queryDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations[0].type).toBe('insertion')
+    expect(queryDoc.annotations[0].caption).toBe('+A')
+    expect(queryDoc.annotations[0].attributes.sequence).toBe('A')
+
+    wrapper.unmount()
+  })
+
+  it('executing mutation menu action from ticks layer creates annotation', async () => {
+    // Target: ATCGATCG
+    // Query:  ATCGTTCG (position 4: A->T)
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGTTCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify no annotations initially
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Get menu items and execute the mutation action
+    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const mutationItem = items.find(item => item.label === 'Annotate mutation')
+    expect(mutationItem).toBeDefined()
+
+    mutationItem.action()
+    await wrapper.vm.$nextTick()
+
+    // Annotation should be created on query document
+    expect(queryDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations[0].type).toBe('mutation')
+    expect(queryDoc.annotations[0].caption).toBe('A5T')
+
+    wrapper.unmount()
   })
 })

@@ -337,6 +337,254 @@ const alignedQueryAnnotations = computed(() => {
 })
 
 // ============================================
+// Gap Annotation Feature Detection and Creation
+// ============================================
+
+/**
+ * Detect what type of alignment feature is at an aligned position.
+ * @param {number} alignedPos - Position in the aligned sequence
+ * @returns {Object|null} Feature object with type and bases, or null if match
+ */
+function detectAlignmentFeatureAt(alignedPos) {
+  if (!alignmentResult.value) return null
+
+  const queryChar = alignmentResult.value.queryAligned[alignedPos]
+  const targetChar = alignmentResult.value.targetAligned[alignedPos]
+
+  if (!queryChar || !targetChar) return null
+
+  // Gap in query = deletion from query perspective
+  if (queryChar === '-' && targetChar !== '-') {
+    return { type: 'deletion', targetBase: targetChar }
+  }
+
+  // Gap in target = insertion in query
+  if (targetChar === '-' && queryChar !== '-') {
+    return { type: 'insertion', queryBase: queryChar }
+  }
+
+  // Both are bases - check for mutation
+  if (queryChar !== '-' && targetChar !== '-') {
+    if (queryChar.toUpperCase() !== targetChar.toUpperCase()) {
+      return { type: 'mutation', targetBase: targetChar, queryBase: queryChar }
+    }
+  }
+
+  return null // Match - no annotation needed
+}
+
+/**
+ * Create annotation for deletion (gap in query).
+ * Annotates the flanking bases around the gap.
+ * Caption format: Δ(genbank_pos) or Δ(genbank_start..genbank_end)
+ * @param {number} alignedStart - Start position of the gap in aligned sequence
+ * @param {number} alignedEnd - End position of the gap in aligned sequence (exclusive)
+ */
+function createDeletionAnnotation(alignedStart, alignedEnd) {
+  if (!alignmentResult.value || !queryDoc.value) return
+
+  // Find flanking bases in query (for span)
+  let leftPos = alignedStart - 1
+  let rightPos = alignedEnd
+
+  // Walk left to find non-gap base
+  while (leftPos >= 0 && alignmentResult.value.queryAligned[leftPos] === '-') {
+    leftPos--
+  }
+  // Walk right to find non-gap base
+  const len = alignmentResult.value.queryAligned.length
+  while (rightPos < len && alignmentResult.value.queryAligned[rightPos] === '-') {
+    rightPos++
+  }
+
+  if (leftPos < 0 || rightPos >= len) return // Edge case: gap at sequence boundary
+
+  // Map to original query coordinates for span
+  const origLeft = queryPositionMap.value[leftPos]
+  const origRight = queryPositionMap.value[rightPos]
+
+  if (origLeft === null || origRight === null) return
+
+  // Get target positions for caption (GenBank 1-indexed)
+  const targetStart = targetPositionMap.value[alignedStart]
+  const targetEnd = targetPositionMap.value[alignedEnd - 1]
+
+  if (targetStart === null || targetEnd === null) return
+
+  // GenBank is 1-indexed
+  const genbankStart = targetStart + 1
+  const genbankEnd = targetEnd + 1
+
+  // Caption format: Δ(pos) or Δ(start..end)
+  const caption = genbankStart === genbankEnd
+    ? `Δ(${genbankStart})`
+    : `Δ(${genbankStart}..${genbankEnd})`
+
+  const span = Span.parse(`${origLeft}..${origRight + 1}`)
+
+  queryDoc.value.addAnnotation({
+    type: 'deletion',
+    caption,
+    span
+  })
+}
+
+/**
+ * Create annotation for insertion (gap in target).
+ * Annotates the inserted bases in the query.
+ * Caption format: +sequence (e.g., +A, +ATCG)
+ * Stores full sequence in attributes.sequence
+ * @param {number} alignedStart - Start position in aligned sequence
+ * @param {number} alignedEnd - End position in aligned sequence
+ */
+function createInsertionAnnotation(alignedStart, alignedEnd) {
+  if (!alignmentResult.value || !queryDoc.value) return
+
+  // The inserted bases in query
+  const insertedBases = alignmentResult.value.queryAligned.slice(alignedStart, alignedEnd)
+
+  // Map to original query coordinates
+  const origStart = queryPositionMap.value[alignedStart]
+  const origEnd = queryPositionMap.value[alignedEnd - 1]
+
+  if (origStart === null || origEnd === null) return
+
+  const caption = `+${insertedBases}`
+  const span = Span.parse(`${origStart}..${origEnd + 1}`)
+
+  queryDoc.value.addAnnotation({
+    type: 'insertion',
+    caption,
+    span,
+    attributes: {
+      sequence: insertedBases
+    }
+  })
+}
+
+/**
+ * Create annotation for mutation (base mismatch).
+ * Annotates the mutated bases in the query.
+ * Caption format: A5T (single base) or ATCG(5..8)TGAA (multi-base)
+ * @param {number} alignedStart - Start position in aligned sequence
+ * @param {number} alignedEnd - End position in aligned sequence
+ */
+function createMutationAnnotation(alignedStart, alignedEnd) {
+  if (!alignmentResult.value || !queryDoc.value) return
+
+  const targetBases = alignmentResult.value.targetAligned.slice(alignedStart, alignedEnd)
+  const queryBases = alignmentResult.value.queryAligned.slice(alignedStart, alignedEnd)
+
+  // Map to original query coordinates for span
+  const origStart = queryPositionMap.value[alignedStart]
+  const origEnd = queryPositionMap.value[alignedEnd - 1]
+
+  if (origStart === null || origEnd === null) return
+
+  // Get target positions for caption (GenBank 1-indexed)
+  const targetStart = targetPositionMap.value[alignedStart]
+  const targetEnd = targetPositionMap.value[alignedEnd - 1]
+
+  if (targetStart === null || targetEnd === null) return
+
+  // GenBank is 1-indexed
+  const genbankStart = targetStart + 1
+  const genbankEnd = targetEnd + 1
+
+  // Caption format: A5T (single) or ATCG(5..8)TGAA (multi)
+  let caption
+  if (alignedEnd - alignedStart === 1) {
+    // Single base: A5T
+    caption = `${targetBases}${genbankStart}${queryBases}`
+  } else {
+    // Multi-base: ATCG(5..8)TGAA
+    caption = `${targetBases}(${genbankStart}..${genbankEnd})${queryBases}`
+  }
+
+  const span = Span.parse(`${origStart}..${origEnd + 1}`)
+
+  queryDoc.value.addAnnotation({
+    type: 'mutation',
+    caption,
+    span
+  })
+}
+
+/**
+ * Find the contiguous region of the same feature type around a position.
+ * @param {number} alignedPos - Starting position
+ * @param {string} featureType - 'deletion', 'insertion', or 'mutation'
+ * @returns {{start: number, end: number}} Range of the contiguous region
+ */
+function findContiguousFeatureRegion(alignedPos, featureType) {
+  if (!alignmentResult.value) return { start: alignedPos, end: alignedPos + 1 }
+
+  const queryAligned = alignmentResult.value.queryAligned
+  const targetAligned = alignmentResult.value.targetAligned
+  const len = queryAligned.length
+
+  // Helper to check if position matches the feature type
+  const matchesFeatureType = (pos) => {
+    if (pos < 0 || pos >= len) return false
+    const feature = detectAlignmentFeatureAt(pos)
+    return feature && feature.type === featureType
+  }
+
+  // Find start of contiguous region
+  let start = alignedPos
+  while (start > 0 && matchesFeatureType(start - 1)) {
+    start--
+  }
+
+  // Find end of contiguous region
+  let end = alignedPos + 1
+  while (end < len && matchesFeatureType(end)) {
+    end++
+  }
+
+  return { start, end }
+}
+
+/**
+ * Get alignment-specific context menu items for a position.
+ * @param {number} alignedPos - Position in aligned sequence
+ * @param {string} mode - 'target' or 'query'
+ * @returns {Array} Menu items for this position
+ */
+function getAlignmentMenuItems(alignedPos, mode) {
+  if (mode !== 'query' && mode !== 'target') return []
+
+  const feature = detectAlignmentFeatureAt(alignedPos)
+  if (!feature) return []
+
+  const items = []
+
+  if (feature.type === 'deletion') {
+    // Find the full contiguous deletion region
+    const region = findContiguousFeatureRegion(alignedPos, 'deletion')
+    items.push({
+      label: 'Annotate deletion',
+      action: () => createDeletionAnnotation(region.start, region.end)
+    })
+  } else if (feature.type === 'insertion') {
+    // Find the full contiguous insertion region
+    const region = findContiguousFeatureRegion(alignedPos, 'insertion')
+    items.push({
+      label: 'Annotate insertion',
+      action: () => createInsertionAnnotation(region.start, region.end)
+    })
+  } else if (feature.type === 'mutation') {
+    // For mutations, just annotate the single base (user can select range for multi-base)
+    items.push({
+      label: 'Annotate mutation',
+      action: () => createMutationAnnotation(alignedPos, alignedPos + 1)
+    })
+  }
+
+  return items
+}
+
+// ============================================
 // Selection Status
 // ============================================
 
@@ -498,6 +746,7 @@ const targetSequenceLayerRef = ref(null)
 const querySequenceLayerRef = ref(null)
 const targetAnnotationLayerRef = ref(null)
 const queryAnnotationLayerRef = ref(null)
+const alignmentTicksLayerRef = ref(null)
 
 // Zoom levels for selector
 const zoomLevels = [50, 75, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -649,6 +898,24 @@ function buildContextMenuItems(context) {
   return items
 }
 
+/**
+ * Calculate the aligned position from click coordinates.
+ * @param {MouseEvent} event - The click/contextmenu event
+ * @param {number} lineStart - The start position of the line in aligned coordinates
+ * @returns {number|null} The aligned position, or null if not calculable
+ */
+function getAlignedPositionFromEvent(event, lineStart) {
+  const svgEl = svgRef.value
+  if (!svgEl) return null
+
+  const svgRect = svgEl.getBoundingClientRect()
+  const x = event.clientX - svgRect.left - graphics.metrics.value.lmargin
+  const charWidth = graphics.metrics.value.charWidth
+  const charIndex = Math.max(0, Math.floor(x / charWidth))
+
+  return lineStart + charIndex
+}
+
 function showContextMenu(event, context = {}) {
   event.preventDefault()
   const items = buildContextMenuItems(context)
@@ -671,6 +938,15 @@ function showContextMenu(event, context = {}) {
     ]
 
     layerItems.push(...layerMenuItems)
+
+    // Add alignment-specific menu items (for gap/mutation annotations) - only from ticks layer
+    if (el.dataset.layer === 'alignment-match' && el.dataset.lineStart !== undefined) {
+      const alignedPos = getAlignedPositionFromEvent(event, parseInt(el.dataset.lineStart))
+      if (alignedPos !== null) {
+        const alignmentItems = getAlignmentMenuItems(alignedPos, 'query')
+        layerItems.push(...alignmentItems)
+      }
+    }
   }
 
   // Add layer items with separator
@@ -851,6 +1127,10 @@ function handleAnnotationContextMenu(data) {
   showContextMenu(data.event, { source: 'annotation', annotation: data.annotation, fragment: data.fragment })
 }
 
+function handleTicksLayerContextMenu({ event, lineIndex }) {
+  showContextMenu(event, { source: 'alignment-ticks', lineIndex })
+}
+
 // Focus the SVG element
 function focusSvg() {
   svgRef.value?.focus()
@@ -1008,13 +1288,25 @@ defineExpose({
   getSelectedAlignmentSequenceText,
   alignedTargetAnnotations,
   alignedQueryAnnotations,
+  alignedTargetSequence,
+  alignedQuerySequence,
   selectionStatusText,
   selection,
   // Layer refs for testing
   targetSequenceLayerRef,
   querySequenceLayerRef,
   // For testing context menu building
-  buildContextMenuItems
+  buildContextMenuItems,
+  // Gap annotation feature
+  detectAlignmentFeatureAt,
+  createDeletionAnnotation,
+  createInsertionAnnotation,
+  createMutationAnnotation,
+  getAlignmentMenuItems,
+  findContiguousFeatureRegion,
+  // For delete testing
+  deleteConfirmVisible,
+  confirmDelete
 })
 
 const toolbarHelpText = `Selection Controls:
@@ -1158,8 +1450,11 @@ const toolbarHelpText = `Selection Controls:
             />
           </template>
 
-          <!-- Alignment Ticks Layer - renders match lines -->
-          <AlignmentTicksLayer />
+          <!-- Alignment Ticks Layer - renders match lines with clickable overlay for gap annotation -->
+          <AlignmentTicksLayer
+            ref="alignmentTicksLayerRef"
+            @contextmenu="handleTicksLayerContextMenu"
+          />
 
           <!-- Selection Layer -->
           <SelectionLayer
@@ -1334,6 +1629,12 @@ const toolbarHelpText = `Selection Controls:
 :deep(.sequence-overlay) {
   fill: transparent;
   cursor: text;
+}
+
+:deep(.alignment-match-overlay) {
+  fill: transparent;
+  cursor: default;
+  pointer-events: all;
 }
 
 :deep(.sequence-text)::selection {

@@ -462,3 +462,61 @@ describe('extractGaps', () => {
     expect(gaps).toEqual([])
   })
 })
+
+describe('contiguous gap preference', () => {
+  it('keeps deletions contiguous for repeated bases like CCC', () => {
+    // Target: ATGCCCTAG, Query: ATGCTAG (missing two C's)
+    // Should produce contiguous gap, NOT fragmented like ATG-C-TAG or A-GC-CTAG
+    const result = align('ATGCTAG', 'ATGCCCTAG')
+
+    expect(result.targetAligned).toBe('ATGCCCTAG')
+
+    // The key requirement: gaps must be contiguous (only one gap region)
+    // Position can vary (ATGC--TAG or ATG--CTAG) but must NOT be fragmented
+    const gapMatches = result.queryAligned.match(/-+/g)
+    expect(gapMatches).not.toBeNull()
+    expect(gapMatches.length).toBe(1) // Only ONE gap region, not fragmented
+
+    // Verify it's a 2-base gap
+    expect(gapMatches[0]).toBe('--')
+  })
+
+  it('keeps deletions contiguous - no fragmented gaps like -C- instead of C--', () => {
+    // Target: ATCGAAATCG, Query: ATCGATCG (missing two A's)
+    // Should produce contiguous gap: ATCG--ATCG
+    // NOT fragmented like: ATCG-A-TCG or AT-G-AATCG
+    const result = align('ATCGATCG', 'ATCGAAATCG')
+
+    expect(result.queryAligned).toBe('ATCG--ATCG')
+    expect(result.targetAligned).toBe('ATCGAAATCG')
+
+    // Verify gaps are contiguous (only one gap region)
+    const gapMatches = result.queryAligned.match(/-+/g)
+    expect(gapMatches).not.toBeNull()
+    expect(gapMatches.length).toBe(1) // Only one contiguous gap region
+  })
+
+  it('keeps insertions contiguous', () => {
+    // Target: ATCGATCG, Query: ATCGAAATCG (extra AA)
+    const result = align('ATCGAAATCG', 'ATCGATCG')
+
+    expect(result.targetAligned).toBe('ATCG--ATCG')
+    expect(result.queryAligned).toBe('ATCGAAATCG')
+
+    // Verify gaps are contiguous
+    const gapMatches = result.targetAligned.match(/-+/g)
+    expect(gapMatches).not.toBeNull()
+    expect(gapMatches.length).toBe(1)
+  })
+
+  it('prefers one long gap over multiple short gaps', () => {
+    // With affine gap penalties, one gap of length 3 should score better
+    // than three gaps of length 1
+    // Test: ATCGATCGATCG vs ATCGAAATCG (2 base deletion)
+    const result = align('ATCGATCG', 'ATCGAAATCG')
+
+    // Count gap regions - should be exactly 1
+    const gapRegions = result.queryAligned.split(/[^-]+/).filter(s => s.length > 0)
+    expect(gapRegions.length).toBe(1)
+  })
+})
