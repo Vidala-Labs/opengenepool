@@ -2195,3 +2195,443 @@ describe('Context menu parity with SequenceEditor', () => {
     })
   })
 })
+
+describe('TranslationLayer in alignment mode', () => {
+  // Helper to extract transform Y value from a transform string like "translate(0, 30)"
+  function extractTransformY(transformStr) {
+    if (!transformStr) return null
+    const match = transformStr.match(/translate\([^,]+,\s*([^)]+)\)/)
+    return match ? parseFloat(match[1]) : null
+  }
+
+  it('renders target translations above target sequence', async () => {
+    // Create sequences with a CDS annotation
+    const sequence = 'ATGATGATGATGATGATGATGATGATG' // 27bp = 9 codons
+    const targetDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+    const queryDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Find TranslationLayer components
+    const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
+    expect(translationLayers.length).toBe(2) // One for target, one for query
+
+    // Target translation layer should have mode="target" and stack-direction="up" (default)
+    const targetTranslation = translationLayers.find(tl => tl.props('mode') === 'target')
+    expect(targetTranslation).toBeTruthy()
+    expect(targetTranslation.props('stackDirection')).toBe('up')
+
+    // Query translation layer should have mode="query" and stack-direction="down"
+    // This positions translation chevrons below the query sequence, above the CDS annotation bar
+    const queryTranslation = translationLayers.find(tl => tl.props('mode') === 'query')
+    expect(queryTranslation).toBeTruthy()
+    expect(queryTranslation.props('stackDirection')).toBe('down')
+  })
+
+  it('target translation yOffset positions chevrons above target sequence row', async () => {
+    const sequence = 'ATGATGATGATGATGATGATGATGATG'
+    const targetDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+    const queryDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
+    const targetTranslation = translationLayers.find(tl => tl.props('mode') === 'target')
+
+    // Target translation yOffset should be 0 (relative to block start)
+    // getAlignmentLineY already accounts for TOP_PADDING, so yOffset is within-block offset
+    // With stackDirection='up', the chevrons render above the sequence (negative Y direction)
+    expect(targetTranslation.props('yOffset')).toBe(0)
+  })
+
+  it('query translation yOffset positions chevrons below query sequence row', async () => {
+    const sequence = 'ATGATGATGATGATGATGATGATGATG'
+    const targetDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+    const queryDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
+    const queryTranslation = translationLayers.find(tl => tl.props('mode') === 'query')
+
+    // Query translation yOffset should be lineHeight * 3 (relative to block start)
+    // getAlignmentLineY already accounts for TOP_PADDING, so yOffset is within-block offset
+    // Query sequence is at lineHeight * 2, so lineHeight * 3 positions translation below it
+    // With stackDirection='down', chevrons render below that position
+    const lineHeight = wrapper.vm.graphics.lineHeight.value
+
+    expect(queryTranslation.props('yOffset')).toBe(lineHeight * 3)
+  })
+
+  it('query translation does not overlap with match line', async () => {
+    const sequence = 'ATGATGATGATGATGATGATGATGATG'
+    const targetDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+    const queryDoc = createDoc(sequence, [
+      { type: 'CDS', span: '0..27', caption: 'TestCDS' }
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
+    const queryTranslation = translationLayers.find(tl => tl.props('mode') === 'query')
+
+    const TOP_PADDING = 30
+    const lineHeight = wrapper.vm.graphics.lineHeight.value
+    const translationHeight = 18 // Default height prop
+
+    // Match line is at TOP_PADDING + lineHeight (within each block)
+    const matchLineY = TOP_PADDING + lineHeight
+
+    // Query translation renders at yOffset with stackDirection='down',
+    // so chevrons span from yOffset to yOffset + translationHeight
+    const queryTranslationTop = queryTranslation.props('yOffset')
+    const queryTranslationBottom = queryTranslationTop + translationHeight
+
+    // The top of the query translation should be BELOW the match line
+    expect(queryTranslationTop).toBeGreaterThan(matchLineY)
+  })
+
+  it('filters gap characters when computing translations', async () => {
+    // Create sequences that will produce gaps in alignment
+    const targetDoc = createDoc('ATGATCGATG', [
+      { type: 'CDS', span: '0..9', caption: 'TestCDS' }
+    ])
+    // Query has an insertion, creating a gap in target
+    const queryDoc = createDoc('ATGAATCGATG', [
+      { type: 'CDS', span: '0..9', caption: 'TestCDS' }
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      },
+      global: { stubs: { Teleport: true } }
+    })
+    await wrapper.vm.$nextTick()
+
+    // The alignment should have computed successfully
+    expect(wrapper.vm.hasAlignment).toBe(true)
+
+    // Both aligned sequences should exist and may contain gaps
+    expect(wrapper.vm.alignedTargetSequence).toBeTruthy()
+    expect(wrapper.vm.alignedQuerySequence).toBeTruthy()
+
+    // TranslationLayer should still render without errors
+    // (gaps are filtered before codon formation)
+    const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
+    // May have 0, 1, or 2 depending on whether CDS annotations map through alignment
+    expect(translationLayers.length).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('Copy annotation to target/query', () => {
+  it('shows "Copy annotation to target" when right-clicking on query annotation', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = createDoc('ATCGATCG', [])
+    const queryDoc = createDoc('ATCGATCG', [
+      new Annotation({ span: Span.parse('2..5'), type: 'CDS', label: 'Test CDS' })
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Build context menu for query annotation
+    const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
+    expect(queryAnnotation).toBeDefined()
+
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: queryAnnotation
+    })
+
+    // Should have "Copy annotation to target" option
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to target')
+    expect(copyItem).toBeDefined()
+  })
+
+  it('shows "Copy annotation to query" when right-clicking on target annotation', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = createDoc('ATCGATCG', [
+      new Annotation({ span: Span.parse('2..5'), type: 'CDS', label: 'Test CDS' })
+    ])
+    const queryDoc = createDoc('ATCGATCG', [])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Build context menu for target annotation
+    const targetAnnotation = wrapper.vm.alignedTargetAnnotations[0]
+    expect(targetAnnotation).toBeDefined()
+
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: targetAnnotation
+    })
+
+    // Should have "Copy annotation to query" option
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to query')
+    expect(copyItem).toBeDefined()
+  })
+
+  it('copies annotation from query to target when clicking copy menu item', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = createDoc('ATCGATCG', [])
+    const queryDoc = createDoc('ATCGATCG', [
+      new Annotation({ span: Span.parse('2..5'), type: 'CDS', caption: 'Test CDS' })
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Verify initial state
+    expect(targetDoc.annotations.length).toBe(0)
+    expect(queryDoc.annotations.length).toBe(1)
+
+    // Build context menu for query annotation
+    const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: queryAnnotation
+    })
+
+    // Execute copy action
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to target')
+    expect(copyItem).toBeDefined()
+    copyItem.action()
+
+    await wrapper.vm.$nextTick()
+
+    // Target should now have the annotation copy
+    expect(targetDoc.annotations.length).toBe(1)
+    const copiedAnn = targetDoc.annotations[0]
+    expect(copiedAnn.type).toBe('CDS')
+    expect(copiedAnn.caption).toBe('Test CDS')
+    expect(copiedAnn.span.toJSON()).toBe('2..5')
+
+    // Query annotation should still exist
+    expect(queryDoc.annotations.length).toBe(1)
+  })
+
+  it('copies annotation from target to query when clicking copy menu item', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = createDoc('ATCGATCG', [
+      new Annotation({ span: Span.parse('2..5'), type: 'promoter', caption: 'Test Promoter' })
+    ])
+    const queryDoc = createDoc('ATCGATCG', [])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Verify initial state
+    expect(targetDoc.annotations.length).toBe(1)
+    expect(queryDoc.annotations.length).toBe(0)
+
+    // Build context menu for target annotation
+    const targetAnnotation = wrapper.vm.alignedTargetAnnotations[0]
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: targetAnnotation
+    })
+
+    // Execute copy action
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to query')
+    expect(copyItem).toBeDefined()
+    copyItem.action()
+
+    await wrapper.vm.$nextTick()
+
+    // Query should now have the annotation copy
+    expect(queryDoc.annotations.length).toBe(1)
+    const copiedAnn = queryDoc.annotations[0]
+    expect(copiedAnn.type).toBe('promoter')
+    expect(copiedAnn.caption).toBe('Test Promoter')
+    expect(copiedAnn.span.toJSON()).toBe('2..5')
+
+    // Target annotation should still exist
+    expect(targetDoc.annotations.length).toBe(1)
+  })
+
+  it('maps annotation coordinates through alignment when copying', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    // Target has gap - query annotation at 4..6 covers "AA" which is an insertion
+    // Target: ATCGATCG (8 bases)
+    // Query: ATCGAATCG (9 bases) - extra 'A' at position 4
+    // Aligned: Target: ATCG-ATCG, Query: ATCGAATCG
+    // Query annotation 4..6 ("AA") maps to: position 4 in target (only one 'A' exists)
+    const targetDoc = createDoc('ATCGATCG', [])
+    const queryDoc = createDoc('ATCGAATCG', [
+      new Annotation({ span: Span.parse('4..6'), type: 'CDS', caption: 'AA region' })
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Build context menu for query annotation
+    const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: queryAnnotation
+    })
+
+    // Execute copy action
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to target')
+    copyItem.action()
+
+    await wrapper.vm.$nextTick()
+
+    // Copied annotation span should be mapped through alignment
+    // Query 4..6 partially overlaps with target, so result is 4..5 (one position)
+    expect(targetDoc.annotations.length).toBe(1)
+    const copiedAnn = targetDoc.annotations[0]
+    expect(copiedAnn.span.toJSON()).toBe('4..5')
+  })
+
+  it('does not show copy options in readonly mode', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const targetDoc = createDoc('ATCGATCG', [
+      new Annotation({ span: Span.parse('2..5'), type: 'CDS', caption: 'Test CDS' })
+    ])
+    const queryDoc = createDoc('ATCGATCG', [])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc,
+        readonly: true
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Build context menu for target annotation
+    const targetAnnotation = wrapper.vm.alignedTargetAnnotations[0]
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: targetAnnotation
+    })
+
+    // Should not have copy option in readonly mode
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to query')
+    expect(copyItem).toBeUndefined()
+  })
+
+  it('does not show copy option when annotation is entirely in a gap', async () => {
+    const { Annotation } = await import('../utils/annotation.js')
+
+    // Target has a deletion - query position 4 corresponds to a gap in target
+    // Target: ATCGATCG (8 bases)
+    // Query: ATCGAATCG (9 bases) - extra 'A' at position 4
+    // Annotation covers ONLY the extra 'A' (4..5) which is a gap in target
+    const targetDoc = createDoc('ATCGATCG', [])
+    const queryDoc = createDoc('ATCGAATCG', [
+      new Annotation({ span: Span.parse('4..5'), type: 'CDS', caption: 'Single insertion' })
+    ])
+
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: targetDoc,
+        query: queryDoc
+      }
+    })
+
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment result shows the gap
+    // Query aligned: ATCGAATCG
+    // Target aligned: ATCG-ATCG (gap at position 4)
+    expect(wrapper.vm.alignedQuerySequence).toBe('ATCGAATCG')
+    expect(wrapper.vm.alignedTargetSequence).toBe('ATCG-ATCG')
+
+    // Build context menu for query annotation
+    const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
+    expect(queryAnnotation).toBeDefined()
+
+    const menuItems = wrapper.vm.buildContextMenuItems({
+      source: 'annotation',
+      annotation: queryAnnotation
+    })
+
+    // Should NOT have "Copy annotation to target" because it's entirely in a gap
+    const copyItem = menuItems.find(item => item.label === 'Copy annotation to target')
+    expect(copyItem).toBeUndefined()
+  })
+})

@@ -308,6 +308,8 @@ const alignedTargetAnnotations = computed(() => {
       result.targetEnd
     )
     if (mappedAnn) {
+      // Tag with alignment mode for context menu routing
+      mappedAnn.attributes._alignmentMode = 'target'
       mapped.push(mappedAnn)
     }
   }
@@ -331,6 +333,8 @@ const alignedQueryAnnotations = computed(() => {
       result.queryEnd
     )
     if (mappedAnn) {
+      // Tag with alignment mode for context menu routing
+      mappedAnn.attributes._alignmentMode = 'query'
       mapped.push(mappedAnn)
     }
   }
@@ -1087,6 +1091,22 @@ function buildContextMenuItems(context) {
       }
     })
 
+    // Copy to other document option (only if annotation maps to non-gap positions)
+    const mappedSpan = computeMappedSpanForCopy(annotation, mode)
+    if (mappedSpan) {
+      if (mode === 'query') {
+        items.push({
+          label: 'Copy annotation to target',
+          action: () => copyAnnotationToDocument(annotation, 'target', mappedSpan)
+        })
+      } else {
+        items.push({
+          label: 'Copy annotation to query',
+          action: () => copyAnnotationToDocument(annotation, 'query', mappedSpan)
+        })
+      }
+    }
+
     // Subtract from selection option when annotation overlaps selection
     if (isSelected && domain) {
       const annotationSpan = annotation.span
@@ -1293,6 +1313,83 @@ function handleEditAnnotation(data) {
   // Determine which document this annotation belongs to
   const mode = annotation.attributes?._alignmentMode || 'target'
   openAnnotationModalForEdit(annotation, mode)
+}
+
+/**
+ * Compute the mapped span for copying an annotation to the other document.
+ * Returns null if the annotation is entirely within a gap region.
+ *
+ * @param {Annotation} annotation - The annotation (with _originalAnnotation attribute)
+ * @param {string} sourceMode - Where the annotation comes from: 'query' or 'target'
+ * @returns {Span|null} The mapped span for the destination, or null if entirely in gap
+ */
+function computeMappedSpanForCopy(annotation, sourceMode) {
+  const originalAnn = annotation.attributes?._originalAnnotation || annotation
+  if (!originalAnn.span?.ranges) return null
+
+  const result = alignmentResult.value
+  if (!result) return null
+
+  // Get the source's reverse map (original -> aligned position)
+  const sourceReverseMap = sourceMode === 'query' ? queryReverseMap.value : targetReverseMap.value
+  // Get the destination's aligned sequence to check for gaps
+  const destAligned = sourceMode === 'query' ? alignedTargetSequence.value : alignedQuerySequence.value
+  // Get the destination's alignment start for computing original positions
+  const destStart = sourceMode === 'query' ? result.targetStart : result.queryStart
+
+  // Track the min/max destination positions that have non-gap bases
+  let minDestPos = Infinity
+  let maxDestPos = -Infinity
+
+  // For each range in the annotation span
+  for (const range of originalAnn.span.ranges) {
+    for (let origPos = range.start; origPos < range.end; origPos++) {
+      const alignedPos = sourceReverseMap[origPos]
+      if (alignedPos === undefined) continue
+
+      // Check if the destination has a base (not a gap) at this aligned position
+      if (destAligned[alignedPos] && destAligned[alignedPos] !== '-') {
+        // Compute the destination's original position from the aligned position
+        // Count non-gap characters up to this position
+        let destOrigPos = destStart
+        for (let i = 0; i < alignedPos; i++) {
+          if (destAligned[i] !== '-') destOrigPos++
+        }
+        minDestPos = Math.min(minDestPos, destOrigPos)
+        maxDestPos = Math.max(maxDestPos, destOrigPos + 1) // +1 for exclusive end
+      }
+    }
+  }
+
+  // If no positions mapped, annotation is entirely in a gap
+  if (minDestPos === Infinity) return null
+
+  return new Span([new Range(minDestPos, maxDestPos)])
+}
+
+/**
+ * Copy an annotation from one document to another.
+ * @param {Annotation} annotation - The annotation to copy (may have aligned coordinates)
+ * @param {string} destMode - The destination: 'query' or 'target'
+ * @param {Span} mappedSpan - The pre-computed mapped span for the destination
+ */
+function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
+  const doc = destMode === 'query' ? props.query : props.target
+  if (!doc || !mappedSpan) return
+
+  // Get the original annotation for other properties
+  const originalAnn = annotation.attributes?._originalAnnotation || annotation
+
+  // Create copy with mapped span and new ID (document will assign)
+  doc.addAnnotation({
+    span: mappedSpan,
+    type: originalAnn.type,
+    caption: originalAnn.caption,
+    orientation: originalAnn.orientation,
+    attributes: { ...originalAnn.attributes, _originalAnnotation: undefined }
+  })
+
+  emit('annotations-update')
 }
 
 // Handle selection change events
