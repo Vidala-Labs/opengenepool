@@ -953,7 +953,19 @@ function buildContextMenuItems(context) {
 
   // Extension context menu items
   let extContext = null
-  if (isSelected && domain) {
+  if (context.source === 'annotation' && context.annotation) {
+    // Annotation right-click - extract annotation sequence
+    const ann = context.annotation
+    const mode = ann.attributes?._alignmentMode || 'target'
+    const seq = mode === 'query' ? queryDoc.value?.sequence : editorState.sequence.value
+    // Use the original annotation's span (not the aligned one) to extract sequence
+    const originalAnn = ann.attributes?._originalAnnotation || ann
+    const annSeq = originalAnn.span ? [...iterateSequence(originalAnn.span, seq)].map(b => b.letter).join('') : ''
+    extContext = {
+      type: 'annotation',
+      data: { annotation: originalAnn, sequence: annSeq, fragment: context.fragment }
+    }
+  } else if (isSelected && domain) {
     const selectedSeq = getSelectedAlignmentSequenceText()
     extContext = {
       type: 'selection',
