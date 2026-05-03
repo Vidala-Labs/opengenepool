@@ -75,6 +75,7 @@ export class SequenceDocument {
    */
   _requireSpan(span) {
     if (span instanceof Span) return span
+    if (typeof span === 'string') return Span.parse(span)
     if (span?.ranges) return new Span(span.ranges)
     if (span == null) return new Span()
     throw new TypeError('SequenceDocument requires annotation spans to be Span objects')
