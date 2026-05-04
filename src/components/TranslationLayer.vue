@@ -1,5 +1,40 @@
+<script>
+// ============================================
+// Module-level state (shared across all instances)
+// ============================================
+import { ref, computed } from 'vue'
+import { showAnnotations, hiddenTypes, _setTranslationShowRef } from './AnnotationLayer.vue'
+
+const showTranslation = ref(true)
+_setTranslationShowRef(showTranslation)
+
+let instanceCount = 0
+const hasCdsAnnotations = ref(false)
+
+const cdsTypeVisible = computed(() => {
+  return showAnnotations.value && !hiddenTypes.value.has('CDS')
+})
+
+const moduleConfigItems = computed(() => {
+  if (!hasCdsAnnotations.value || !cdsTypeVisible.value) return []
+  return [{
+    type: 'toggle', label: 'Translation', value: showTranslation.value,
+    onChange: () => { showTranslation.value = !showTranslation.value }
+  }]
+})
+
+export { showTranslation }
+
+export function __resetModuleState() {
+  showTranslation.value = true
+  instanceCount = 0
+  hasCdsAnnotations.value = false
+  _setTranslationShowRef(showTranslation)
+}
+</script>
+
 <script setup>
-import { computed, inject, watch, ref } from 'vue'
+import { computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { AA_THREE_LETTER, iterateCodons, iterateCodonFragments } from '../utils/translation.js'
 import { Span, Orientation, iterateSequence } from '../utils/dna.js'
 
@@ -51,9 +86,22 @@ const props = defineProps({
 // Inject from parent SequenceEditor
 const editorState = inject('editorState')
 const graphics = inject('graphics')
-const showTranslation = inject('showTranslation', ref(true))
-// Inject alignment line positioning function (provided by AlignmentEditor)
 const getAlignmentLineYFn = inject('getAlignmentLineY', null)
+
+let isFirstInstance = false
+onMounted(() => {
+  instanceCount++
+  if (instanceCount === 1) isFirstInstance = true
+})
+onUnmounted(() => {
+  instanceCount--
+  if (instanceCount === 0) hasCdsAnnotations.value = false
+})
+
+const instanceHasCds = computed(() => props.annotations.length > 0)
+watch(instanceHasCds, (hasCds) => {
+  if (hasCds) hasCdsAnnotations.value = true
+}, { immediate: true })
 
 // Check if in alignment mode
 const isAlignmentMode = computed(() => props.mode !== null)
@@ -66,9 +114,10 @@ const stopSignYOffset = computed(() => props.stackDirection === 'down' ? props.h
 // Minimum codon width (3 bases) needed to display amino acid letter (~8px for 12px font)
 const MIN_CODON_WIDTH = 8
 
-// Display visibility - show only when user wants it AND zoom level allows readable text
+// Display visibility - show when translation on, CDS visible, and zoom allows
 const visible = computed(() => {
   if (!showTranslation.value) return false
+  if (!cdsTypeVisible.value) return false
   const codonWidth = 3 * graphics.metrics.value.charWidth
   return codonWidth >= MIN_CODON_WIDTH
 })
@@ -380,8 +429,13 @@ function handleContextMenu(event, element) {
   emit('contextmenu', { event, element, translation })
 }
 
-// Expose show and visible for parent to bind to
-defineExpose({ showTranslation, visible })
+// Config items for Toolbar
+const configItems = computed(() => {
+  if (!isFirstInstance) return []
+  return moduleConfigItems.value
+})
+
+defineExpose({ showTranslation, visible, configItems })
 </script>
 
 <template>

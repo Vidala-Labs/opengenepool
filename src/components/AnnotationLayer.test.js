@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
-import { ref, computed, provide } from 'vue'
-import AnnotationLayer from './AnnotationLayer.vue'
+import { ref, computed, nextTick } from 'vue'
+import AnnotationLayer, { __resetModuleState } from './AnnotationLayer.vue'
+import { __resetModuleState as resetTranslationState } from './TranslationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
 import { Orientation, Span } from '../utils/dna.js'
+
+const STORAGE_KEY = 'ogp-hidden-annotation-types'
 
 // Helper to create mock editorState and graphics
 function createMockProviders(options = {}) {
@@ -46,6 +49,12 @@ function mountWithProviders(props = {}, options = {}) {
 }
 
 describe('AnnotationLayer', () => {
+  beforeEach(() => {
+    __resetModuleState()
+    resetTranslationState()
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
   describe('rendering', () => {
     it('renders empty when no annotations', () => {
       const wrapper = mountWithProviders({ annotations: [] })
@@ -591,6 +600,58 @@ describe('AnnotationLayer', () => {
       for (const stop of stops) {
         expect(stop.attributes('stop-color')).toBe('#4CAF50')
       }
+    })
+  })
+
+  describe('coordination with TranslationLayer', () => {
+    function createCdsAnnotation(id = 'cds1', spanStr = '0..30') {
+      return new Annotation({ id, caption: 'Test CDS', type: 'CDS', span: Span.parse(spanStr) })
+    }
+
+    it('CDS annotation reserves extra space when translation is visible', async () => {
+      const cds = createCdsAnnotation()
+      await import('./TranslationLayer.vue')
+
+      const wrapper = mountWithProviders({ annotations: [cds] }, { sequenceLength: 100 })
+      const fragment = wrapper.find('.annotation-fragment')
+      expect(fragment.exists()).toBe(true)
+
+      const transform = fragment.attributes('transform')
+      expect(transform).toContain('-18')
+    })
+
+    it('CDS annotation does NOT reserve extra space when translation is off', async () => {
+      const cds = createCdsAnnotation()
+      const { showTranslation } = await import('./TranslationLayer.vue')
+      showTranslation.value = false
+
+      const wrapper = mountWithProviders({ annotations: [cds] }, { sequenceLength: 100 })
+      const fragment = wrapper.find('.annotation-fragment')
+      expect(fragment.exists()).toBe(true)
+
+      const transform = fragment.attributes('transform')
+      expect(transform).toBe('translate(0, 0)')
+    })
+
+    it('CDS annotation does NOT reserve space when CDS type is hidden', async () => {
+      const cds = createCdsAnnotation()
+      const { hiddenTypes } = await import('./AnnotationLayer.vue')
+      hiddenTypes.value = new Set(['CDS'])
+
+      const wrapper = mountWithProviders({ annotations: [cds] }, { sequenceLength: 100 })
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(0)
+    })
+
+    it('non-CDS annotations are not affected by translation visibility', async () => {
+      const gene = new Annotation({ id: 'gene1', caption: 'Test', type: 'gene', span: Span.parse('0..30') })
+      await import('./TranslationLayer.vue')
+
+      const wrapper = mountWithProviders({ annotations: [gene] }, { sequenceLength: 100 })
+      const fragment = wrapper.find('.annotation-fragment')
+      expect(fragment.exists()).toBe(true)
+
+      const transform = fragment.attributes('transform')
+      expect(transform).toBe('translate(0, 0)')
     })
   })
 })

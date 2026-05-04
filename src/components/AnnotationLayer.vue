@@ -1,16 +1,112 @@
+<script>
+// ============================================
+// Module-level state (shared across all instances)
+// ============================================
+import { ref, computed, watch } from 'vue'
+
+const HIDDEN_TYPES_STORAGE_KEY = 'ogp-hidden-annotation-types'
+
+// Reference to TranslationLayer's showTranslation (set by TranslationLayer on load)
+let translationShowRef = null
+export function _setTranslationShowRef(r) {
+  translationShowRef = r
+}
+
+function isTranslationEffectivelyVisible() {
+  if (!translationShowRef) return false
+  return translationShowRef.value
+}
+
+function loadHiddenTypes() {
+  try {
+    const stored = localStorage.getItem(HIDDEN_TYPES_STORAGE_KEY)
+    if (stored) return new Set(JSON.parse(stored))
+  } catch (e) {}
+  return new Set()
+}
+
+const showAnnotations = ref(true)
+const hiddenTypes = ref(loadHiddenTypes())
+
+watch(hiddenTypes, (newSet) => {
+  try {
+    localStorage.setItem(HIDDEN_TYPES_STORAGE_KEY, JSON.stringify([...newSet]))
+  } catch (e) {}
+}, { deep: true })
+
+const allAnnotationTypes = ref(new Set())
+let instanceCount = 0
+
+const MODULE_DEFAULT_COLORS = {
+  gene: '#4CAF50', CDS: '#2196F3', promoter: '#FF9800', terminator: '#F44336',
+  misc_feature: '#9E9E9E', rep_origin: '#9C27B0', origin: '#9C27B0',
+  primer_bind: '#00BCD4', protein_bind: '#795548', regulatory: '#FFEB3B',
+  source: '#B0BEC5', _default: '#607D8B'
+}
+
+let annotationColorsRef = null
+function getModuleTypeColor(type) {
+  const colors = annotationColorsRef?.value || MODULE_DEFAULT_COLORS
+  return colors[type] || colors._default
+}
+
+function moduleToggleAnnotationType(type) {
+  const newSet = new Set(hiddenTypes.value)
+  if (newSet.has(type)) newSet.delete(type)
+  else newSet.add(type)
+  hiddenTypes.value = newSet
+}
+
+const sortedAnnotationTypes = computed(() => [...allAnnotationTypes.value].sort())
+
+const moduleConfigItems = computed(() => {
+  const items = [{
+    type: 'toggle', label: 'Annotations', value: showAnnotations.value,
+    onChange: () => { showAnnotations.value = !showAnnotations.value }
+  }]
+  if (showAnnotations.value && sortedAnnotationTypes.value.length > 0) {
+    items.push({
+      type: 'type-filter', label: null, types: sortedAnnotationTypes.value,
+      hiddenTypes: hiddenTypes.value, getColor: getModuleTypeColor,
+      onToggle: moduleToggleAnnotationType
+    })
+  }
+  return items
+})
+
+export { showAnnotations, hiddenTypes }
+
+export function __resetModuleState() {
+  showAnnotations.value = true
+  hiddenTypes.value = new Set()
+  allAnnotationTypes.value = new Set()
+  instanceCount = 0
+  annotationColorsRef = null
+  translationShowRef = null
+  try { localStorage.removeItem(HIDDEN_TYPES_STORAGE_KEY) } catch (e) {}
+}
+</script>
+
 <script setup>
-import { computed, inject, watch, ref } from 'vue'
+import { computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { useAnnotations, generateArrowPath } from '../composables/useAnnotations.js'
 
 // Height reserved for translation display (must match useAnnotations)
 const TRANSLATION_HEIGHT = 18
 
-// Inject shared visibility state from parent
-const showAnnotations = inject('showAnnotations', ref(true))
-
 // Display visibility - derived from shared state
 const visible = computed(() => showAnnotations.value)
+
+let isFirstInstance = false
+onMounted(() => {
+  instanceCount++
+  if (instanceCount === 1) isFirstInstance = true
+})
+onUnmounted(() => {
+  instanceCount--
+  if (instanceCount === 0) allAnnotationTypes.value = new Set()
+})
 
 const props = defineProps({
   /** SequenceDocument for edit operations (delete, update annotations) */
@@ -102,9 +198,22 @@ function getTypeColor(type) {
   return colors[type] || colors._default
 }
 
+// Track this instance's annotation types
+const instanceTypes = computed(() => new Set(props.annotations.map(a => a.type || 'misc_feature')))
+
+watch(instanceTypes, (newTypes) => {
+  for (const type of newTypes) allAnnotationTypes.value.add(type)
+}, { immediate: true })
+
+// Filter annotations based on hiddenTypes
+const visibleAnnotations = computed(() => {
+  if (!showAnnotations.value) return []
+  return props.annotations.filter(a => !hiddenTypes.value.has(a.type || 'misc_feature'))
+})
+
 // Use annotations composable for layout calculations
-// Pass showTranslation as a computed so CDS annotations can reserve extra space
-const showTranslationRef = computed(() => props.showTranslation)
+// Pass showTranslation using coordinated visibility
+const showTranslationRef = computed(() => isTranslationEffectivelyVisible())
 const stackDirectionRef = computed(() => props.stackDirection)
 // In alignment mode, skip line height management to avoid infinite reactive loops
 // when multiple AnnotationLayers exist (one for target, one for query)
@@ -115,8 +224,8 @@ const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
   skipLineHeightManagement: skipLineHeightRef
 })
 
-// Watch for annotation prop changes
-watch(() => props.annotations, (newAnnotations) => {
+// Watch for visible annotation changes (filtered by hiddenTypes)
+watch(visibleAnnotations, (newAnnotations) => {
   annotationsComposable.setAnnotations(newAnnotations)
 }, { immediate: true })
 
@@ -557,6 +666,12 @@ function requestEditAnnotation(annotation) {
   emit('edit-annotation', { annotation })
 }
 
+// Config items for Toolbar
+const configItems = computed(() => {
+  if (!isFirstInstance) return []
+  return moduleConfigItems.value
+})
+
 // Expose for testing, visibility control, and click/context menu integration
 defineExpose({
   showAnnotations,
@@ -569,7 +684,8 @@ defineExpose({
   deleteAnnotation,
   requestEditAnnotation,
   handleClickForElement,
-  getMenuItemsForElement
+  getMenuItemsForElement,
+  configItems
 })
 </script>
 
