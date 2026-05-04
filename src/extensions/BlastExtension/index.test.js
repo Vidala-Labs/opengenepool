@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { BlastExtension } from './index.js'
 import { Span } from '../../utils/dna.js'
@@ -29,7 +30,7 @@ describe('BlastExtension', () => {
     describe('annotation context', () => {
       it('returns BLAST (DNA) for non-CDS annotation', () => {
         const annotation = new Annotation({
-          span: Span.parse('100..200'),
+          span: parseSpan('100..200'),
           type: 'gene',
           label: 'Test Gene'
         })
@@ -45,7 +46,7 @@ describe('BlastExtension', () => {
 
       it('returns both BLAST (DNA) and BLAST (Protein) for CDS annotation', () => {
         const annotation = new Annotation({
-          span: Span.parse('100..200'),
+          span: parseSpan('100..200'),
           type: 'CDS',
           label: 'Test CDS'
         })
@@ -62,7 +63,7 @@ describe('BlastExtension', () => {
 
       it('returns empty array for annotation without sequence', () => {
         const annotation = new Annotation({
-          span: Span.parse('100..200'),
+          span: parseSpan('100..200'),
           type: 'CDS',
           label: 'Test CDS'
         })
@@ -91,7 +92,7 @@ describe('BlastExtension', () => {
     describe('protein translation', () => {
       it('translates DNA sequence correctly for CDS', () => {
         const annotation = new Annotation({
-          span: Span.parse('0..9'),
+          span: parseSpan('0..9'),
           type: 'CDS',
           label: 'Test CDS'
         })
@@ -110,7 +111,7 @@ describe('BlastExtension', () => {
 
       it('removes stop codons from protein sequence', () => {
         const annotation = new Annotation({
-          span: Span.parse('0..12'),
+          span: parseSpan('0..12'),
           type: 'CDS',
           label: 'Test CDS'
         })

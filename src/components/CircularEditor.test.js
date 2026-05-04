@@ -1,10 +1,11 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import CircularEditor from './CircularEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span } from '../utils/dna.js'
+import { Span, Range } from '../utils/dna.js'
 
 describe('CircularEditor', () => {
   function createDocument(options = {}) {
@@ -121,7 +122,7 @@ describe('CircularEditor', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: Span.parse('100..500')
+          span: parseSpan('100..500')
         })
       ]
       const doc = createDocument({ annotations })
@@ -138,7 +139,7 @@ describe('CircularEditor', () => {
       const container = wrapper.find('.editor-container')
 
       // Make a selection first
-      wrapper.vm.selection.select('100..500')
+      wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
       expect(wrapper.vm.selection.isSelected.value).toBe(true)
 
@@ -222,7 +223,7 @@ describe('CircularEditor', () => {
   describe('selection status', () => {
     it('shows cursor position for zero-width selection', async () => {
       const wrapper = createWrapper()
-      wrapper.vm.selection.select('100..100')
+      wrapper.vm.selection.select([new Range(100, 100)])
       await wrapper.vm.$nextTick()
 
       expect(wrapper.vm.selectionStatusText).toContain('Cursor at')
@@ -231,7 +232,7 @@ describe('CircularEditor', () => {
 
     it('shows range for selection', async () => {
       const wrapper = createWrapper()
-      wrapper.vm.selection.select('100..500')
+      wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       expect(wrapper.vm.selectionStatusText).toContain('100')
@@ -241,7 +242,7 @@ describe('CircularEditor', () => {
 
     it('shows multi-range info for multiple ranges', async () => {
       const wrapper = createWrapper()
-      wrapper.vm.selection.select('100..200')
+      wrapper.vm.selection.select([new Range(100, 200)])
       wrapper.vm.selection.startSelection(300, true)
       wrapper.vm.selection.updateSelection(400)
       wrapper.vm.selection.endSelection()
@@ -283,7 +284,7 @@ describe('CircularEditor', () => {
       mockSvgRect(wrapper)
 
       // Create a selection
-      wrapper.vm.selection.select('100..500')
+      wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       // Build context menu items
@@ -300,7 +301,7 @@ describe('CircularEditor', () => {
       mockSvgRect(wrapper)
 
       // Create a selection
-      wrapper.vm.selection.select('100..500')
+      wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       // Build context menu items

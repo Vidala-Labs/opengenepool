@@ -59,19 +59,38 @@ const attributes = ref({})
 const visibleFields = ref([])
 const customFieldName = ref('')
 
-// Parse span prop to extract ranges with orientation and indefinite flags
+// Parse span string to extract ranges with orientation and indefinite flags
+// This is a UI boundary - parses span strings from toJSON() format
 function parseSpan(spanStr) {
   // Split on " + " for multi-range spans
   const parts = spanStr.split(/\s*\+\s*/)
   return parts.map(part => {
     try {
-      const range = Range.parse(part.trim())
+      const trimmed = part.trim()
+      let orientation = Orientation.PLUS
+      let inner = trimmed
+
+      if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
+        orientation = Orientation.MINUS
+        inner = trimmed.slice(1, -1)
+      } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        orientation = Orientation.NONE
+        inner = trimmed.slice(1, -1)
+      }
+
+      const startIndefinite = inner.startsWith('<')
+      const endIndefinite = inner.includes('..>') || (inner.endsWith('>') && !inner.includes('..'))
+      const cleaned = inner.replace(/[<>]/g, '')
+      const rangeParts = cleaned.split('..')
+      const start = parseInt(rangeParts[0], 10)
+      const end = rangeParts[1] !== undefined ? parseInt(rangeParts[1], 10) : start
+
       return {
-        start: range.start + 1,  // Convert fenced to GenBank (1-based)
-        end: range.end,
-        strand: orientationToStrand(range.orientation),
-        startIndefinite: range.startIndefinite,
-        endIndefinite: range.endIndefinite
+        start: start + 1,  // Convert fenced to GenBank (1-based)
+        end: end,
+        strand: orientationToStrand(orientation),
+        startIndefinite,
+        endIndefinite
       }
     } catch {
       return { start: 1, end: 1, strand: 'forward', startIndefinite: false, endIndefinite: false }

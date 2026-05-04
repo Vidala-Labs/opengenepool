@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { useSelection, SelectionDomain } from './useSelection.js'
 import { useEditorState } from './useEditorState.js'
@@ -12,19 +13,21 @@ describe('SelectionDomain', () => {
       expect(domain.ranges.length).toBe(0)
     })
 
-    it('parses string spec', () => {
-      const domain = new SelectionDomain('10..20')
+    it('accepts Range array', () => {
+      const ranges = [new Range(10, 20)]
+      const domain = new SelectionDomain(ranges)
       expect(domain.ranges.length).toBe(1)
       expect(domain.ranges[0].start).toBe(10)
       expect(domain.ranges[0].end).toBe(20)
     })
 
-    it('parses multi-range string', () => {
-      const domain = new SelectionDomain('10..20 + 30..40')
+    it('accepts multi-range array', () => {
+      const ranges = [new Range(10, 20), new Range(30, 40)]
+      const domain = new SelectionDomain(ranges)
       expect(domain.ranges.length).toBe(2)
     })
 
-    it('accepts Range array', () => {
+    it('accepts Range array with orientation', () => {
       const ranges = [new Range(10, 20), new Range(30, 40)]
       const domain = new SelectionDomain(ranges)
       expect(domain.ranges.length).toBe(2)
@@ -45,8 +48,8 @@ describe('SelectionDomain', () => {
       expect(domain.orientation).toBe(Orientation.MINUS)
     })
 
-    it('parses minus strand notation from string', () => {
-      const domain = new SelectionDomain('(10..20)')
+    it('accepts Range with minus strand orientation', () => {
+      const domain = new SelectionDomain([new Range(10, 20, Orientation.MINUS)])
       expect(domain.ranges.length).toBe(1)
       expect(domain.orientation).toBe(Orientation.MINUS)
     })
@@ -54,13 +57,13 @@ describe('SelectionDomain', () => {
 
   describe('contains', () => {
     it('returns true when position is in a range', () => {
-      const domain = new SelectionDomain('10..20 + 30..40')
+      const domain = new SelectionDomain([new Range(10, 20), new Range(30, 40)])
       expect(domain.contains(15)).toBe(true)
       expect(domain.contains(35)).toBe(true)
     })
 
     it('returns false when position is not in any range', () => {
-      const domain = new SelectionDomain('10..20 + 30..40')
+      const domain = new SelectionDomain([new Range(10, 20), new Range(30, 40)])
       expect(domain.contains(5)).toBe(false)
       expect(domain.contains(25)).toBe(false)
       expect(domain.contains(45)).toBe(false)
@@ -69,7 +72,7 @@ describe('SelectionDomain', () => {
 
   describe('addRange', () => {
     it('adds a new range', () => {
-      const domain = new SelectionDomain('10..20')
+      const domain = new SelectionDomain([new Range(10, 20)])
       domain.addRange(new Range(30, 40))
       expect(domain.ranges.length).toBe(2)
     })
@@ -77,7 +80,7 @@ describe('SelectionDomain', () => {
 
   describe('removeRange', () => {
     it('removes a range by index', () => {
-      const domain = new SelectionDomain('10..20 + 30..40')
+      const domain = new SelectionDomain([new Range(10, 20), new Range(30, 40)])
       domain.removeRange(0)
       expect(domain.ranges.length).toBe(1)
       expect(domain.ranges[0].start).toBe(30)
@@ -132,7 +135,7 @@ describe('useSelection', () => {
 
     it('clears existing selection when not extending', () => {
       const sel = createSelection()
-      sel.select('10..20')
+      sel.select([new Range(10, 20)])
       sel.startSelection(50, false)
 
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -141,7 +144,7 @@ describe('useSelection', () => {
 
     it('adds new range when extending', () => {
       const sel = createSelection()
-      sel.select('10..20')
+      sel.select([new Range(10, 20)])
       sel.startSelection(50, true)
 
       expect(sel.domain.value.ranges.length).toBe(2)
@@ -149,7 +152,7 @@ describe('useSelection', () => {
 
     it('does not add range when extending into existing selection', () => {
       const sel = createSelection()
-      sel.select('10..60')
+      sel.select([new Range(10, 60)])
       sel.startSelection(50, true)
 
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -178,7 +181,7 @@ describe('useSelection', () => {
 
     it('respects drag limits from other ranges', () => {
       const sel = createSelection()
-      sel.select('10..20')
+      sel.select([new Range(10, 20)])
       sel.startSelection(50, true)
       sel.updateSelection(15)  // Try to drag into existing range
 
@@ -190,7 +193,7 @@ describe('useSelection', () => {
   describe('select', () => {
     it('creates selection from string spec', () => {
       const sel = createSelection()
-      sel.select('10..50')
+      sel.select([new Range(10, 50)])
 
       expect(sel.isSelected.value).toBe(true)
       expect(sel.domain.value.ranges[0].start).toBe(10)
@@ -199,7 +202,7 @@ describe('useSelection', () => {
 
     it('creates selection from Domain object', () => {
       const sel = createSelection()
-      const domain = new SelectionDomain('10..50')
+      const domain = new SelectionDomain([new Range(10, 50)])
       sel.select(domain)
 
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -209,7 +212,7 @@ describe('useSelection', () => {
   describe('unselect', () => {
     it('clears the selection', () => {
       const sel = createSelection()
-      sel.select('10..50')
+      sel.select([new Range(10, 50)])
       sel.unselect()
 
       expect(sel.isSelected.value).toBe(false)
@@ -231,7 +234,7 @@ describe('useSelection', () => {
     describe('flip', () => {
       it('flips range orientation', () => {
         const sel = createSelection()
-        sel.select('10..50')
+        sel.select([new Range(10, 50)])
         sel.flip(0)
 
         expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
@@ -239,7 +242,7 @@ describe('useSelection', () => {
 
       it('flips back to plus', () => {
         const sel = createSelection()
-        sel.select('(10..50)')  // minus strand
+        sel.select([new Range(10, 50, Orientation.MINUS)])  // minus strand
         sel.flip(0)
 
         expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
@@ -249,21 +252,21 @@ describe('useSelection', () => {
     describe('setOrientation', () => {
       it('sets to plus', () => {
         const sel = createSelection()
-        sel.select('10..50')
+        sel.select([new Range(10, 50)])
         sel.setOrientation(0, Orientation.PLUS)
         expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
       })
 
       it('sets to minus', () => {
         const sel = createSelection()
-        sel.select('10..50')
+        sel.select([new Range(10, 50)])
         sel.setOrientation(0, Orientation.MINUS)
         expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
       })
 
       it('sets to undirected', () => {
         const sel = createSelection()
-        sel.select('10..50')
+        sel.select([new Range(10, 50)])
         sel.setOrientation(0, Orientation.NONE)
         expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.NONE)
       })
@@ -272,7 +275,7 @@ describe('useSelection', () => {
     describe('splitRange', () => {
       it('splits range at position', () => {
         const sel = createSelection()
-        sel.select('10..50')
+        sel.select([new Range(10, 50)])
         sel.splitRange(30)
 
         expect(sel.domain.value.ranges.length).toBe(2)
@@ -282,7 +285,7 @@ describe('useSelection', () => {
 
       it('preserves orientation in split', () => {
         const sel = createSelection()
-        sel.select('(10..50)')  // minus strand
+        sel.select([new Range(10, 50, Orientation.MINUS)])  // minus strand
         sel.splitRange(30)
 
         expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
@@ -293,7 +296,7 @@ describe('useSelection', () => {
     describe('deleteRange', () => {
       it('removes range from domain', () => {
         const sel = createSelection()
-        sel.select('10..20 + 30..40')
+        sel.select([new Range(10, 20), new Range(30, 40)])
         sel.deleteRange(0)
 
         expect(sel.domain.value.ranges.length).toBe(1)
@@ -302,7 +305,7 @@ describe('useSelection', () => {
 
       it('clears selection when last range deleted', () => {
         const sel = createSelection()
-        sel.select('10..20')
+        sel.select([new Range(10, 20)])
         sel.deleteRange(0)
 
         expect(sel.isSelected.value).toBe(false)
@@ -312,7 +315,7 @@ describe('useSelection', () => {
     describe('moveRange', () => {
       it('moves range up in order', () => {
         const sel = createSelection()
-        sel.select('10..20 + 30..40 + 50..60')
+        sel.select([new Range(10, 20), new Range(30, 40), new Range(50, 60)])
         sel.moveRange(2, 0)  // Move last to first
 
         expect(sel.domain.value.ranges[0].start).toBe(50)
@@ -321,7 +324,7 @@ describe('useSelection', () => {
 
       it('moves range down in order', () => {
         const sel = createSelection()
-        sel.select('10..20 + 30..40 + 50..60')
+        sel.select([new Range(10, 20), new Range(30, 40), new Range(50, 60)])
         sel.moveRange(0, 2)  // Move first to last
 
         expect(sel.domain.value.ranges[2].start).toBe(10)
@@ -337,7 +340,7 @@ describe('useSelection', () => {
 
     it('returns rectangle path for single-line selection', () => {
       const sel = createSelection()
-      sel.select('10..30')
+      sel.select([new Range(10, 30)])
       graphics.setContainerSize(800, 600)
 
       const path = sel.getSelectionPath(0)
@@ -358,14 +361,14 @@ describe('useSelection', () => {
 
     it('responds to select event', () => {
       const sel = createSelection()
-      eventBus.emit('select', { domain: '10..50' })
+      eventBus.emit('select', { domain: [new Range(10, 50)] })
 
       expect(sel.domain.value.ranges[0].start).toBe(10)
     })
 
     it('responds to unselect event', () => {
       const sel = createSelection()
-      sel.select('10..50')
+      sel.select([new Range(10, 50)])
       eventBus.emit('unselect')
 
       expect(sel.isSelected.value).toBe(false)
@@ -373,8 +376,8 @@ describe('useSelection', () => {
 
     it('responds to extendselect event by adding range to existing selection', () => {
       const sel = createSelection()
-      sel.select('10..50')
-      eventBus.emit('extendselect', { domain: '100..150' })
+      sel.select([new Range(10, 50)])
+      eventBus.emit('extendselect', { domain: [new Range(100, 150)] })
 
       expect(sel.domain.value.ranges.length).toBe(2)
       expect(sel.domain.value.ranges[0].start).toBe(10)
@@ -385,7 +388,7 @@ describe('useSelection', () => {
 
     it('responds to extendselect by creating new selection if none exists', () => {
       const sel = createSelection()
-      eventBus.emit('extendselect', { domain: '100..150' })
+      eventBus.emit('extendselect', { domain: [new Range(100, 150)] })
 
       expect(sel.isSelected.value).toBe(true)
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -395,8 +398,8 @@ describe('useSelection', () => {
 
     it('merges overlapping ranges when extending selection', () => {
       const sel = createSelection()
-      sel.select('10..50')
-      eventBus.emit('extendselect', { domain: '30..70' })
+      sel.select([new Range(10, 50)])
+      eventBus.emit('extendselect', { domain: [new Range(30, 70)] })
 
       // Should merge into single range
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -406,8 +409,8 @@ describe('useSelection', () => {
 
     it('merges fully contained range when extending selection', () => {
       const sel = createSelection()
-      sel.select('10..100')
-      eventBus.emit('extendselect', { domain: '30..50' })
+      sel.select([new Range(10, 100)])
+      eventBus.emit('extendselect', { domain: [new Range(30, 50)] })
 
       // New range is fully contained - should stay as original
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -417,8 +420,8 @@ describe('useSelection', () => {
 
     it('merges when new range fully contains existing', () => {
       const sel = createSelection()
-      sel.select('30..50')
-      eventBus.emit('extendselect', { domain: '10..100' })
+      sel.select([new Range(30, 50)])
+      eventBus.emit('extendselect', { domain: [new Range(10, 100)] })
 
       // New range contains existing - should expand to new range
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -428,8 +431,8 @@ describe('useSelection', () => {
 
     it('converts all ranges to new orientation when extending with opposite direction', () => {
       const sel = createSelection()
-      sel.select('10..50')  // plus strand
-      eventBus.emit('extendselect', { domain: '(30..70)' })  // minus strand, overlapping
+      sel.select([new Range(10, 50)])  // plus strand
+      eventBus.emit('extendselect', { domain: [new Range(30, 70, Orientation.MINUS)] })  // minus strand, overlapping
 
       // Should merge and adopt the new orientation
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -440,8 +443,8 @@ describe('useSelection', () => {
 
     it('converts multiple existing ranges to new orientation', () => {
       const sel = createSelection()
-      sel.select('10..30 + 50..70')  // two plus strand ranges
-      eventBus.emit('extendselect', { domain: '(20..60)' })  // minus strand, overlaps both
+      sel.select([new Range(10, 30), new Range(50, 70)])  // two plus strand ranges
+      eventBus.emit('extendselect', { domain: [new Range(20, 60, Orientation.MINUS)] })  // minus strand, overlaps both
 
       // Should merge all into one minus strand range
       expect(sel.domain.value.ranges.length).toBe(1)
@@ -452,8 +455,8 @@ describe('useSelection', () => {
 
     it('keeps non-overlapping ranges separate', () => {
       const sel = createSelection()
-      sel.select('10..30')
-      eventBus.emit('extendselect', { domain: '50..70' })
+      sel.select([new Range(10, 30)])
+      eventBus.emit('extendselect', { domain: [new Range(50, 70)] })
 
       // No overlap - should have two separate ranges
       expect(sel.domain.value.ranges.length).toBe(2)
@@ -467,7 +470,7 @@ describe('useSelection', () => {
   describe('extendToPosition', () => {
     it('extends range end when clicking beyond current end', () => {
       const sel = createSelection()
-      sel.select('10..50')
+      sel.select([new Range(10, 50)])
 
       const result = sel.extendToPosition(80)
 
@@ -479,7 +482,7 @@ describe('useSelection', () => {
 
     it('extends range start when clicking before current start', () => {
       const sel = createSelection()
-      sel.select('50..100')
+      sel.select([new Range(50, 100)])
 
       const result = sel.extendToPosition(20)
 
@@ -491,7 +494,7 @@ describe('useSelection', () => {
 
     it('preserves plus orientation when extending backwards', () => {
       const sel = createSelection()
-      sel.select('50..100')  // plus strand by default
+      sel.select([new Range(50, 100)])  // plus strand by default
 
       sel.extendToPosition(20)
 
@@ -500,7 +503,7 @@ describe('useSelection', () => {
 
     it('preserves minus orientation when extending forwards', () => {
       const sel = createSelection()
-      sel.select('(50..100)')  // minus strand
+      sel.select([new Range(50, 100, Orientation.MINUS)])  // minus strand
 
       sel.extendToPosition(150)
 
@@ -509,7 +512,7 @@ describe('useSelection', () => {
 
     it('extends leftmost range when clicking before all ranges', () => {
       const sel = createSelection()
-      sel.select('30..50 + 70..90')
+      sel.select([new Range(30, 50), new Range(70, 90)])
 
       const result = sel.extendToPosition(10)
 
@@ -523,7 +526,7 @@ describe('useSelection', () => {
 
     it('extends rightmost range when clicking after all ranges', () => {
       const sel = createSelection()
-      sel.select('10..30 + 50..70')
+      sel.select([new Range(10, 30), new Range(50, 70)])
 
       const result = sel.extendToPosition(100)
 
@@ -537,7 +540,7 @@ describe('useSelection', () => {
 
     it('merges two ranges when clicking between them', () => {
       const sel = createSelection()
-      sel.select('10..30 + 50..70')
+      sel.select([new Range(10, 30), new Range(50, 70)])
 
       const result = sel.extendToPosition(40)
 
@@ -549,7 +552,7 @@ describe('useSelection', () => {
 
     it('merges correct pair when clicking between middle ranges', () => {
       const sel = createSelection()
-      sel.select('10..20 + 40..50 + 70..80')
+      sel.select([new Range(10, 20), new Range(40, 50), new Range(70, 80)])
 
       const result = sel.extendToPosition(55)
 
@@ -564,7 +567,7 @@ describe('useSelection', () => {
 
     it('preserves orientation when extending leftmost range', () => {
       const sel = createSelection()
-      sel.select('(30..50) + 70..90')  // First range is minus strand
+      sel.select([new Range(30, 50, Orientation.MINUS), new Range(70, 90)])  // First range is minus strand
 
       sel.extendToPosition(10)
 
@@ -573,7 +576,7 @@ describe('useSelection', () => {
 
     it('preserves orientation when extending rightmost range', () => {
       const sel = createSelection()
-      sel.select('10..30 + (50..70)')  // Second range is minus strand
+      sel.select([new Range(10, 30), new Range(50, 70, Orientation.MINUS)])  // Second range is minus strand
 
       sel.extendToPosition(100)
 
@@ -591,7 +594,7 @@ describe('useSelection', () => {
 
     it('does nothing if position is within existing range', () => {
       const sel = createSelection()
-      sel.select('10..100')
+      sel.select([new Range(10, 100)])
 
       const result = sel.extendToPosition(50)
 
@@ -602,7 +605,7 @@ describe('useSelection', () => {
 
     it('responds to extendtoposition event', () => {
       const sel = createSelection()
-      sel.select('10..50')
+      sel.select([new Range(10, 50)])
 
       eventBus.emit('extendtoposition', { pos: 80 })
 
@@ -611,7 +614,7 @@ describe('useSelection', () => {
 
     it('circular mode: merges two ranges when clicking between them', () => {
       const sel = createSelection()
-      sel.select('10..30')
+      sel.select([new Range(10, 30)])
       sel.domain.value.addRange(new Range(50, 70, Orientation.PLUS))
 
       const result = sel.extendToPosition(40, true)
@@ -624,7 +627,7 @@ describe('useSelection', () => {
 
     it('circular mode: merges when clicking before all ranges (wraparound gap)', () => {
       const sel = createSelection()
-      sel.select('50..70')
+      sel.select([new Range(50, 70)])
       sel.domain.value.addRange(new Range(100, 120, Orientation.PLUS))
 
       // Click at 20 - in wraparound gap (120 -> seqLen -> 0 -> 50)
@@ -640,7 +643,7 @@ describe('useSelection', () => {
 
     it('circular mode: merges when clicking after all ranges (wraparound gap)', () => {
       const sel = createSelection()
-      sel.select('10..30')
+      sel.select([new Range(10, 30)])
       sel.domain.value.addRange(new Range(50, 70, Orientation.PLUS))
 
       // Click at 100 - in wraparound gap (70 -> seqLen -> 0 -> 10)
@@ -656,7 +659,7 @@ describe('useSelection', () => {
 
     it('circular mode: merges ranges when clicking in wraparound gap (around the horn)', () => {
       const sel = createSelection()
-      sel.select('100..200')
+      sel.select([new Range(100, 200)])
       sel.domain.value.addRange(new Range(400, 500, Orientation.PLUS))
 
       // Click at position 50 - in the gap that wraps around origin (500 -> 0 -> 100)
@@ -671,7 +674,7 @@ describe('useSelection', () => {
 
     it('circular mode: single range still extends directionally', () => {
       const sel = createSelection()
-      sel.select('100..200')
+      sel.select([new Range(100, 200)])
 
       const result = sel.extendToPosition(50, true)
 
@@ -685,8 +688,8 @@ describe('useSelection', () => {
   describe('subtractSpan', () => {
     it('does nothing when annotation does not overlap selection', () => {
       const sel = createSelection()
-      sel.select('10..20')
-      const span = Span.parse('30..40')
+      sel.select([new Range(10, 20)])
+      const span = parseSpan('30..40')
 
       sel.subtractSpan(span)
 
@@ -697,8 +700,8 @@ describe('useSelection', () => {
 
     it('removes range when annotation fully contains it', () => {
       const sel = createSelection()
-      sel.select('15..25')
-      const span = Span.parse('10..30')
+      sel.select([new Range(15, 25)])
+      const span = parseSpan('10..30')
 
       sel.subtractSpan(span)
 
@@ -708,8 +711,8 @@ describe('useSelection', () => {
 
     it('splits range when selection contains annotation', () => {
       const sel = createSelection()
-      sel.select('10..50')
-      const span = Span.parse('20..30')
+      sel.select([new Range(10, 50)])
+      const span = parseSpan('20..30')
 
       sel.subtractSpan(span)
 
@@ -722,8 +725,8 @@ describe('useSelection', () => {
 
     it('trims range when annotation overlaps start', () => {
       const sel = createSelection()
-      sel.select('20..40')
-      const span = Span.parse('10..30')
+      sel.select([new Range(20, 40)])
+      const span = parseSpan('10..30')
 
       sel.subtractSpan(span)
 
@@ -734,8 +737,8 @@ describe('useSelection', () => {
 
     it('trims range when annotation overlaps end', () => {
       const sel = createSelection()
-      sel.select('20..40')
-      const span = Span.parse('30..50')
+      sel.select([new Range(20, 40)])
+      const span = parseSpan('30..50')
 
       sel.subtractSpan(span)
 
@@ -746,8 +749,8 @@ describe('useSelection', () => {
 
     it('handles annotation end matching selection end', () => {
       const sel = createSelection()
-      sel.select('10..30')
-      const span = Span.parse('20..30')
+      sel.select([new Range(10, 30)])
+      const span = parseSpan('20..30')
 
       sel.subtractSpan(span)
 
@@ -758,8 +761,8 @@ describe('useSelection', () => {
 
     it('handles annotation start matching selection start', () => {
       const sel = createSelection()
-      sel.select('10..30')
-      const span = Span.parse('10..20')
+      sel.select([new Range(10, 30)])
+      const span = parseSpan('10..20')
 
       sel.subtractSpan(span)
 
@@ -770,8 +773,8 @@ describe('useSelection', () => {
 
     it('removes range when annotation exactly matches', () => {
       const sel = createSelection()
-      sel.select('10..30')
-      const span = Span.parse('10..30')
+      sel.select([new Range(10, 30)])
+      const span = parseSpan('10..30')
 
       sel.subtractSpan(span)
 
@@ -781,8 +784,8 @@ describe('useSelection', () => {
 
     it('handles multiple selection ranges with partial overlap', () => {
       const sel = createSelection()
-      sel.select('10..20 + 30..40 + 50..60')
-      const span = Span.parse('15..35')
+      sel.select([new Range(10, 20), new Range(30, 40), new Range(50, 60)])
+      const span = parseSpan('15..35')
 
       sel.subtractSpan(span)
 
@@ -797,8 +800,8 @@ describe('useSelection', () => {
 
     it('handles multi-range annotation span', () => {
       const sel = createSelection()
-      sel.select('10..100')
-      const span = Span.parse('20..30 + 50..60')
+      sel.select([new Range(10, 100)])
+      const span = parseSpan('20..30 + 50..60')
 
       sel.subtractSpan(span)
 
@@ -813,8 +816,8 @@ describe('useSelection', () => {
 
     it('removes selection when annotation is strictly bigger', () => {
       const sel = createSelection()
-      sel.select('20..30')
-      const span = Span.parse('10..50')
+      sel.select([new Range(20, 30)])
+      const span = parseSpan('10..50')
 
       sel.subtractSpan(span)
 
@@ -824,8 +827,8 @@ describe('useSelection', () => {
 
     it('preserves orientation when splitting range', () => {
       const sel = createSelection()
-      sel.select('(10..50)')  // minus strand
-      const span = Span.parse('20..30')
+      sel.select([new Range(10, 50, Orientation.MINUS)])  // minus strand
+      const span = parseSpan('20..30')
 
       sel.subtractSpan(span)
 
@@ -836,7 +839,7 @@ describe('useSelection', () => {
 
     it('does nothing when no selection exists', () => {
       const sel = createSelection()
-      const span = Span.parse('10..20')
+      const span = parseSpan('10..20')
 
       sel.subtractSpan(span)
 

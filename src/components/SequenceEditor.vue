@@ -1795,11 +1795,8 @@ function handleTranslationClick(data) {
   const { event, element, codonStart, codonEnd } = data
 
   // Create span for the codon with correct orientation
-  // Minus strand uses parentheses: (start..end)
-  const isMinus = element.orientation === -1
-  const spanStr = isMinus
-    ? `(${codonStart}..${codonEnd})`
-    : `${codonStart}..${codonEnd}`
+  const orientation = element.orientation === -1 ? Orientation.MINUS : Orientation.PLUS
+  const codonSpan = new Span([new Range(codonStart, codonEnd, orientation)])
 
   if (event?.shiftKey) {
     // Shift-click extends existing selection to include codon
@@ -1807,12 +1804,10 @@ function handleTranslationClick(data) {
     selection.extendToPosition(codonEnd)
   } else if (event?.ctrlKey) {
     // Ctrl-click adds codon to existing selection
-    const codonSpan = Span.parse(spanStr)
     const newDomain = new SelectionDomain(codonSpan)
     selection.extendSelection(newDomain)
   } else {
     // Regular click replaces selection with codon
-    const codonSpan = Span.parse(spanStr)
     const newDomain = new SelectionDomain(codonSpan)
     selection.select(newDomain)
   }
@@ -2029,7 +2024,7 @@ function deleteSelectedRange() {
 
   // Leave cursor at deletion point if contiguous, otherwise clear selection
   if (isContiguous) {
-    selection.select(`${cursorPosition}..${cursorPosition}`)
+    selection.select([new Range(cursorPosition, cursorPosition)])
   } else {
     selection.unselect()
   }
@@ -2168,10 +2163,7 @@ function handleReplaceSubmit(text, preserveAnnotations = false) {
 
   // 2. Update selection to cover the newly inserted text, preserving orientation
   const newEnd = selStart + insertText.length
-  const selectionStr = insertModalOrientation.value === Orientation.MINUS
-    ? `(${selStart}..${newEnd})`
-    : `${selStart}..${newEnd}`
-  selection.select(selectionStr)
+  selection.select([new Range(selStart, newEnd, insertModalOrientation.value)])
 
   // 4. Emit for standalone mode / parent components
   emit('edit', {
@@ -2349,30 +2341,30 @@ function scrollToPosition(position) {
 
 /**
  * Set the selection programmatically.
- * @param {string} spec - Selection specification:
- *   - Span format: "10..20" or "10..20 + 30..40"
- *   - Annotation reference: "a:<annotation_id>"
+ * @param {Span|Range[]} spec - Selection specification (Span or array of Range objects)
  */
 function setSelection(spec) {
-  // Check for annotation reference format "a:<id>"
-  if (spec.startsWith('a:')) {
-    const annotationId = spec.slice(2)
-    const annotation = localAnnotations.value.find(ann => ann.id === annotationId)
-    if (annotation && annotation.span) {
-      selection.select(annotation.span)
-      // Scroll to annotation start using span's bounds
-      const bounds = annotation.span.bounds
-      if (bounds) {
-        scrollToPosition(bounds.start)
-      }
-    }
-    return
-  }
-  selection.select(spec)
+  const span = spec instanceof Span ? spec : new Span(spec)
+  selection.select(span)
   // Scroll to selection start
-  const startMatch = spec.match(/^(\d+)/)
-  if (startMatch) {
-    scrollToPosition(parseInt(startMatch[1], 10))
+  const bounds = span.bounds
+  if (bounds) {
+    scrollToPosition(bounds.start)
+  }
+}
+
+/**
+ * Set the selection to an annotation's span.
+ * @param {string} annotationId - The annotation ID to select
+ */
+function selectAnnotation(annotationId) {
+  const annotation = localAnnotations.value.find(ann => ann.id === annotationId)
+  if (annotation && annotation.span) {
+    selection.select(annotation.span)
+    const bounds = annotation.span.bounds
+    if (bounds) {
+      scrollToPosition(bounds.start)
+    }
   }
 }
 
@@ -2388,7 +2380,7 @@ function clearSelection() {
  * @param {number} position - The position to place the cursor
  */
 function setCursor(position) {
-  selection.select(`${position}..${position}`)
+  selection.select([new Range(position, position)])
   scrollToPosition(position)
 }
 
@@ -2431,6 +2423,7 @@ defineExpose({
   setZoom,
   getSelection,
   setSelection,
+  selectAnnotation,
   clearSelection,
   setCursor,
   scrollToPosition,

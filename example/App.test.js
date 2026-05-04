@@ -1,6 +1,6 @@
+import { parseSpan } from '../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
-import { Span } from '../src/utils/dna.js'
 
 /**
  * Tests for the computed property logic in App.vue
@@ -108,7 +108,7 @@ describe('App computed properties', () => {
     it('creates SequenceDocument from raw data', () => {
       const data = {
         sequence: 'ATCGATCG',
-        annotations: [{ id: '1', span: Span.parse('0..4'), type: 'misc_feature' }],
+        annotations: [{ id: '1', span: parseSpan('0..4'), type: 'misc_feature' }],
         metadata: { circular: true }
       }
       const doc = createTargetDoc(data)

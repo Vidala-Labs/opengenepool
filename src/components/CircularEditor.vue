@@ -147,10 +147,7 @@ const localAnnotations = computed(() => {
 const annotationInstances = computed(() => {
   return localAnnotations.value.map(ann => {
     if (ann instanceof Annotation) return ann
-    return new Annotation({
-      ...ann,
-      span: typeof ann.span === 'string' ? Span.parse(ann.span) : ann.span
-    })
+    return new Annotation(ann)
   })
 })
 
@@ -672,7 +669,7 @@ function buildContextMenuItems(context) {
 function selectAll() {
   const seqLen = editorState.sequenceLength.value
   if (seqLen > 0) {
-    selection.select(`0..${seqLen}`)
+    selection.select([new Range(0, seqLen)])
   }
 }
 

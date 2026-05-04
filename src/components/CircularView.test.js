@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed } from 'vue'
@@ -7,7 +8,7 @@ import { useGraphics } from '../composables/useGraphics.js'
 import { useSelection } from '../composables/useSelection.js'
 import { createEventBus } from '../composables/useEventBus.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span } from '../utils/dna.js'
+import { Span, Range } from '../utils/dna.js'
 
 describe('CircularView', () => {
   function createWrapper(props = {}, options = {}) {
@@ -135,7 +136,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: Span.parse('100..500')
+          span: parseSpan('100..500')
         })
       ]
 
@@ -271,7 +272,7 @@ describe('CircularView', () => {
       mockSvgRect(wrapper)
 
       // First create a selection
-      wrapper.selection.select('100..500')
+      wrapper.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
       expect(wrapper.selection.isSelected.value).toBe(true)
 
@@ -298,7 +299,7 @@ describe('CircularView', () => {
       const svg = wrapper.find('svg.circular-view')
 
       // First create a selection
-      wrapper.selection.select('100..500')
+      wrapper.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       const originalEnd = wrapper.selection.domain.value.ranges[0].end
@@ -327,7 +328,7 @@ describe('CircularView', () => {
       const svg = wrapper.find('svg.circular-view')
 
       // First create a selection
-      wrapper.selection.select('100..500')
+      wrapper.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
       expect(wrapper.selection.domain.value.ranges.length).toBe(1)
 
@@ -570,7 +571,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: Span.parse('100..500')
+          span: parseSpan('100..500')
         })
       ]
 
@@ -589,7 +590,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'Test',
           type: 'CDS',
-          span: Span.parse('200..600')
+          span: parseSpan('200..600')
         })
       ]
 
@@ -608,7 +609,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'Hover Test',
           type: 'promoter',
-          span: Span.parse('300..700')
+          span: parseSpan('300..700')
         })
       ]
 
@@ -701,7 +702,7 @@ describe('CircularView', () => {
       const deadZone = getDeadZoneCoords(wrapper)
       // Since isInDeadZone is internal, we test it via click behavior
       // Click in center should clear selection, not start one
-      wrapper.selection.select('100..500')
+      wrapper.selection.select([new Range(100, 500)])
 
       const svg = wrapper.find('svg.circular-view')
       svg.trigger('mousedown', {

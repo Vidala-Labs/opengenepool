@@ -541,7 +541,7 @@ function createDeletionAnnotation(alignedStart, alignedEnd) {
     ? `Δ(${genbankStart})`
     : `Δ(${genbankStart}..${genbankEnd})`
 
-  const span = Span.parse(`${origLeft}..${origRight + 1}`)
+  const span = new Span([new Range(origLeft, origRight + 1)])
 
   queryDoc.value.addAnnotation({
     type: 'deletion',
@@ -571,7 +571,7 @@ function createInsertionAnnotation(alignedStart, alignedEnd) {
   if (origStart === null || origEnd === null) return
 
   const caption = `+${insertedBases}`
-  const span = Span.parse(`${origStart}..${origEnd + 1}`)
+  const span = new Span([new Range(origStart, origEnd + 1)])
 
   queryDoc.value.addAnnotation({
     type: 'insertion',
@@ -825,7 +825,7 @@ function createMutationAnnotation(alignedStart, alignedEnd) {
     }
   }
 
-  const span = Span.parse(`${origStart}..${origEnd + 1}`)
+  const span = new Span([new Range(origStart, origEnd + 1)])
 
   queryDoc.value.addAnnotation({
     type: 'mutation',
@@ -1175,7 +1175,7 @@ const extensionAPI = {
   getAnnotations: () => targetDoc.value?.annotations ?? [],
 
   // Actions
-  setSelection: (spec) => selection.select(spec),
+  setSelection: (spec) => selection.select(spec instanceof Span ? spec : new Span(spec)),
   clearSelection: () => selection.unselect(),
   scrollToPosition: () => {}, // Not implemented for alignment view
 
@@ -1782,20 +1782,16 @@ function handleTranslationClick(data) {
   const { event, element, codonStart, codonEnd } = data
 
   // Create span for the codon with correct orientation
-  const isMinus = element.orientation === -1
-  const spanStr = isMinus
-    ? `(${codonStart}..${codonEnd})`
-    : `${codonStart}..${codonEnd}`
+  const orientation = element.orientation === -1 ? Orientation.MINUS : Orientation.PLUS
+  const codonSpan = new Span([new Range(codonStart, codonEnd, orientation)])
 
   if (event?.shiftKey) {
     selection.extendToPosition(codonStart)
     selection.extendToPosition(codonEnd)
   } else if (event?.ctrlKey) {
-    const codonSpan = Span.parse(spanStr)
     const newDomain = new SelectionDomain(codonSpan)
     selection.extendSelection(newDomain)
   } else {
-    const codonSpan = Span.parse(spanStr)
     const newDomain = new SelectionDomain(codonSpan)
     selection.select(newDomain)
   }
@@ -1867,7 +1863,7 @@ function deleteSelectedRange() {
   const sortedAsc = [...rangesToDelete].sort((a, b) => a.start - b.start)
   const cursorPosition = sortedAsc[0].start
 
-  selection.select(`${cursorPosition}..${cursorPosition}`)
+  selection.select([new Range(cursorPosition, cursorPosition)])
 
   return true
 }
@@ -1939,7 +1935,7 @@ function handleInsert(text) {
 
   // Place cursor after inserted text
   const newCursorPos = insertModalPosition.value + text.length
-  selection.select(`${newCursorPos}..${newCursorPos}`)
+  selection.select([new Range(newCursorPos, newCursorPos)])
 }
 
 // Copy handler
@@ -1974,7 +1970,7 @@ function handleKeyDown(event) {
     const seqLength = selection.source.value === 'query'
       ? queryDoc.value?.sequence?.length || 0
       : editorState.sequenceLength.value
-    selection.select(`0..${seqLength}`)
+    selection.select([new Range(0, seqLength)])
     return
   }
 

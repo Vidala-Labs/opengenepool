@@ -20,16 +20,14 @@ export class Annotation {
     if (span instanceof Span) {
       this.span = span
     } else if (Array.isArray(span)) {
-      // Array of ranges
-      this.span = new Span(span.map(r =>
-        r instanceof Range ? r : Range.parse(r)
-      ))
+      // Array of Range objects
+      this.span = new Span(span)
     } else if (span?.ranges) {
       this.span = new Span(span.ranges)
     } else if (span == null) {
       this.span = new Span()
     } else {
-      throw new TypeError('Annotation requires span to be a Span object')
+      throw new TypeError('Annotation requires span to be a Span, Range[], or object with ranges property')
     }
   }
 

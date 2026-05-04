@@ -1,15 +1,16 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Span } from '../utils/dna.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
   const normalizedAnnotations = annotations.map(annotation => ({
     ...annotation,
-    span: typeof annotation.span === 'string' ? Span.parse(annotation.span) : annotation.span
+    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
   }))
   return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
 }
@@ -47,7 +48,7 @@ describe('SequenceEditor backend', () => {
   async function setupInsertAtPosition(wrapper, position) {
     const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
     const selection = selectionLayer.vm.selection
-    selection.select(`${position}..${position}`)
+    selection.select(parseSpan(`${position}..${position}`))
     await wrapper.vm.$nextTick()
 
     const svg = wrapper.find('svg.editor-svg')
@@ -191,7 +192,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 2..5 (indices 2,3,4 = 'CGA')
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..5')
+      selectionLayer.vm.selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
@@ -219,7 +220,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 1..4
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('1..4')
+      selectionLayer.vm.selection.select([new Range(1, 4)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -261,7 +262,7 @@ describe('SequenceEditor backend', () => {
 
       // Zero-length selection (cursor at position 3)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('3..3')
+      selectionLayer.vm.selection.select([new Range(3, 3)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
@@ -281,7 +282,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 2..5 (delete 'CGA')
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..5')
+      selectionLayer.vm.selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -304,7 +305,7 @@ describe('SequenceEditor backend', () => {
       await wrapper.vm.$nextTick()
 
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..5')
+      selectionLayer.vm.selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       expect(selectionLayer.vm.selection.isSelected.value).toBe(true)
@@ -335,14 +336,14 @@ describe('SequenceEditor backend', () => {
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
 
       // First delete
-      selectionLayer.vm.selection.select('2..4')
+      selectionLayer.vm.selection.select([new Range(2, 4)])
       await wrapper.vm.$nextTick()
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
       await confirmDelete(wrapper)
 
       // Second delete
-      selectionLayer.vm.selection.select('5..7')
+      selectionLayer.vm.selection.select([new Range(5, 7)])
       await wrapper.vm.$nextTick()
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
@@ -365,7 +366,7 @@ describe('SequenceEditor backend', () => {
 
       // Create multi-range selection: 2..4 and 8..10 (use ' + ' separator)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..4 + 8..10')
+      selectionLayer.vm.selection.select([new Range(2, 4), new Range(8, 10)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -399,7 +400,7 @@ describe('SequenceEditor backend', () => {
 
       // Select 2..4 (CG) and 8..10 (AT) using ' + ' separator
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..4 + 8..10')
+      selectionLayer.vm.selection.select([new Range(2, 4), new Range(8, 10)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -427,7 +428,7 @@ describe('SequenceEditor backend', () => {
 
         // Select positions 5..10
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('5..10')
+        selectionLayer.vm.selection.select([new Range(5, 10)])
         await wrapper.vm.$nextTick()
 
         // Delete the selection
@@ -455,7 +456,7 @@ describe('SequenceEditor backend', () => {
 
         // Select 5..10 + 10..15 (adjacent ranges)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('5..10 + 10..15')
+        selectionLayer.vm.selection.select([new Range(5, 10), new Range(10, 15)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -482,7 +483,7 @@ describe('SequenceEditor backend', () => {
 
         // Select 5..10 + 15..18 (gap between 10 and 15)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('5..10 + 15..18')
+        selectionLayer.vm.selection.select([new Range(5, 10), new Range(15, 18)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -506,7 +507,7 @@ describe('SequenceEditor backend', () => {
 
         // Select 0..5 + 15..20 (wraps around origin on circular sequence)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('0..5 + 15..20')
+        selectionLayer.vm.selection.select([new Range(0, 5), new Range(15, 20)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -533,7 +534,7 @@ describe('SequenceEditor backend', () => {
 
         // Select 0..5 + 10..15 (does NOT wrap - gap between 5 and 10, and between 15 and 20)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('0..5 + 10..15')
+        selectionLayer.vm.selection.select([new Range(0, 5), new Range(10, 15)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -719,7 +720,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 4..8 on minus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8, Orientation.MINUS)]) // Minus strand selection
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -749,7 +750,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 4..8 on plus strand (default)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8)]) // Plus strand selection
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -778,7 +779,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 4..8 on minus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('(4..8)')
+      selectionLayer.vm.selection.select([new Range(4, 8, Orientation.MINUS)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -808,7 +809,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 4..8 on minus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8, Orientation.MINUS)]) // Minus strand selection
       await wrapper.vm.$nextTick()
 
       // Verify initial selection is minus strand
@@ -842,7 +843,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 4..8 on plus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8)]) // Plus strand selection
       await wrapper.vm.$nextTick()
 
       // Verify initial selection is plus strand
@@ -881,7 +882,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 15..25 (inside the annotation)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('15..25')
+      selectionLayer.vm.selection.select([new Range(15, 25)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal to open (by typing a character)
@@ -919,7 +920,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 15..25 (inside the annotation)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('15..25')
+      selectionLayer.vm.selection.select([new Range(15, 25)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -958,7 +959,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 10..30 (contains the annotation 15..25)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..30')
+      selectionLayer.vm.selection.select([new Range(10, 30)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -993,7 +994,7 @@ describe('SequenceEditor backend', () => {
 
       // Select positions 10..30 (contains the annotation 15..25)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..30')
+      selectionLayer.vm.selection.select([new Range(10, 30)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -1244,7 +1245,7 @@ describe('SequenceEditor backend', () => {
 
       // Select a range (makes it a replacement)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..15')
+      selectionLayer.vm.selection.select([new Range(10, 15)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal (which becomes replace modal due to selection)

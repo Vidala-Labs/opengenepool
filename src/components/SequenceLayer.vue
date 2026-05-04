@@ -1,5 +1,6 @@
 <script setup>
 import { inject, computed, ref } from 'vue'
+import { Range } from '../utils/dna.js'
 
 const props = defineProps({
   /** SequenceDocument for edit operations (insert, delete, replace) */
@@ -367,7 +368,7 @@ function getMenuItemsForElement(dataset) {
     items.push({
       label: 'Select all',
       action: () => {
-        selection.select(`0..${seqLength}`)
+        selection.select([new Range(0, seqLength)])
         if (mode) {
           // Alignment mode: set source AFTER selecting (select() calls unselect() which clears source)
           selection.source.value = mode

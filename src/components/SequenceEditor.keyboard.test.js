@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { Range } from '../utils/dna.js'
 
 describe('SequenceEditor keyboard', () => {
   beforeEach(() => {
@@ -45,7 +46,7 @@ describe('SequenceEditor keyboard', () => {
 
       // Select positions 2..4 (indices 2,3 = 'CG')
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..4')
+      selectionLayer.vm.selection.select([new Range(2, 4)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
@@ -80,7 +81,7 @@ describe('SequenceEditor keyboard', () => {
 
       // Select positions 1..3 (indices 1,2 = 'TC')
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('1..3')
+      selectionLayer.vm.selection.select([new Range(1, 3)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -190,7 +191,7 @@ describe('SequenceEditor keyboard', () => {
 
       // Get the selection composable and create multiple ranges
       const selection = wrapper.findComponent({ name: 'SelectionLayer' }).vm.selection
-      selection.select('10..20')
+      selection.select([new Range(10, 20)])
       await wrapper.vm.$nextTick()
 
       // Add a second range
@@ -363,7 +364,7 @@ describe('SequenceEditor keyboard', () => {
 
       // Select positions 2..5
       const selection = wrapper.findComponent({ name: 'SelectionLayer' }).vm.selection
-      selection.select('2..5')
+      selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       // Trigger Ctrl+V

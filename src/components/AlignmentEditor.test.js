@@ -1,16 +1,17 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 import AlignmentEditor from './AlignmentEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Span } from '../utils/dna.js'
+import { Span, Range } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
   const normalizedAnnotations = annotations.map(annotation => ({
     ...annotation,
-    span: typeof annotation.span === 'string' ? Span.parse(annotation.span) : annotation.span
+    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
   }))
   return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
 }
@@ -478,7 +479,7 @@ describe('AlignmentEditor Annotations', () => {
   it('computes alignedTargetAnnotations from target document', async () => {
     const { Annotation } = await import('../utils/annotation.js')
     const targetAnns = [
-      new Annotation({ id: 'ann1', span: Span.parse('0..6'), type: 'gene', label: 'Test Gene' })
+      new Annotation({ id: 'ann1', span: parseSpan('0..6'), type: 'gene', label: 'Test Gene' })
     ]
 
     const wrapper = mount(AlignmentEditor, {
@@ -497,7 +498,7 @@ describe('AlignmentEditor Annotations', () => {
   it('computes alignedQueryAnnotations from query document', async () => {
     const { Annotation } = await import('../utils/annotation.js')
     const queryAnns = [
-      new Annotation({ id: 'qann1', span: Span.parse('0..6'), type: 'gene', label: 'Query Gene' })
+      new Annotation({ id: 'qann1', span: parseSpan('0..6'), type: 'gene', label: 'Query Gene' })
     ]
 
     const wrapper = mount(AlignmentEditor, {
@@ -537,14 +538,14 @@ describe('Annotation alignment mapping', () => {
     const targetDoc = new SequenceDocument({
       sequence: 'ATCGAATCG',
       annotations: [
-        new Annotation({ id: 'targetAnn', span: Span.parse('4..6'), type: 'gene', label: 'targetFoo' })
+        new Annotation({ id: 'targetAnn', span: parseSpan('4..6'), type: 'gene', label: 'targetFoo' })
       ]
     })
 
     const queryDoc = new SequenceDocument({
       sequence: 'ATCGATCG',
       annotations: [
-        new Annotation({ id: 'queryAnn', span: Span.parse('4..6'), type: 'gene', label: 'queryFoo' })
+        new Annotation({ id: 'queryAnn', span: parseSpan('4..6'), type: 'gene', label: 'queryFoo' })
       ]
     })
 
@@ -592,14 +593,14 @@ describe('Annotation alignment mapping', () => {
     const targetDoc = new SequenceDocument({
       sequence: 'ATCGATCG',  // Shorter, will have gap in alignment
       annotations: [
-        new Annotation({ id: 'targetAnn', span: Span.parse('4..6'), type: 'gene', label: 'targetFoo' })
+        new Annotation({ id: 'targetAnn', span: parseSpan('4..6'), type: 'gene', label: 'targetFoo' })
       ]
     })
 
     const queryDoc = new SequenceDocument({
       sequence: 'ATCGAATCG',  // Longer, no gap
       annotations: [
-        new Annotation({ id: 'queryAnn', span: Span.parse('4..6'), type: 'gene', label: 'queryFoo' })
+        new Annotation({ id: 'queryAnn', span: parseSpan('4..6'), type: 'gene', label: 'queryFoo' })
       ]
     })
 
@@ -2121,7 +2122,7 @@ describe('Context menu parity with SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Set cursor position (zero-length selection)
-      wrapper.vm.selection.select('5..5')
+      wrapper.vm.selection.select([new Range(5, 5)])
       wrapper.vm.selection.source.value = 'target'
       await wrapper.vm.$nextTick()
 
@@ -2140,7 +2141,7 @@ describe('Context menu parity with SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Set selection with range
-      wrapper.vm.selection.select('2..6')
+      wrapper.vm.selection.select([new Range(2, 6)])
       wrapper.vm.selection.source.value = 'target'
       await wrapper.vm.$nextTick()
 
@@ -2183,7 +2184,7 @@ describe('Context menu parity with SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Set selection
-      wrapper.vm.selection.select('2..6')
+      wrapper.vm.selection.select([new Range(2, 6)])
       wrapper.vm.selection.source.value = 'target'
       await wrapper.vm.$nextTick()
 
@@ -2373,7 +2374,7 @@ describe('Copy annotation to target/query', () => {
 
     const targetDoc = createDoc('ATCGATCG', [])
     const queryDoc = createDoc('ATCGATCG', [
-      new Annotation({ span: Span.parse('2..5'), type: 'CDS', label: 'Test CDS' })
+      new Annotation({ span: parseSpan('2..5'), type: 'CDS', label: 'Test CDS' })
     ])
 
     const wrapper = mount(AlignmentEditor, {
@@ -2403,7 +2404,7 @@ describe('Copy annotation to target/query', () => {
     const { Annotation } = await import('../utils/annotation.js')
 
     const targetDoc = createDoc('ATCGATCG', [
-      new Annotation({ span: Span.parse('2..5'), type: 'CDS', label: 'Test CDS' })
+      new Annotation({ span: parseSpan('2..5'), type: 'CDS', label: 'Test CDS' })
     ])
     const queryDoc = createDoc('ATCGATCG', [])
 
@@ -2435,7 +2436,7 @@ describe('Copy annotation to target/query', () => {
 
     const targetDoc = createDoc('ATCGATCG', [])
     const queryDoc = createDoc('ATCGATCG', [
-      new Annotation({ span: Span.parse('2..5'), type: 'CDS', caption: 'Test CDS' })
+      new Annotation({ span: parseSpan('2..5'), type: 'CDS', caption: 'Test CDS' })
     ])
 
     const wrapper = mount(AlignmentEditor, {
@@ -2480,7 +2481,7 @@ describe('Copy annotation to target/query', () => {
     const { Annotation } = await import('../utils/annotation.js')
 
     const targetDoc = createDoc('ATCGATCG', [
-      new Annotation({ span: Span.parse('2..5'), type: 'promoter', caption: 'Test Promoter' })
+      new Annotation({ span: parseSpan('2..5'), type: 'promoter', caption: 'Test Promoter' })
     ])
     const queryDoc = createDoc('ATCGATCG', [])
 
@@ -2532,7 +2533,7 @@ describe('Copy annotation to target/query', () => {
     // Query annotation 4..6 ("AA") maps to: position 4 in target (only one 'A' exists)
     const targetDoc = createDoc('ATCGATCG', [])
     const queryDoc = createDoc('ATCGAATCG', [
-      new Annotation({ span: Span.parse('4..6'), type: 'CDS', caption: 'AA region' })
+      new Annotation({ span: parseSpan('4..6'), type: 'CDS', caption: 'AA region' })
     ])
 
     const wrapper = mount(AlignmentEditor, {
@@ -2568,7 +2569,7 @@ describe('Copy annotation to target/query', () => {
     const { Annotation } = await import('../utils/annotation.js')
 
     const targetDoc = createDoc('ATCGATCG', [
-      new Annotation({ span: Span.parse('2..5'), type: 'CDS', caption: 'Test CDS' })
+      new Annotation({ span: parseSpan('2..5'), type: 'CDS', caption: 'Test CDS' })
     ])
     const queryDoc = createDoc('ATCGATCG', [])
 
@@ -2603,7 +2604,7 @@ describe('Copy annotation to target/query', () => {
     // Annotation covers ONLY the extra 'A' (4..5) which is a gap in target
     const targetDoc = createDoc('ATCGATCG', [])
     const queryDoc = createDoc('ATCGAATCG', [
-      new Annotation({ span: Span.parse('4..5'), type: 'CDS', caption: 'Single insertion' })
+      new Annotation({ span: parseSpan('4..5'), type: 'CDS', caption: 'Single insertion' })
     ])
 
     const wrapper = mount(AlignmentEditor, {
@@ -2646,10 +2647,10 @@ describe('AlignmentEditor Translation Spacing', () => {
     // uses effectiveShowTranslation (which considers codon width) not just showTranslation
     const { Annotation } = await import('../utils/annotation.js')
     const targetDoc = createDoc('ATCGATCGATCGATCGATCGATCG', [
-      new Annotation({ span: Span.parse('0..24'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..24'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATCGATCGATCGATCGATCGATCG', [
-      new Annotation({ span: Span.parse('0..24'), type: 'CDS', caption: 'mCherry' })
+      new Annotation({ span: parseSpan('0..24'), type: 'CDS', caption: 'mCherry' })
     ])
 
     const wrapper = mount(AlignmentEditor, {
@@ -2687,7 +2688,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     const { Annotation } = await import('../utils/annotation.js')
     // Create a CDS annotation from positions 0-24
     const targetDoc = createDoc('ATGATCGATCGATCGATCGATCGA', [
-      new Annotation({ span: Span.parse('0..24'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..24'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGATCGATCGATCGATCGATCGA')
 
@@ -2707,7 +2708,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     const { Annotation } = await import('../utils/annotation.js')
     // CDS only covers 10-24
     const targetDoc = createDoc('ATGATCGATCGATCGATCGATCGA', [
-      new Annotation({ span: Span.parse('10..24'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('10..24'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGATCGATCGATCGATCGATCGA')
 
@@ -2726,7 +2727,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     const { Annotation } = await import('../utils/annotation.js')
     // CDS covers 5-15
     const targetDoc = createDoc('ATGATCGATCGATCGATCGATCGA', [
-      new Annotation({ span: Span.parse('5..15'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('5..15'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGATCGATCGATCGATCGATCGA')
 
@@ -2746,7 +2747,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*) - start codon, lysine, stop
     // Query:  ATGAGATGA (M-R-*) - single base change AAA->AGA (K->R)
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'TestCDS' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'TestCDS' })
     ])
     const queryDoc = createDoc('ATGAGATGA')
 
@@ -2775,7 +2776,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*) - Lysine codon AAA
     // Query:  ATGAAGTGA (M-K-*) - Lysine codon AAG (synonymous)
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'TestCDS' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'TestCDS' })
     ])
     const queryDoc = createDoc('ATGAAGTGA')
 
@@ -2800,7 +2801,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*)
     // Query:  ATGTAATGA (M-*-*) - AAA->TAA (K->Stop)
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'TestCDS' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'TestCDS' })
     ])
     const queryDoc = createDoc('ATGTAATGA')
 
@@ -2884,7 +2885,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*)
     // Query:  ATGAGATGA (M-R-*) - K->R at codon 2
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGAGATGA')
 
@@ -2913,7 +2914,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*) - AAA = Lysine
     // Query:  ATGAAGTGA (M-K-*) - AAG = Lysine (synonymous)
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGAAGTGA')
 
@@ -2937,7 +2938,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*)
     // Query:  ATGTAATGA (M-*-*) - AAA->TAA creates premature stop
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGTAATGA')
 
@@ -2961,7 +2962,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // CDS covers positions 9-18, mutation is at position 3 which is outside CDS
     // Using a sequence where alignment is predictable
     const targetDoc = createDoc('AAAGGGAAATGAAATGAAA', [
-      new Annotation({ span: Span.parse('9..18'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('9..18'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('AAACGGAAATGAAATGAAA')  // G->C at position 3
 
@@ -2990,7 +2991,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAATGA (M-K-*) - TGA is the stop codon at positions 6-8
     // Query:  ATGAAATAA (M-K-*) - TGA->TAA (both are stop codons)
     const targetDoc = createDoc('ATGAAATGA', [
-      new Annotation({ span: Span.parse('0..9'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..9'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGAAATAA')
 
@@ -3016,7 +3017,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Query:  ATGAAGCTTTGA - positions 5-6 change from AT to GC
     // This spans codon boundary: codon 2 (AAA->AAG = K->K silent) and codon 3 (TTT->CTT = F->L)
     const targetDoc = createDoc('ATGAAATTTTGA', [
-      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..12'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGAAGCTTTGA')
 
@@ -3047,7 +3048,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // CDS without caption but with gene attribute
     const targetDoc = createDoc('ATGAAATGA', [
       new Annotation({
-        span: Span.parse('0..9'),
+        span: parseSpan('0..9'),
         type: 'CDS',
         attributes: { gene: 'mCherry' }
       })
@@ -3074,8 +3075,8 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // CDS1: 0..12 (GFP)
     // CDS2: 6..18 (mCherry) - overlaps with CDS1 at positions 6-11
     const targetDoc = createDoc('ATGAAATGAAATGAAATGA', [
-      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' }),
-      new Annotation({ span: Span.parse('6..18'), type: 'CDS', caption: 'mCherry' })
+      new Annotation({ span: parseSpan('0..12'), type: 'CDS', caption: 'GFP' }),
+      new Annotation({ span: parseSpan('6..18'), type: 'CDS', caption: 'mCherry' })
     ])
     const queryDoc = createDoc('ATGAAATGAAATGAAATGA')
 
@@ -3107,8 +3108,8 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // CDS2 (mCherry): 3..15 - starts at second codon
     // Mutation at position 4: A->G changes AAA->AGA (K->R) in both frames
     const targetDoc = createDoc('ATGAAAAAAAAATGA', [
-      new Annotation({ span: Span.parse('0..15'), type: 'CDS', caption: 'GFP' }),
-      new Annotation({ span: Span.parse('3..15'), type: 'CDS', caption: 'mCherry' })
+      new Annotation({ span: parseSpan('0..15'), type: 'CDS', caption: 'GFP' }),
+      new Annotation({ span: parseSpan('3..15'), type: 'CDS', caption: 'mCherry' })
     ])
     const queryDoc = createDoc('ATGAGAAAAAAATGA')
 
@@ -3148,7 +3149,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Target: ATGAAAAATTGA (codons: ATG AAA AAT TGA = M-K-N-*)
     // Query:  ATGAAGGATTGA (positions 5-6: AA->GG changes codon 2 AAA->AAG (K->K) and codon 3 AAT->GAT (N->D))
     const targetDoc = createDoc('ATGAAAAATTGA', [
-      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..12'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGAAGGATTGA')
 
@@ -3184,7 +3185,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     // Codon 2: AAA -> AGA = K -> R
     // Codon 3: CAT -> TAT = H -> Y
     const targetDoc = createDoc('ATGAAACATTGA', [
-      new Annotation({ span: Span.parse('0..12'), type: 'CDS', caption: 'GFP' })
+      new Annotation({ span: parseSpan('0..12'), type: 'CDS', caption: 'GFP' })
     ])
     const queryDoc = createDoc('ATGAGATATTGA')
 

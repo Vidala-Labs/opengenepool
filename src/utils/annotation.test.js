@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { Annotation, AnnotationFragment, ANNOTATION_COLORS, getAnnotationColor } from './annotation.js'
 import { Span, Range, Orientation } from './dna.js'
@@ -37,23 +38,12 @@ describe('Annotation', () => {
     it('accepts Span objects', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')  // Fenced: positions 10-49
+        span: parseSpan('10..50')  // Fenced: positions 10-49
       })
 
       expect(ann.span.ranges).toHaveLength(1)
       expect(ann.span.ranges[0].start).toBe(10)
       expect(ann.span.ranges[0].end).toBe(50)
-    })
-
-    it('accepts array of fenced range strings', () => {
-      const ann = new Annotation({
-        id: 'ann1',
-        span: ['10..30', '40..60']
-      })
-
-      expect(ann.span.ranges).toHaveLength(2)
-      expect(ann.span.ranges[0].start).toBe(10)
-      expect(ann.span.ranges[1].start).toBe(40)
     })
 
     it('accepts array of Range objects', () => {
@@ -67,6 +57,8 @@ describe('Annotation', () => {
       })
 
       expect(ann.span.ranges).toHaveLength(2)
+      expect(ann.span.ranges[0].start).toBe(10)
+      expect(ann.span.ranges[1].start).toBe(40)
     })
 
     it('creates empty span when none provided', () => {
@@ -78,7 +70,7 @@ describe('Annotation', () => {
       expect(() => new Annotation({
         id: 'ann1',
         span: '10..50'
-      })).toThrow('Annotation requires span to be a Span object')
+      })).toThrow('Annotation requires span to be a Span, Range[], or object with ranges property')
     })
   })
 
@@ -86,7 +78,7 @@ describe('Annotation', () => {
     it('returns plus for forward annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
       expect(ann.orientation).toBe(Orientation.PLUS)
     })
@@ -94,7 +86,7 @@ describe('Annotation', () => {
     it('returns minus for complement annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('(10..50)') // parentheses indicate minus strand
+        span: parseSpan('(10..50)') // parentheses indicate minus strand
       })
       expect(ann.orientation).toBe(Orientation.MINUS)
     })
@@ -104,7 +96,7 @@ describe('Annotation', () => {
     it('returns total length of annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')  // Fenced: 40 bases (positions 10-49)
+        span: parseSpan('10..50')  // Fenced: 40 bases (positions 10-49)
       })
       expect(ann.length).toBe(40)
     })
@@ -112,7 +104,7 @@ describe('Annotation', () => {
     it('returns combined length for multi-range annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..30 + 40..60')  // Fenced: 20 + 20 = 40 bases
+        span: parseSpan('10..30 + 40..60')  // Fenced: 20 + 20 = 40 bases
       })
       expect(ann.length).toBe(40)
     })
@@ -132,7 +124,7 @@ describe('Annotation', () => {
     it('returns bounding range', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..30 + 50..70')  // Fenced coordinates
+        span: parseSpan('10..30 + 50..70')  // Fenced coordinates
       })
       const bounds = ann.bounds
       expect(bounds.start).toBe(10)
@@ -144,7 +136,7 @@ describe('Annotation', () => {
     it('returns true when annotation overlaps range', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('20..40')
+        span: parseSpan('20..40')
       })
       expect(ann.overlaps(10, 30)).toBe(true)
       expect(ann.overlaps(30, 50)).toBe(true)
@@ -153,7 +145,7 @@ describe('Annotation', () => {
     it('returns false when annotation does not overlap', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('20..40')
+        span: parseSpan('20..40')
       })
       expect(ann.overlaps(0, 10)).toBe(false)
       expect(ann.overlaps(50, 60)).toBe(false)
@@ -169,7 +161,7 @@ describe('Annotation', () => {
     it('creates single fragment for annotation within one line', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..40')  // Fenced: positions 10-39 on line 0
+        span: parseSpan('10..40')  // Fenced: positions 10-39 on line 0
       })
       const fragments = ann.toFragments(100)
 
@@ -184,7 +176,7 @@ describe('Annotation', () => {
     it('creates multiple fragments for multi-line annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('80..170')  // Fenced: spans lines 0, 1 at zoom 100
+        span: parseSpan('80..170')  // Fenced: spans lines 0, 1 at zoom 100
       })
       const fragments = ann.toFragments(100)
 
@@ -208,7 +200,7 @@ describe('Annotation', () => {
     it('creates fragment for each line in long annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('50..350')  // Fenced: spans 4 lines at zoom 100
+        span: parseSpan('50..350')  // Fenced: spans 4 lines at zoom 100
       })
       const fragments = ann.toFragments(100)
 
@@ -228,7 +220,7 @@ describe('Annotation', () => {
     it('handles multi-range annotations', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..30 + 60..80')  // Fenced: two separate regions
+        span: parseSpan('10..30 + 60..80')  // Fenced: two separate regions
       })
       const fragments = ann.toFragments(100)
 
@@ -246,7 +238,7 @@ describe('Annotation', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('100..500')  // Fenced coordinates
+        span: parseSpan('100..500')  // Fenced coordinates
       })
 
       expect(ann.toString()).toBe('GFP (gene): 100..500')
@@ -259,7 +251,7 @@ describe('AnnotationFragment', () => {
     id: 'ann1',
     caption: 'Test',
     type: 'gene',
-    span: Span.parse('10..50')
+    span: parseSpan('10..50')
   })
 
   describe('width', () => {
@@ -309,7 +301,7 @@ describe('AnnotationFragment', () => {
     it('shows arrow at start for minus orientation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: Span.parse('(10..100)') // parentheses indicate minus strand
+        span: parseSpan('(10..100)') // parentheses indicate minus strand
       })
 
       const startFrag = new AnnotationFragment({
@@ -357,7 +349,7 @@ describe('AnnotationFragment', () => {
         id: 'gfp1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const frag = new AnnotationFragment({

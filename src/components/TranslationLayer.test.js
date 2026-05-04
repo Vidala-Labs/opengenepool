@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
@@ -67,7 +68,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: Span.parse('0..30')
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -84,7 +85,7 @@ describe('TranslationLayer', () => {
         id: 'gene1',
         caption: 'Test',
         type: 'gene',
-        span: Span.parse('0..30')
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -97,7 +98,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: Span.parse('0..30')
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -123,7 +124,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: Span.parse('0..30')
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -142,7 +143,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: Span.parse('0..9') // 3 codons
+        span: parseSpan('0..9') // 3 codons
       })
 
       const wrapper = mountWithProviders(
@@ -162,7 +163,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: Span.parse('0..30')
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -183,7 +184,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: Span.parse('0..6')
+        span: parseSpan('0..6')
       })
 
       const wrapper = mountWithProviders(
@@ -209,7 +210,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: Span.parse('(0..6)')  // Minus strand
+        span: parseSpan('(0..6)')  // Minus strand
       })
 
       const wrapper = mountWithProviders(
@@ -239,7 +240,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: Span.parse('0..6 + (10..16)')
+        span: parseSpan('0..6 + (10..16)')
       })
 
       const wrapper = mountWithProviders(
@@ -261,7 +262,7 @@ describe('TranslationLayer', () => {
   describe('coordination with AnnotationLayer', () => {
     it('hides when AnnotationLayer showAnnotations is off', async () => {
       const annotation = new Annotation({
-        id: 'cds1', type: 'CDS', span: Span.parse('0..30')
+        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -280,7 +281,7 @@ describe('TranslationLayer', () => {
 
     it('hides when CDS type is hidden in AnnotationLayer', async () => {
       const annotation = new Annotation({
-        id: 'cds1', type: 'CDS', span: Span.parse('0..30')
+        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -299,7 +300,7 @@ describe('TranslationLayer', () => {
 
     it('shows when CDS type is unhidden', async () => {
       const annotation = new Annotation({
-        id: 'cds1', type: 'CDS', span: Span.parse('0..30')
+        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
       })
 
       const { hiddenTypes } = await import('./AnnotationLayer.vue')

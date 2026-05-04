@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import AlignmentEditor from './AlignmentEditor.vue'
@@ -10,7 +11,7 @@ import { Span } from '../utils/dna.js'
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
   const normalizedAnnotations = annotations.map(annotation => ({
     ...annotation,
-    span: typeof annotation.span === 'string' ? Span.parse(annotation.span) : annotation.span
+    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
   }))
   return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
 }

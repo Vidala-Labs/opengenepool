@@ -1,10 +1,10 @@
+import { parseSpan } from '../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
-import { Span } from '../src/utils/dna.js'
 
 function span(spec) {
-  return Span.parse(spec)
+  return parseSpan(spec)
 }
 
 describe('GenBank parser', () => {

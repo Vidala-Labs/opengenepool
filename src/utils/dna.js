@@ -105,57 +105,6 @@ export class Range {
   }
 
   /**
-   * Parse a range from fenced coordinate notation.
-   *
-   * Formats:
-   *   "10..20"    → Range from 10 to 20 (plus strand)
-   *   "(10..20)"  → Range from 10 to 20 (minus strand)
-   *   "[10..20]"  → Range from 10 to 20 (unoriented)
-   *   "15"        → Cursor at position 15 (same as "15..15")
-   *   "<10..20"   → Range with 5' indefinite (start is uncertain)
-   *   "10..>20"   → Range with 3' indefinite (end is uncertain)
-   *   "<10..>20"  → Range with both ends indefinite
-   *
-   * Ranges must be in ascending order (start ≤ end). Use "(10..20)" for minus
-   * strand, not "(20..10)".
-   *
-   * @param {string} str - The range string in fenced coordinates
-   * @returns {Range}
-   * @throws {Error} If end < start
-   */
-  static parse(str) {
-    const trimmed = str.trim()
-    let orientation = Orientation.PLUS
-    let inner = trimmed
-
-    if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
-      orientation = Orientation.MINUS
-      inner = trimmed.slice(1, -1)
-    } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-      orientation = Orientation.NONE
-      inner = trimmed.slice(1, -1)
-    }
-
-    // Check for indefinite markers
-    const startIndefinite = inner.startsWith('<')
-    const endIndefinite = inner.includes('..>') || (inner.endsWith('>') && !inner.includes('..'))
-
-    // Remove indefinite markers for parsing
-    const cleaned = inner.replace(/[<>]/g, '')
-
-    const parts = cleaned.split('..')
-    const start = parseInt(parts[0], 10)
-    // Single number means cursor position (start == end)
-    const end = parts[1] !== undefined ? parseInt(parts[1], 10) : start
-
-    if (isNaN(start) || isNaN(end)) {
-      throw new Error(`Invalid range string: ${str}`)
-    }
-
-    return new Range(start, end, orientation, startIndefinite, endIndefinite)
-  }
-
-  /**
    * Length of this range in base pairs
    */
   get length() {
@@ -280,23 +229,6 @@ export class Span {
    */
   constructor(ranges = []) {
     this.ranges = [...ranges]
-  }
-
-  /**
-   * Parse a span from fenced coordinate notation.
-   *
-   * Format: "10..20 + 30..40" (multiple ranges joined with +)
-   *
-   * Each range can have its own orientation:
-   *   "0..10 + (20..30)" → first range plus strand, second minus strand
-   *
-   * @param {string} str - The span string in fenced coordinates
-   * @returns {Span}
-   */
-  static parse(str) {
-    const parts = str.split('+').map(s => s.trim()).filter(s => s)
-    const ranges = parts.map(p => Range.parse(p))
-    return new Span(ranges)
   }
 
   /**

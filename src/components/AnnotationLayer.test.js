@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
@@ -66,7 +67,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -79,7 +80,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -92,7 +93,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'Test',
         type: 'gene',
-        span: Span.parse('20..40') // Fenced: start=20
+        span: parseSpan('20..40') // Fenced: start=20
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -107,7 +108,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'Test',
         type: 'gene',
-        span: Span.parse('10..30') // Fenced: start=10, end=30
+        span: parseSpan('10..30') // Fenced: start=10, end=30
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -127,7 +128,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'Long Gene',
         type: 'gene',
-        span: Span.parse('80..170') // 80-99 on line 0, 0-69 on line 1
+        span: parseSpan('80..170') // 80-99 on line 0, 0-69 on line 1
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -147,7 +148,7 @@ describe('AnnotationLayer', () => {
     it('positions line with one annotation at correct Y', () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50'), // Fenced: start=10
+        span: parseSpan('10..50'), // Fenced: start=10
         type: 'gene'
       })
 
@@ -166,8 +167,8 @@ describe('AnnotationLayer', () => {
 
     it('positions two non-overlapping annotations on same line', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', span: Span.parse('10..30'), type: 'gene' }),     // Fenced: 10..30
-        new Annotation({ id: 'ann2', span: Span.parse('50..70'), type: 'promoter' })  // Fenced: 50..70
+        new Annotation({ id: 'ann1', span: parseSpan('10..30'), type: 'gene' }),     // Fenced: 10..30
+        new Annotation({ id: 'ann2', span: parseSpan('50..70'), type: 'promoter' })  // Fenced: 50..70
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -190,8 +191,8 @@ describe('AnnotationLayer', () => {
 
     it('positions annotations across multiple lines correctly', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', span: Span.parse('10..30'), type: 'gene' }),      // line 0
-        new Annotation({ id: 'ann2', span: Span.parse('150..170'), type: 'promoter' }) // line 1
+        new Annotation({ id: 'ann1', span: parseSpan('10..30'), type: 'gene' }),      // line 0
+        new Annotation({ id: 'ann2', span: parseSpan('150..170'), type: 'promoter' }) // line 1
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -215,8 +216,8 @@ describe('AnnotationLayer', () => {
 
     it('handles two lines with one annotation on each', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', span: Span.parse('10..30'), type: 'gene' }),      // line 0
-        new Annotation({ id: 'ann2', span: Span.parse('110..130'), type: 'promoter' }) // line 1
+        new Annotation({ id: 'ann1', span: parseSpan('10..30'), type: 'gene' }),      // line 0
+        new Annotation({ id: 'ann2', span: parseSpan('110..130'), type: 'promoter' }) // line 1
       ]
 
       const wrapper = mountWithProviders({ annotations }, { sequenceLength: 200 })
@@ -236,7 +237,7 @@ describe('AnnotationLayer', () => {
 
     it('handles two lines with annotation only on second line', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', span: Span.parse('110..130'), type: 'gene' }) // Fenced: line 1
+        new Annotation({ id: 'ann1', span: parseSpan('110..130'), type: 'gene' }) // Fenced: line 1
       ]
 
       const wrapper = mountWithProviders({ annotations }, { sequenceLength: 200 })
@@ -256,8 +257,8 @@ describe('AnnotationLayer', () => {
 
     it('stacks overlapping annotations vertically', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', span: Span.parse('10..50'), type: 'gene' }),
-        new Annotation({ id: 'ann2', span: Span.parse('20..60'), type: 'promoter' }) // overlaps with ann1
+        new Annotation({ id: 'ann1', span: parseSpan('10..50'), type: 'gene' }),
+        new Annotation({ id: 'ann2', span: parseSpan('20..60'), type: 'promoter' }) // overlaps with ann1
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -277,9 +278,9 @@ describe('AnnotationLayer', () => {
   describe('multiple annotations', () => {
     it('renders all annotations', () => {
       const annotations = [
-        new Annotation({ id: 'ann1', span: Span.parse('10..30'), type: 'gene' }),
-        new Annotation({ id: 'ann2', span: Span.parse('40..60'), type: 'promoter' }),
-        new Annotation({ id: 'ann3', span: Span.parse('70..90'), type: 'terminator' })
+        new Annotation({ id: 'ann1', span: parseSpan('10..30'), type: 'gene' }),
+        new Annotation({ id: 'ann2', span: parseSpan('40..60'), type: 'promoter' }),
+        new Annotation({ id: 'ann3', span: parseSpan('70..90'), type: 'terminator' })
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -294,7 +295,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..60') // wide enough for caption
+        span: parseSpan('10..60') // wide enough for caption
       })
 
       const wrapper = mountWithProviders({
@@ -312,7 +313,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..60')
+        span: parseSpan('10..60')
       })
 
       const wrapper = mountWithProviders({
@@ -329,7 +330,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..13') // only 3 bases wide = 24px, too narrow
+        span: parseSpan('10..13') // only 3 bases wide = 24px, too narrow
       })
 
       const wrapper = mountWithProviders({
@@ -347,7 +348,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -359,7 +360,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('(10..50)') // minus strand
+        span: parseSpan('(10..50)') // minus strand
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -373,7 +374,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -387,7 +388,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'unknown_type',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -404,7 +405,7 @@ describe('AnnotationLayer', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -421,7 +422,7 @@ describe('AnnotationLayer', () => {
     it('emits contextmenu event', async () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -435,7 +436,7 @@ describe('AnnotationLayer', () => {
     it('emits hover events on mouse enter/leave', async () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -454,7 +455,7 @@ describe('AnnotationLayer', () => {
     it('positions annotations at line top so arrows extend above sequence', () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({
@@ -470,7 +471,7 @@ describe('AnnotationLayer', () => {
     it('uses composable height for arrow paths', () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({
@@ -491,7 +492,7 @@ describe('AnnotationLayer', () => {
     it('exposes fragments computed', () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -501,7 +502,7 @@ describe('AnnotationLayer', () => {
     it('exposes fragmentsByLine computed', () => {
       const annotation = new Annotation({
         id: 'ann1',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -514,7 +515,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('10..50')
+        span: parseSpan('10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -527,7 +528,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('<10..50')
+        span: parseSpan('<10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -545,7 +546,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('10..>50')
+        span: parseSpan('10..>50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -561,7 +562,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('<10..>50')
+        span: parseSpan('<10..>50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -578,7 +579,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('<10..50')
+        span: parseSpan('<10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -590,7 +591,7 @@ describe('AnnotationLayer', () => {
       const annotation = new Annotation({
         id: 'ann1',
         type: 'gene',
-        span: Span.parse('<10..50')
+        span: parseSpan('<10..50')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -605,7 +606,7 @@ describe('AnnotationLayer', () => {
 
 describe('coordination with TranslationLayer', () => {
     function createCdsAnnotation(id = 'cds1', spanStr = '0..30') {
-      return new Annotation({ id, caption: 'Test CDS', type: 'CDS', span: Span.parse(spanStr) })
+      return new Annotation({ id, caption: 'Test CDS', type: 'CDS', span: parseSpan(spanStr) })
     }
 
     it('CDS annotation reserves extra space when translation is visible', async () => {
@@ -643,7 +644,7 @@ describe('coordination with TranslationLayer', () => {
     })
 
     it('non-CDS annotations are not affected by translation visibility', async () => {
-      const gene = new Annotation({ id: 'gene1', caption: 'Test', type: 'gene', span: Span.parse('0..30') })
+      const gene = new Annotation({ id: 'gene1', caption: 'Test', type: 'gene', span: parseSpan('0..30') })
       await import('./TranslationLayer.vue')
 
       const wrapper = mountWithProviders({ annotations: [gene] }, { sequenceLength: 100 })
@@ -667,7 +668,7 @@ describe('coordination with TranslationLayer', () => {
       // Mount first instance with 'CDS' type
       const wrapper1 = mount(AnnotationLayer, {
         props: {
-          annotations: [new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') })],
+          annotations: [new Annotation({ id: 'ann1', type: 'CDS', span: parseSpan('10..50') })],
           mode: 'target'
         },
         global: globalConfig
@@ -681,7 +682,7 @@ describe('coordination with TranslationLayer', () => {
       // Mount second instance with 'promoter' type (different type)
       const wrapper2 = mount(AnnotationLayer, {
         props: {
-          annotations: [new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..100') })],
+          annotations: [new Annotation({ id: 'ann2', type: 'promoter', span: parseSpan('60..100') })],
           mode: 'query'
         },
         global: globalConfig
@@ -708,8 +709,8 @@ describe('coordination with TranslationLayer', () => {
 
     it('includes type-filter when annotations exist (single instance)', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') }),
-        new Annotation({ id: 'ann2', type: 'gene', span: Span.parse('60..100') })
+        new Annotation({ id: 'ann1', type: 'CDS', span: parseSpan('10..50') }),
+        new Annotation({ id: 'ann2', type: 'gene', span: parseSpan('60..100') })
       ]
 
       const wrapper = mountWithProviders({ annotations })
@@ -727,8 +728,8 @@ describe('coordination with TranslationLayer', () => {
     it('includes type-filter when multiple instances exist (alignment mode)', async () => {
       // Simulate alignment mode: two AnnotationLayers mounted with same annotations
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..100') })
+        new Annotation({ id: 'ann1', type: 'CDS', span: parseSpan('10..50') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: parseSpan('60..100') })
       ]
 
       const { editorState, graphics } = createMockProviders()

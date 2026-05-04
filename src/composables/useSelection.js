@@ -8,7 +8,7 @@ import { GraphicsSpan } from './useGraphics.js'
  */
 export class SelectionDomain {
   /**
-   * @param {string|Range[]|Span} spec - Domain specification (0-based fenced coordinates)
+   * @param {Range[]|Span} spec - Domain specification (0-based fenced coordinates)
    */
   constructor(spec) {
     if (!spec) {
@@ -19,9 +19,6 @@ export class SelectionDomain {
     } else if (spec instanceof Span) {
       // Deep copy ranges to avoid mutating originals
       this.ranges = spec.ranges.map(r => new Range(r.start, r.end, r.orientation))
-    } else if (typeof spec === 'string') {
-      const span = Span.parse(spec)
-      this.ranges = span.ranges
     } else if (spec.ranges && Array.isArray(spec.ranges)) {
       // Plain object with ranges property (e.g., from JSON or annotation.span)
       this.ranges = spec.ranges.map(r => new Range(r.start, r.end, r.orientation))
@@ -178,7 +175,7 @@ export function useSelection(editorState, graphics, eventBus) {
 
   /**
    * Select from a domain specification.
-   * @param {string|SelectionDomain} spec
+   * @param {Span|Range[]|SelectionDomain} spec
    */
   function select(spec) {
     unselect()

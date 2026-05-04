@@ -2,7 +2,7 @@
 import { ref, inject, computed, watch } from 'vue'
 import { orfFinderVisible } from './state.js'
 import { CODON_TABLE, START_CODONS } from '../../utils/translation.js'
-import { reverseComplement, Span } from '../../utils/dna.js'
+import { reverseComplement, Span, Range, Orientation } from '../../utils/dna.js'
 
 const extensionAPI = inject('extensionAPI')
 
@@ -256,9 +256,7 @@ function confirmCreateCDS() {
   if (!orf || !name) return
 
   extensionAPI.addAnnotation({
-    span: Span.parse(orf.strand === '-'
-      ? `(${orf.start}..${orf.end})`
-      : `${orf.start}..${orf.end}`),
+    span: new Span([new Range(orf.start, orf.end, orf.strand === '-' ? Orientation.MINUS : Orientation.PLUS)]),
     type: 'CDS',
     caption: name
   })
