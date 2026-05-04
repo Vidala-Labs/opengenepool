@@ -11,6 +11,7 @@ _setTranslationShowRef(showTranslation)
 let instanceCount = 0
 const hasCdsAnnotations = ref(false)
 
+// Is CDS type visible in AnnotationLayer?
 const cdsTypeVisible = computed(() => {
   return showAnnotations.value && !hiddenTypes.value.has('CDS')
 })

@@ -603,7 +603,7 @@ describe('AnnotationLayer', () => {
     })
   })
 
-  describe('coordination with TranslationLayer', () => {
+describe('coordination with TranslationLayer', () => {
     function createCdsAnnotation(id = 'cds1', spanStr = '0..30') {
       return new Annotation({ id, caption: 'Test CDS', type: 'CDS', span: Span.parse(spanStr) })
     }
@@ -652,6 +652,68 @@ describe('AnnotationLayer', () => {
 
       const transform = fragment.attributes('transform')
       expect(transform).toBe('translate(0, 0)')
+    })
+  })
+
+  describe('configItems', () => {
+    it('includes type-filter when annotations exist (single instance)', async () => {
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') }),
+        new Annotation({ id: 'ann2', type: 'gene', span: Span.parse('60..100') })
+      ]
+
+      const wrapper = mountWithProviders({ annotations })
+      await nextTick()
+
+      const configItems = wrapper.vm.configItems
+      expect(configItems.length).toBe(2)
+      expect(configItems[0].type).toBe('toggle')
+      expect(configItems[0].label).toBe('Annotations')
+      expect(configItems[1].type).toBe('type-filter')
+      expect(configItems[1].types).toContain('CDS')
+      expect(configItems[1].types).toContain('gene')
+    })
+
+    it('includes type-filter when multiple instances exist (alignment mode)', async () => {
+      // Simulate alignment mode: two AnnotationLayers mounted with same annotations
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..100') })
+      ]
+
+      const { editorState, graphics } = createMockProviders()
+      const globalConfig = {
+        provide: { editorState, graphics }
+      }
+
+      // Mount first instance (target)
+      const wrapper1 = mount(AnnotationLayer, {
+        props: { annotations, mode: 'target' },
+        global: globalConfig
+      })
+
+      // Mount second instance (query)
+      const wrapper2 = mount(AnnotationLayer, {
+        props: { annotations, mode: 'query' },
+        global: globalConfig
+      })
+
+      await nextTick()
+
+      // First instance should publish configItems with type-filter
+      const configItems = wrapper1.vm.configItems
+      expect(configItems.length).toBe(2)
+      expect(configItems[0].type).toBe('toggle')
+      expect(configItems[1].type).toBe('type-filter')
+      expect(configItems[1].types).toContain('CDS')
+      expect(configItems[1].types).toContain('promoter')
+
+      // Second instance should return empty (only first publishes)
+      expect(wrapper2.vm.configItems).toHaveLength(0)
+
+      // Cleanup
+      wrapper1.unmount()
+      wrapper2.unmount()
     })
   })
 })

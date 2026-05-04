@@ -17,6 +17,7 @@ function isTranslationEffectivelyVisible() {
   return translationShowRef.value
 }
 
+// Load hidden types from localStorage
 function loadHiddenTypes() {
   try {
     const stored = localStorage.getItem(HIDDEN_TYPES_STORAGE_KEY)
@@ -74,8 +75,10 @@ const moduleConfigItems = computed(() => {
   return items
 })
 
+// Export for TranslationLayer coordination
 export { showAnnotations, hiddenTypes }
 
+// Reset function for testing - resets module-level state
 export function __resetModuleState() {
   showAnnotations.value = true
   hiddenTypes.value = new Set()
@@ -202,7 +205,10 @@ function getTypeColor(type) {
 const instanceTypes = computed(() => new Set(props.annotations.map(a => a.type || 'misc_feature')))
 
 watch(instanceTypes, (newTypes) => {
-  for (const type of newTypes) allAnnotationTypes.value.add(type)
+  // Create new Set to trigger reactivity (mutation doesn't trigger Vue updates)
+  const mergedSet = new Set(allAnnotationTypes.value)
+  for (const type of newTypes) mergedSet.add(type)
+  allAnnotationTypes.value = mergedSet
 }, { immediate: true })
 
 // Filter annotations based on hiddenTypes
@@ -212,7 +218,7 @@ const visibleAnnotations = computed(() => {
 })
 
 // Use annotations composable for layout calculations
-// Pass showTranslation using coordinated visibility
+// Pass showTranslation using coordinated visibility from TranslationLayer
 const showTranslationRef = computed(() => isTranslationEffectivelyVisible())
 const stackDirectionRef = computed(() => props.stackDirection)
 // In alignment mode, skip line height management to avoid infinite reactive loops
