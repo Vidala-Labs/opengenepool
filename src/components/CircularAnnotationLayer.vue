@@ -1,6 +1,7 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useCircularAnnotations } from '../composables/useCircularAnnotations.js'
+import { showAnnotations, hiddenTypes, allAnnotationTypes, moduleConfigItems } from './AnnotationLayer.vue'
 
 const props = defineProps({
   /** Array of Annotation objects to render */
@@ -21,8 +22,45 @@ const emit = defineEmits(['click', 'contextmenu', 'hover'])
 const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const annotationColors = inject('annotationColors', null)
-const showAnnotations = inject('showAnnotations', ref(true))
 const eventBus = inject('eventBus', null)
+
+// Track instance for first-instance config items (like AnnotationLayer)
+let isFirstInstance = false
+let instanceId = null
+
+onMounted(() => {
+  // Register this instance and track if it's first
+  instanceId = Symbol('circular-annotation-layer')
+  if (!window.__circularAnnotationLayerFirst) {
+    window.__circularAnnotationLayerFirst = instanceId
+    isFirstInstance = true
+  }
+
+  // Register annotation types from our props
+  registerAnnotationTypes()
+})
+
+onUnmounted(() => {
+  // Clear first instance tracking if we were first
+  if (window.__circularAnnotationLayerFirst === instanceId) {
+    window.__circularAnnotationLayerFirst = null
+  }
+})
+
+// Register annotation types in the shared allAnnotationTypes set
+function registerAnnotationTypes() {
+  const types = new Set(props.annotations.map(a => a.type || 'misc_feature'))
+  types.forEach(t => allAnnotationTypes.value.add(t))
+}
+
+// Watch for annotation changes and register new types
+watch(() => props.annotations, registerAnnotationTypes, { deep: true })
+
+// Filter annotations based on hiddenTypes (shared with AnnotationLayer)
+const filteredAnnotations = computed(() => {
+  if (!showAnnotations.value) return []
+  return props.annotations.filter(a => !hiddenTypes.value.has(a.type || 'misc_feature'))
+})
 
 // Use the circular annotations composable
 const circularAnnotations = useCircularAnnotations(
@@ -32,10 +70,10 @@ const circularAnnotations = useCircularAnnotations(
   { annotationColors }
 )
 
-// Sync props.annotations to composable
-// Using a computed that updates the composable when props change
+// Sync filtered annotations to composable
+// Using a computed that updates the composable when filtered annotations change
 const annotationElements = computed(() => {
-  circularAnnotations.setAnnotations(props.annotations)
+  circularAnnotations.setAnnotations(filteredAnnotations.value)
   return circularAnnotations.getElements.value
 })
 
@@ -127,10 +165,18 @@ function getMenuItemsForElement(dataset) {
   ]
 }
 
-// Expose for click routing and context menu integration
+// Config items for Toolbar (shared with AnnotationLayer)
+// Only provide if we're the first instance to avoid duplicates
+const configItems = computed(() => {
+  if (!isFirstInstance) return []
+  return moduleConfigItems.value
+})
+
+// Expose for click routing, context menu integration, and config
 defineExpose({
   handleClickForElement,
-  getMenuItemsForElement
+  getMenuItemsForElement,
+  configItems
 })
 </script>
 

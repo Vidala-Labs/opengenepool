@@ -75,8 +75,8 @@ const moduleConfigItems = computed(() => {
   return items
 })
 
-// Export for TranslationLayer coordination
-export { showAnnotations, hiddenTypes, allAnnotationTypes }
+// Export for TranslationLayer coordination and CircularAnnotationLayer sharing
+export { showAnnotations, hiddenTypes, allAnnotationTypes, moduleConfigItems }
 
 // Reset function for testing - resets module-level state
 export function __resetModuleState() {

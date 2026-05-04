@@ -572,13 +572,23 @@ const configPanelOpen = ref(false)
 // Refs to layer components
 const annotationLayerRef = ref(null)
 const translationLayerRef = ref(null)
+const circularViewRef = ref(null)
 const sequenceLayerRef = ref(null)
 
 // Collect config items from layers for Toolbar
-const collectedConfigItems = computed(() => [
-  ...(annotationLayerRef.value?.configItems ?? []),
-  ...(translationLayerRef.value?.configItems ?? [])
-])
+// In circular mode, collect from CircularView; in linear mode, from linear layers
+const collectedConfigItems = computed(() => {
+  if (viewMode.value === 'circular') {
+    return [
+      ...(circularViewRef.value?.configItems ?? []),
+      ...(translationLayerRef.value?.configItems ?? [])
+    ]
+  }
+  return [
+    ...(annotationLayerRef.value?.configItems ?? []),
+    ...(translationLayerRef.value?.configItems ?? [])
+  ]
+})
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
@@ -2428,6 +2438,7 @@ const toolbarHelpText = `Selection Controls:
         @paste.prevent
       >
         <CircularView
+          ref="circularViewRef"
           :annotations="annotationInstances"
           :show-annotation-captions="showAnnotationCaptions"
           :extensions="props.extensions"
