@@ -8,7 +8,7 @@ import { GraphicsSpan } from './useGraphics.js'
  */
 export class SelectionDomain {
   /**
-   * @param {string|Range[]|Span} spec - Domain specification (0-based fenced coordinates)
+   * @param {Range[]|Span} spec - Domain specification (0-based fenced coordinates)
    */
   constructor(spec) {
     if (!spec) {
@@ -19,9 +19,6 @@ export class SelectionDomain {
     } else if (spec instanceof Span) {
       // Deep copy ranges to avoid mutating originals
       this.ranges = spec.ranges.map(r => new Range(r.start, r.end, r.orientation))
-    } else if (typeof spec === 'string') {
-      const span = Span.parse(spec)
-      this.ranges = span.ranges
     } else if (spec.ranges && Array.isArray(spec.ranges)) {
       // Plain object with ranges property (e.g., from JSON or annotation.span)
       this.ranges = spec.ranges.map(r => new Range(r.start, r.end, r.orientation))
@@ -95,6 +92,7 @@ export function useSelection(editorState, graphics, eventBus) {
   // Selection state
   const isSelected = ref(false)
   const domain = ref(null)
+  const source = ref(null)  // 'target' | 'query' | null - which sequence the selection is from
 
   // Drag state
   const anchor = ref(0)
@@ -106,13 +104,15 @@ export function useSelection(editorState, graphics, eventBus) {
    * Create a new selection at position.
    * @param {number} pos - Position to start selection
    * @param {boolean} extend - Whether to extend existing selection
+   * @param {string|null} selectionSource - Which sequence: 'target', 'query', or null
    */
-  function startSelection(pos, extend = false) {
+  function startSelection(pos, extend = false, selectionSource = null) {
     if (!isSelected.value || !extend) {
       // New selection
       unselect()
-      domain.value = new SelectionDomain(`${pos}..${pos}`)
+      domain.value = new SelectionDomain([new Range(pos, pos, Orientation.NONE)])
       isSelected.value = true
+      source.value = selectionSource
     } else if (domain.value.contains(pos)) {
       // Clicked inside existing selection, do nothing
       return
@@ -175,7 +175,7 @@ export function useSelection(editorState, graphics, eventBus) {
 
   /**
    * Select from a domain specification.
-   * @param {string|SelectionDomain} spec
+   * @param {Span|Range[]|SelectionDomain} spec
    */
   function select(spec) {
     unselect()
@@ -195,6 +195,7 @@ export function useSelection(editorState, graphics, eventBus) {
   function unselect() {
     isSelected.value = false
     domain.value = null
+    source.value = null
     isDragging.value = false
   }
 
@@ -202,7 +203,7 @@ export function useSelection(editorState, graphics, eventBus) {
    * Select the entire sequence.
    */
   function selectAll() {
-    select(`0..${editorState.sequenceLength.value}`)
+    select([new Range(0, editorState.sequenceLength.value, Orientation.NONE)])
   }
 
   /**
@@ -613,6 +614,7 @@ export function useSelection(editorState, graphics, eventBus) {
     // State
     isSelected,
     domain,
+    source,
     isDragging,
     anchor,
 

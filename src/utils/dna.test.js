@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import {
   reverseComplement,
@@ -87,42 +88,42 @@ describe('Range', () => {
 
   describe('parse', () => {
     it('parses fenced range notation', () => {
-      const range = Range.parse('10..20')
+      const range = parseRange('10..20')
       expect(range.start).toBe(10)
       expect(range.end).toBe(20)
       expect(range.orientation).toBe(Orientation.PLUS)
     })
 
     it('parses cursor position (start equals end)', () => {
-      const range = Range.parse('15..15')
+      const range = parseRange('15..15')
       expect(range.start).toBe(15)
       expect(range.end).toBe(15)
       expect(range.length).toBe(0)
     })
 
     it('parses single number as cursor position', () => {
-      const range = Range.parse('15')
+      const range = parseRange('15')
       expect(range.start).toBe(15)
       expect(range.end).toBe(15)
       expect(range.length).toBe(0)
     })
 
     it('parses minus strand notation with parentheses', () => {
-      const range = Range.parse('(10..20)')
+      const range = parseRange('(10..20)')
       expect(range.start).toBe(10)
       expect(range.end).toBe(20)
       expect(range.orientation).toBe(Orientation.MINUS)
     })
 
     it('parses unoriented notation with brackets', () => {
-      const range = Range.parse('[10..20]')
+      const range = parseRange('[10..20]')
       expect(range.start).toBe(10)
       expect(range.end).toBe(20)
       expect(range.orientation).toBe(Orientation.NONE)
     })
 
     it('handles whitespace', () => {
-      const range = Range.parse('  10..20  ')
+      const range = parseRange('  10..20  ')
       expect(range.start).toBe(10)
       expect(range.end).toBe(20)
     })
@@ -130,7 +131,7 @@ describe('Range', () => {
     // Document fenced coordinate semantics
     it('correctly represents full sequence selection', () => {
       // For a sequence of length 100, full selection is 0..100
-      const range = Range.parse('0..100')
+      const range = parseRange('0..100')
       expect(range.start).toBe(0)
       expect(range.end).toBe(100)
       expect(range.length).toBe(100)
@@ -138,12 +139,12 @@ describe('Range', () => {
 
     it('correctly represents single base selection', () => {
       // First base is 0..1, second base is 1..2, etc.
-      const first = Range.parse('0..1')
+      const first = parseRange('0..1')
       expect(first.length).toBe(1)
       expect(first.contains(0)).toBe(true)
       expect(first.contains(1)).toBe(false)
 
-      const second = Range.parse('1..2')
+      const second = parseRange('1..2')
       expect(second.length).toBe(1)
       expect(second.contains(0)).toBe(false)
       expect(second.contains(1)).toBe(true)
@@ -229,21 +230,21 @@ describe('Range', () => {
     })
   })
 
-  describe('toString', () => {
+  describe('toFencedString', () => {
     it('formats plus strand ranges', () => {
-      expect(new Range(10, 20).toString()).toBe('10..20')
+      expect(new Range(10, 20).toFencedString()).toBe('10..20')
     })
 
     it('formats minus strand ranges with parentheses', () => {
-      expect(new Range(10, 20, Orientation.MINUS).toString()).toBe('(10..20)')
+      expect(new Range(10, 20, Orientation.MINUS).toFencedString()).toBe('(10..20)')
     })
 
     it('formats unoriented ranges with brackets', () => {
-      expect(new Range(10, 20, Orientation.NONE).toString()).toBe('[10..20]')
+      expect(new Range(10, 20, Orientation.NONE).toFencedString()).toBe('[10..20]')
     })
 
     it('formats single positions', () => {
-      expect(new Range(15, 15).toString()).toBe('15')
+      expect(new Range(15, 15).toFencedString()).toBe('15')
     })
   })
 
@@ -277,6 +278,12 @@ describe('Range', () => {
     })
   })
 
+  describe('toJSON', () => {
+    it('serializes to fenced coordinate notation', () => {
+      expect(new Range(10, 20, Orientation.MINUS).toJSON()).toBe('(10..20)')
+    })
+  })
+
   describe('indefinite locations', () => {
     describe('constructor', () => {
       it('defaults indefinite flags to false', () => {
@@ -294,7 +301,7 @@ describe('Range', () => {
 
     describe('parse', () => {
       it('parses start indefinite marker (<)', () => {
-        const range = Range.parse('<10..20')
+        const range = parseRange('<10..20')
         expect(range.start).toBe(10)
         expect(range.end).toBe(20)
         expect(range.startIndefinite).toBe(true)
@@ -302,7 +309,7 @@ describe('Range', () => {
       })
 
       it('parses end indefinite marker (>)', () => {
-        const range = Range.parse('10..>20')
+        const range = parseRange('10..>20')
         expect(range.start).toBe(10)
         expect(range.end).toBe(20)
         expect(range.startIndefinite).toBe(false)
@@ -310,7 +317,7 @@ describe('Range', () => {
       })
 
       it('parses both indefinite markers', () => {
-        const range = Range.parse('<10..>20')
+        const range = parseRange('<10..>20')
         expect(range.start).toBe(10)
         expect(range.end).toBe(20)
         expect(range.startIndefinite).toBe(true)
@@ -318,7 +325,7 @@ describe('Range', () => {
       })
 
       it('parses indefinite with minus strand', () => {
-        const range = Range.parse('(<10..>20)')
+        const range = parseRange('(<10..>20)')
         expect(range.start).toBe(10)
         expect(range.end).toBe(20)
         expect(range.orientation).toBe(Orientation.MINUS)
@@ -327,37 +334,37 @@ describe('Range', () => {
       })
 
       it('parses indefinite with unoriented notation', () => {
-        const range = Range.parse('[<10..>20]')
+        const range = parseRange('[<10..>20]')
         expect(range.orientation).toBe(Orientation.NONE)
         expect(range.startIndefinite).toBe(true)
         expect(range.endIndefinite).toBe(true)
       })
     })
 
-    describe('toString', () => {
+    describe('toFencedString', () => {
       it('formats start indefinite', () => {
         const range = new Range(10, 20, Orientation.PLUS, true, false)
-        expect(range.toString()).toBe('<10..20')
+        expect(range.toFencedString()).toBe('<10..20')
       })
 
       it('formats end indefinite', () => {
         const range = new Range(10, 20, Orientation.PLUS, false, true)
-        expect(range.toString()).toBe('10..>20')
+        expect(range.toFencedString()).toBe('10..>20')
       })
 
       it('formats both indefinite', () => {
         const range = new Range(10, 20, Orientation.PLUS, true, true)
-        expect(range.toString()).toBe('<10..>20')
+        expect(range.toFencedString()).toBe('<10..>20')
       })
 
       it('formats indefinite with minus strand', () => {
         const range = new Range(10, 20, Orientation.MINUS, true, true)
-        expect(range.toString()).toBe('(<10..>20)')
+        expect(range.toFencedString()).toBe('(<10..>20)')
       })
 
       it('formats indefinite with unoriented notation', () => {
         const range = new Range(10, 20, Orientation.NONE, true, true)
-        expect(range.toString()).toBe('[<10..>20]')
+        expect(range.toFencedString()).toBe('[<10..>20]')
       })
     })
 
@@ -392,7 +399,7 @@ describe('Range', () => {
           '[<10..>20]'
         ]
         for (const str of tests) {
-          expect(Range.parse(str).toString()).toBe(str)
+          expect(parseRange(str).toFencedString()).toBe(str)
         }
       })
     })
@@ -415,14 +422,14 @@ describe('Span', () => {
 
   describe('parse', () => {
     it('parses single fenced range', () => {
-      const span = Span.parse('10..20')
+      const span = parseSpan('10..20')
       expect(span.length).toBe(1)
       expect(span.ranges[0].start).toBe(10)
       expect(span.ranges[0].end).toBe(20)
     })
 
     it('parses multiple ranges joined with +', () => {
-      const span = Span.parse('10..20 + 30..40')
+      const span = parseSpan('10..20 + 30..40')
       expect(span.length).toBe(2)
       expect(span.ranges[0].start).toBe(10)
       expect(span.ranges[0].end).toBe(20)
@@ -431,7 +438,7 @@ describe('Span', () => {
     })
 
     it('parses mixed orientations', () => {
-      const span = Span.parse('0..10 + (20..30)')
+      const span = parseSpan('0..10 + (20..30)')
       expect(span.length).toBe(2)
       expect(span.ranges[0].orientation).toBe(Orientation.PLUS)
       expect(span.ranges[1].orientation).toBe(Orientation.MINUS)
@@ -533,12 +540,19 @@ describe('Span', () => {
       expect(span.toGenBank()).toBe('join(2456..2916,2985..3681,3745..4132)')
     })
   })
+
+  describe('toJSON', () => {
+    it('serializes to fenced coordinate notation', () => {
+      const span = new Span([new Range(10, 20), new Range(30, 40, Orientation.MINUS)])
+      expect(span.toJSON()).toBe('10..20 + (30..40)')
+    })
+  })
 })
 
 describe('iterateSequence', () => {
   describe('plus strand', () => {
     it('yields bases low to high for single range', () => {
-      const span = Span.parse('0..6')
+      const span = parseSpan('0..6')
       const sequence = 'ATGAAA'
 
       const bases = [...iterateSequence(span, sequence)]
@@ -550,7 +564,7 @@ describe('iterateSequence', () => {
     })
 
     it('yields bases in range order for multi-range', () => {
-      const span = Span.parse('0..3 + 6..9')
+      const span = parseSpan('0..3 + 6..9')
       const sequence = 'ATGXXXTAA'
 
       const bases = [...iterateSequence(span, sequence)]
@@ -562,7 +576,7 @@ describe('iterateSequence', () => {
 
   describe('minus strand', () => {
     it('yields complemented bases high to low for single range', () => {
-      const span = Span.parse('(0..6)')
+      const span = parseSpan('(0..6)')
       const sequence = 'ATGAAA'
 
       const bases = [...iterateSequence(span, sequence)]
@@ -575,7 +589,7 @@ describe('iterateSequence', () => {
     })
 
     it('yields complemented bases in reversed range order for multi-range', () => {
-      const span = Span.parse('(0..2) + (5..9)')
+      const span = parseSpan('(0..2) + (5..9)')
       const sequence = 'ATXXXXGTAA'
 
       const bases = [...iterateSequence(span, sequence)]
@@ -589,7 +603,7 @@ describe('iterateSequence', () => {
     })
 
     it('handles three ranges in scrambled order', () => {
-      const span = Span.parse('(4..6) + (0..2) + (8..10)')
+      const span = parseSpan('(4..6) + (0..2) + (8..10)')
       const sequence = 'ATXXCGXXTA'
 
       const bases = [...iterateSequence(span, sequence)]
@@ -606,7 +620,7 @@ describe('iterateSequence', () => {
 
   describe('mixed strand', () => {
     it('handles mixed plus and minus ranges', () => {
-      const span = Span.parse('1..4 + (6..10)')
+      const span = parseSpan('1..4 + (6..10)')
       const sequence = 'XATGXXCATG'
 
       const bases = [...iterateSequence(span, sequence)]

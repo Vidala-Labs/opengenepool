@@ -1,45 +1,41 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, provide, watch, nextTick } from 'vue'
+import { ref, shallowRef, computed, markRaw, onMounted, onUnmounted, provide, watch, watchEffect, nextTick } from 'vue'
 import { useEditorState } from '../composables/useEditorState.js'
 import { useGraphics } from '../composables/useGraphics.js'
 import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
+import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
-import { InformationCircleIcon, Cog6ToothIcon, QuestionMarkCircleIcon, CheckIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import AnnotationLayer from './AnnotationLayer.vue'
 import TranslationLayer from './TranslationLayer.vue'
 import SelectionLayer from './SelectionLayer.vue'
 import CircularView from './CircularView.vue'
 import ContextMenu from './ContextMenu.vue'
 import InsertModal from './InsertModal.vue'
-import MetadataModal from './MetadataModal.vue'
 import AnnotationModal from './AnnotationModal.vue'
 import ExtendModal from './ExtendModal.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import SequenceLayer from './SequenceLayer.vue'
+import Toolbar from './Toolbar.vue'
+import Indicator from './Indicator.vue'
 
 const props = defineProps({
-  /** DNA sequence string to display */
+  /**
+   * SequenceDocument instance to edit.
+   * For alignment mode, use the separate AlignmentEditor component instead.
+   */
   sequence: {
-    type: String,
-    default: ''
-  },
-  /** Title for the sequence */
-  title: {
-    type: String,
-    default: ''
+    type: [Object, SequenceDocument],
+    default: null
   },
   /** Initial zoom level (bases per line) */
   initialZoom: {
     type: Number,
     default: 100
-  },
-  /** Array of Annotation objects to display */
-  annotations: {
-    type: Array,
-    default: () => []
   },
   /** Whether to show annotation captions */
   showAnnotationCaptions: {
@@ -51,13 +47,12 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Sequence metadata (molecule_type, definition, etc.) */
-  metadata: {
-    type: Object,
-    default: () => ({})
-  },
-  /** Backend adapter for server communication (LiveView, IndexedDB, etc.) */
-  backend: {
+  /**
+   * Clipboard backend for copy/paste operations.
+   * Document-level operations (insert/delete/annotations) should use the
+   * backend passed to SequenceDocument when creating it.
+   */
+  clipboardBackend: {
     type: Object,
     default: null
   },
@@ -84,9 +79,30 @@ const emit = defineEmits([
   'annotations-update'
 ])
 
-// Effective backend - returns null when readonly to prevent any edits
-// This is a safety measure in addition to UI disabling
-const effectiveBackend = computed(() => props.readonly ? null : props.backend)
+// Effective clipboard backend - returns null when readonly to prevent copy/paste
+// For document edits, use targetDoc methods which call the document's backend
+const effectiveClipboardBackend = computed(() => props.readonly ? null : props.clipboardBackend)
+const { copyText, readText } = useClipboard(effectiveClipboardBackend)
+const renderExtensions = shallowRef([])
+watchEffect(() => {
+  renderExtensions.value = props.extensions.map(ext => markRaw({
+    ...ext,
+    toolbarButton: ext.toolbarButton ? markRaw(ext.toolbarButton) : null,
+    graphicsLayer: ext.graphicsLayer ? markRaw(ext.graphicsLayer) : null,
+    panel: ext.panel ? markRaw(ext.panel) : null
+  }))
+})
+
+// ============================================
+// Document Access Computed Properties
+// ============================================
+
+// Target document (the sequence being viewed/edited)
+// Note: For alignment mode, use the separate AlignmentEditor component
+const targetDoc = computed(() => props.sequence)
+
+// Is the sequence circular? (from target document)
+const isCircular = computed(() => targetDoc.value?.circular ?? false)
 
 // Default Tm calculator - uses built-in SantaLucia 1998 method
 // Returns display string (e.g., "Tm: 58.2°C") or null to hide
@@ -130,7 +146,7 @@ const affectedAnnotationCount = computed(() => {
 
   let count = 0
   for (const ann of localAnnotations.value) {
-    const span = Span.parse(ann.span)
+    const span = ann.span
     for (const range of span.ranges) {
       const intersects = range.end > selStart && range.start < selEnd
       const contains = range.start <= selStart && range.end >= selEnd
@@ -153,8 +169,8 @@ const touchingAnnotations = computed(() => {
 
   const result = []
   for (const ann of localAnnotations.value) {
-    if (!ann.span || typeof ann.span !== 'string') continue
-    const span = Span.parse(ann.span)
+    if (!ann.span) continue
+    const span = ann.span
     const name = ann.caption || ann.type || ann.id
     const type = ann.type || 'feature'
 
@@ -218,10 +234,10 @@ const extendModalMaxBases = computed(() => {
   const range = domain.ranges[extendModalRangeIndex.value]
   const seqLen = editorState.sequenceLength.value
   const direction = extendModalDirection.value
-  const isCircular = props.metadata?.circular === true
+  const docIsCircular = isCircular.value
 
   if (direction === 'negative') {
-    if (isCircular) {
+    if (docIsCircular) {
       // Circular: can wrap around, limited by nearest range end (going backwards)
       // Start from range.start, go backwards wrapping at 0 to seqLen
       let limit = seqLen  // max possible (full circle minus current selection)
@@ -256,7 +272,7 @@ const extendModalMaxBases = computed(() => {
       return limit
     }
   } else {
-    if (isCircular) {
+    if (docIsCircular) {
       // Circular: can wrap around, limited by nearest range start (going forwards)
       let limit = seqLen  // max possible (full circle minus current selection)
 
@@ -292,17 +308,12 @@ const extendModalMaxBases = computed(() => {
   }
 })
 
-// Title editing state
-const editingTitle = ref(false)
-const editTitleValue = ref('')
-const titleInputRef = ref(null)
-
 // View mode state ('linear' | 'circular')
 // Only circular sequences can switch to circular view
 const viewMode = ref('linear')
 
 // Computed: whether to show the view mode toggle
-const showViewModeToggle = computed(() => props.metadata?.circular === true)
+const showViewModeToggle = computed(() => isCircular.value)
 
 // Initialize composables
 const editorState = useEditorState()
@@ -311,6 +322,10 @@ const eventBus = createEventBus()
 
 // Selection is owned here and provided to children (single source of truth)
 const selection = useSelection(editorState, graphics, eventBus)
+
+// Local copy of annotations for optimistic UI updates
+// This allows us to adjust annotation positions locally before server confirmation
+const localAnnotations = computed(() => targetDoc.value?.annotations ?? [])
 
 // Helper to convert a range to GenBank notation (1-based)
 function rangeToGenBank(range) {
@@ -329,7 +344,7 @@ function rangeToGenBank(range) {
   return baseStr
 }
 
-// Computed property for selection status text displayed in lower right corner
+// Computed property for selection status text displayed in the indicator
 const selectionStatusText = computed(() => {
   if (!selection.isSelected.value || !selection.domain.value) {
     return null
@@ -412,30 +427,14 @@ watch(editorState.zoomLevel, (newZoom) => {
   saveZoom(newZoom)
 })
 
-// Watch for sequence prop changes to initialize/update the editor
-watch(() => props.sequence, (newSeq) => {
-  if (newSeq) {
-    editorState.setSequence(newSeq, props.title)
+// Watch for document changes to initialize/update the editor
+watch(() => targetDoc.value?.sequence, (newSeq) => {
+  if (newSeq !== undefined) {
+    editorState.setSequence(newSeq, '')  // Title is now provided via slot
     // Re-apply persisted zoom now that sequence is loaded (setZoom clamps based on length)
     editorState.setZoom(getInitialZoom())
   }
 }, { immediate: true })
-
-// Watch for title changes
-watch(() => props.title, (newTitle) => {
-  if (editorState.sequence.value) {
-    editorState.title.value = newTitle
-  }
-})
-
-// Local copy of annotations for optimistic UI updates
-// This allows us to adjust annotation positions locally before server confirmation
-const localAnnotations = ref([...props.annotations])
-
-// Watch for annotation prop changes (from server)
-watch(() => props.annotations, (newAnnotations) => {
-  localAnnotations.value = [...newAnnotations]
-}, { deep: true })
 
 // Annotation filtering state with localStorage persistence
 const HIDDEN_TYPES_KEY = 'opengenepool-hidden-annotation-types'
@@ -487,7 +486,7 @@ function getOverlappingAnnotations(selectionRanges) {
   })
 
   for (const ann of localAnnotations.value) {
-    const annSpan = typeof ann.span === 'string' ? Span.parse(ann.span) : ann.span
+    const annSpan = ann.span
     if (!annSpan || !annSpan.ranges) continue
 
     // Check each annotation range against each selection range
@@ -563,6 +562,9 @@ const DEFAULT_ANNOTATION_COLORS = {
   protein_bind: '#795548',   // brown
   regulatory: '#FFEB3B',     // yellow
   source: '#B0BEC5',         // light blue-gray
+  mutation: '#F44336',       // red (alignment diff)
+  insertion: '#FFEB3B',      // yellow (alignment diff)
+  deletion: '#FFEB3B',       // yellow (alignment diff)
   _default: '#607D8B'        // default blue-gray for unknown types
 }
 
@@ -609,6 +611,7 @@ const showTranslation = ref(true)
 // Refs to layer components
 const annotationLayerRef = ref(null)
 const translationLayerRef = ref(null)
+const sequenceLayerRef = ref(null)
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
@@ -648,62 +651,6 @@ const cdsAnnotations = computed(() => {
   return annotationInstances.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
 })
 
-// Metadata display helpers
-const hasMetadata = computed(() => {
-  const m = props.metadata
-  return m && (m.molecule_type || m.definition)
-})
-
-const metadataModalOpen = ref(false)
-
-function openMetadataModal() {
-  metadataModalOpen.value = true
-}
-
-function closeMetadataModal() {
-  metadataModalOpen.value = false
-}
-
-// Title editing
-function startEditingTitle() {
-  if (props.readonly) return
-  editTitleValue.value = editorState.title.value || ''
-  editingTitle.value = true
-  // Focus input after DOM update
-  nextTick(() => {
-    titleInputRef.value?.focus()
-    titleInputRef.value?.select()
-  })
-}
-
-function cancelEditingTitle() {
-  editingTitle.value = false
-  editTitleValue.value = ''
-}
-
-function confirmEditingTitle() {
-  const newTitle = editTitleValue.value.trim()
-  if (newTitle && newTitle !== editorState.title.value) {
-    editorState.title.value = newTitle
-    effectiveBackend.value?.titleUpdate?.({
-      id: crypto.randomUUID(),
-      title: newTitle
-    })
-  }
-  editingTitle.value = false
-  editTitleValue.value = ''
-}
-
-function handleTitleKeydown(event) {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    confirmEditingTitle()
-  } else if (event.key === 'Escape') {
-    event.preventDefault()
-    cancelEditingTitle()
-  }
-}
-
 // Annotation creation modal
 function openAnnotationModal() {
   const domain = selection.domain.value
@@ -713,9 +660,9 @@ function openAnnotationModal() {
                            domain.ranges.every(r => r.start !== r.end)
 
   if (hasValidSelection) {
-    // Build span string from all ranges (join with +)
+    // Build a fenced span string from all selected ranges
     const spanStr = domain.ranges
-      .map(r => new Range(r.start, r.end, r.orientation).toString())
+      .map(r => new Range(r.start, r.end, r.orientation).toFencedString())
       .join(' + ')
     annotationModalSpan.value = spanStr
   } else {
@@ -732,10 +679,8 @@ function closeAnnotationModal() {
 
 function openAnnotationModalForEdit(annotation) {
   editingAnnotation.value = annotation
-  // Set span from annotation (for display purposes, though AnnotationModal will parse from annotation)
-  const spanStr = typeof annotation.span === 'string'
-    ? annotation.span
-    : annotation.span?.toString() || '0..0'
+  // Set span for display in the modal
+  const spanStr = annotation.span?.toJSON?.() || '0..0'
   annotationModalSpan.value = spanStr
   annotationModalOpen.value = true
 }
@@ -743,22 +688,16 @@ function openAnnotationModalForEdit(annotation) {
 function handleAnnotationUpdate(data) {
   const annotationId = editingAnnotation.value.id
 
-  effectiveBackend.value?.annotationUpdate?.({
-    id: crypto.randomUUID(),
-    annotationId,
+  // Update annotation in document (handles backend notification)
+  targetDoc.value.updateAnnotation({
+    id: annotationId,
     caption: data.caption,
     type: data.type,
     span: data.span,
     attributes: data.attributes
   })
 
-  // Update local state for optimistic UI
-  localAnnotations.value = localAnnotations.value.map(ann =>
-    ann.id === annotationId
-      ? { ...ann, caption: data.caption, type: data.type, span: data.span, attributes: data.attributes }
-      : ann
-  )
-  // Emit for parent components (standalone mode)
+  // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 
   annotationModalOpen.value = false
@@ -792,26 +731,12 @@ function mergeAnnotationRanges(annotation, leftIndex, rightIndex) {
     ...ranges.slice(rightIndex + 1)
   ]
 
-  // Create new span string
-  const newSpanStr = newRanges.map(r => r.toString()).join(' + ')
-
-  // Send update to backend
-  effectiveBackend.value?.annotationUpdate?.({
-    id: crypto.randomUUID(),
-    annotationId: annotation.id,
-    caption: annotation.caption,
-    type: annotation.type,
-    span: newSpanStr,
-    attributes: annotation.attributes
+  // Update annotation in document (handles backend notification)
+  targetDoc.value.updateAnnotation({
+    id: annotation.id,
+    span: new Span(newRanges)
   })
-
-  // Update local state for optimistic UI
-  localAnnotations.value = localAnnotations.value.map(ann =>
-    ann.id === annotation.id
-      ? { ...ann, span: newSpanStr }
-      : ann
-  )
-  // Emit for parent components (standalone mode)
+  // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 }
 
@@ -822,7 +747,7 @@ function mergeAnnotationRanges(annotation, leftIndex, rightIndex) {
  * @param {number} position - Position at which to split the range
  */
 function splitAnnotationAtPosition(annotation, rangeIndex, position) {
-  const spanRanges = annotation.span?.ranges || Span.parse(annotation.span).ranges
+  const spanRanges = annotation.span.ranges
   const targetRange = spanRanges[rangeIndex]
 
   // Create two new ranges from the split
@@ -849,27 +774,12 @@ function splitAnnotationAtPosition(annotation, rangeIndex, position) {
     ...spanRanges.slice(rangeIndex + 1)
   ]
 
-  const newSpanStr = newRanges.map(r => r.toString()).join(' + ')
-
-  // Update backend
-  effectiveBackend.value?.annotationUpdate?.({
-    id: crypto.randomUUID(),
-    annotationId: annotation.id,
-    caption: annotation.caption,
-    type: annotation.type,
-    span: newSpanStr,
-    attributes: annotation.attributes
+  // Update annotation in document (handles backend notification)
+  targetDoc.value.updateAnnotation({
+    id: annotation.id,
+    span: new Span(newRanges)
   })
-
-  // Update local state
-  const updatedAnnotations = localAnnotations.value.map(a => {
-    if (a.id === annotation.id) {
-      return { ...a, span: newSpanStr }
-    }
-    return a
-  })
-  localAnnotations.value = updatedAnnotations
-  emit('annotations-update', updatedAnnotations)
+  emit('annotations-update', localAnnotations.value)
 }
 
 function handleAnnotationCreate(data) {
@@ -877,9 +787,9 @@ function handleAnnotationCreate(data) {
   const annotationId = crypto.randomUUID()
 
   // For CDS annotations, compute the translation string
+  const span = data.span
   let attributes = data.attributes || {}
   if (data.type?.toUpperCase() === 'CDS') {
-    const span = Span.parse(data.span)
     const seq = editorState.sequence.value
     const result = { aminoAcids: '' }
     const bases = iterateSequence(span, seq)
@@ -892,16 +802,13 @@ function handleAnnotationCreate(data) {
     id: annotationId,
     caption: data.caption,
     type: data.type,
-    span: data.span,
+    span,
     attributes
   }
 
-  // Send to backend
-  effectiveBackend.value?.annotationCreated?.(newAnnotation)
-
-  // Update local state for optimistic UI
-  localAnnotations.value = [...localAnnotations.value, newAnnotation]
-  // Emit for parent components (standalone mode)
+  // Add annotation to document (handles backend notification)
+  targetDoc.value.addAnnotation(newAnnotation)
+  // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 
   annotationModalOpen.value = false
@@ -957,7 +864,7 @@ const extensionAPI = {
 
   // Annotation creation
   addAnnotation: (data) => {
-    // data: { span: string, type: string, label: string, color?: string, attributes?: object }
+    // data: { span: Span, type: string, label: string, color?: string, attributes?: object }
     handleAnnotationCreate(data)
   },
 
@@ -1037,10 +944,6 @@ function handleResize() {
   graphics.setContainerSize(rect.width, rect.height)
 }
 
-// Selection state
-const isDragging = ref(false)
-const dragStart = ref(null)
-
 // Context menu state
 const contextMenuVisible = ref(false)
 const contextMenuX = ref(0)
@@ -1053,6 +956,7 @@ const tooltipX = ref(0)
 const tooltipY = ref(0)
 const tooltipContent = ref('')
 
+
 // Get context menu items from extensions
 function getExtensionContextMenuItems(context) {
   const items = []
@@ -1064,6 +968,163 @@ function getExtensionContextMenuItems(context) {
       }
     }
   }
+  return items
+}
+
+/**
+ * Build global context menu items that don't depend on which region was clicked.
+ * These include: Copy, Select all/none, Insert/Replace/Delete sequence, Create annotation.
+ */
+function buildGlobalContextMenuItems() {
+  const items = []
+  const isSelected = selection.isSelected.value
+  const domain = selection.domain.value
+  const hasSequence = editorState.sequenceLength.value > 0
+
+  // Special case: no sequence loaded - show Insert sequence option
+  if (!hasSequence && !props.readonly) {
+    items.push({
+      label: 'Insert sequence...',
+      action: () => {
+        insertModalIsReplace.value = false
+        insertModalPosition.value = 0
+        insertModalText.value = ''
+        insertModalVisible.value = true
+      }
+    })
+    return items
+  }
+
+  // Group 1: Copy / Select none / Select all
+  if (isSelected && domain && domain.ranges.length > 0) {
+    items.push({
+      label: 'Copy selection',
+      action: () => handleCopy()
+    })
+    items.push({
+      label: 'Select none',
+      action: () => selection.unselect()
+    })
+  }
+  items.push({
+    label: 'Select all',
+    action: () => selection.selectAll()
+  })
+
+  // Group 2: Insert / Replace / Delete sequence
+  if (isSelected && domain && domain.ranges.length > 0) {
+    const firstRange = domain.ranges[0]
+    const isZeroLength = firstRange.start === firstRange.end
+
+    if (!props.readonly) {
+      items.push({ separator: true })
+
+      // Insert sequence option for zero-length selections (cursor position)
+      if (isZeroLength) {
+        items.push({
+          label: 'Insert sequence...',
+          action: () => {
+            insertModalIsReplace.value = false
+            insertModalPosition.value = firstRange.start
+            insertModalText.value = ''
+            insertModalVisible.value = true
+          }
+        })
+      }
+
+      // Replace sequence option for single non-zero-length selections only
+      if (!isZeroLength && domain.ranges.length === 1) {
+        items.push({
+          label: 'Replace sequence with...',
+          action: () => {
+            insertModalIsReplace.value = true
+            insertModalPosition.value = firstRange.start
+            insertModalSelectionEnd.value = firstRange.end
+            insertModalText.value = ''
+            insertModalVisible.value = true
+          }
+        })
+      }
+
+      // Delete sequence option for non-zero-length selections
+      if (!isZeroLength) {
+        items.push({
+          label: 'Delete sequence',
+          action: () => handleDelete()
+        })
+      }
+    }
+  }
+
+  // Create annotation option - always available when not readonly
+  if (!props.readonly) {
+    items.push({ separator: true })
+    items.push({
+      label: 'Create Annotation',
+      action: () => openAnnotationModal()
+    })
+  }
+
+  return items
+}
+
+/**
+ * Build context menu using elementsFromPoint for hit-testing.
+ * Combines global items with region-specific items from layers.
+ *
+ * @param {MouseEvent} event - The contextmenu event
+ * @param {Object} context - Additional context (lineIndex, etc.)
+ * @returns {Array} Combined menu items
+ */
+function buildContextMenuFromRegistry(event, context = {}) {
+  const items = buildGlobalContextMenuItems()
+
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
+  const layerItems = []
+
+  // Collect menu items from all layers
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
+
+    // Check each layer ref for matching items
+    const layerMenuItems = [
+      ...(annotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(selectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
+      ...(sequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
+    ]
+
+    layerItems.push(...layerMenuItems)
+  }
+
+  // Add layer items with separator
+  if (layerItems.length > 0) {
+    items.push({ separator: true })
+    items.push(...layerItems)
+  }
+
+  // Extension items
+  let extContext = null
+  if (selection.isSelected.value && selection.domain.value) {
+    const selectedSeq = getSelectedSequenceText()
+    extContext = {
+      type: 'selection',
+      data: { sequence: selectedSeq, domain: selection.domain.value }
+    }
+  } else if (context.pos !== undefined) {
+    extContext = {
+      type: 'sequence',
+      data: { position: context.pos }
+    }
+  }
+
+  if (extContext) {
+    const extItems = getExtensionContextMenuItems(extContext)
+    if (extItems.length > 0) {
+      items.push({ separator: true }, ...extItems)
+    }
+  }
+
   return items
 }
 
@@ -1190,14 +1251,9 @@ function buildContextMenuItems(context) {
     items.push({
       label: 'Delete Annotation',
       action: () => {
-        effectiveBackend.value?.annotationDeleted?.({
-          id: crypto.randomUUID(),
-          annotationId: annotation.id
-        })
-
-        // Update local state for optimistic UI
-        localAnnotations.value = localAnnotations.value.filter(ann => ann.id !== annotation.id)
-        // Emit for parent components (standalone mode)
+        // Delete annotation from document (handles backend notification)
+        targetDoc.value.deleteAnnotation(annotation.id)
+        // Emit for parent components
         emit('annotations-update', localAnnotations.value)
       }
     })
@@ -1263,8 +1319,7 @@ function buildContextMenuItems(context) {
         const cursorPos = selRanges[0].start
 
         // Get the actual range from the annotation span
-        const splitSpanRanges = annotation.span?.ranges ||
-          (typeof annotation.span === 'string' ? Span.parse(annotation.span).ranges : [])
+        const splitSpanRanges = annotation.span?.ranges
 
         const frag = context.fragment
         if (frag?.rangeIndex !== undefined && splitSpanRanges[frag.rangeIndex]) {
@@ -1344,7 +1399,7 @@ function buildContextMenuItems(context) {
   } else if (context.source === 'annotation' && context.annotation) {
     const ann = context.annotation
     // Use iterateSequence to handle orientation and multi-part spans correctly
-    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
+    const span = ann.span
     const seq = editorState.sequence.value
     const annSeq = [...iterateSequence(span, seq)].map(b => b.letter).join('')
     extContext = {
@@ -1388,69 +1443,47 @@ function handleBackgroundClick(event) {
   selection.unselect()
 }
 
-function handleMouseDown(event, lineIndex) {
-  if (event.button !== 0) return // Left click only
+/**
+ * Unified click handler for the SVG.
+ * Routes clicks through layers using elementsFromPoint with priority order:
+ * Annotation > Selection > Sequence.
+ * If no layer handles the click, clears selection (background click).
+ *
+ * @param {MouseEvent} event - The click event
+ */
+function handleSvgClick(event) {
+  // Skip if not left-click
+  if (event.button !== 0) return
 
-  // Prevent native text selection
-  event.preventDefault()
-  clearNativeSelection()
+  // Focus the SVG so keyboard shortcuts work
+  focusSvg()
 
-  const pos = getPositionFromEvent(event, lineIndex)
-  if (pos === null) return
+  // Use elementsFromPoint to find all elements at the click position
+  const elements = document.elementsFromPoint(event.clientX, event.clientY)
 
-  isDragging.value = true
-  dragStart.value = pos
+  // Priority order: Annotation > Selection > Sequence
+  for (const el of elements) {
+    if (!el.dataset.layer) continue
 
-  // Shift-click extends existing selection to position
-  if (event.shiftKey && selection.isSelected.value) {
-    selection.extendToPosition(pos)
-    return  // Don't start a new drag
+    // Try each layer in priority order
+    if (annotationLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (selectionLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
+    if (sequenceLayerRef.value?.handleClickForElement?.(el.dataset, event)) return
   }
 
-  // Start a new selection (or add range with Ctrl)
-  selection.startSelection(pos, event.ctrlKey)
-
-  window.addEventListener('mousemove', handleMouseMove)
-  window.addEventListener('mouseup', handleMouseUp)
+  // No layer handled it - clear selection (background click)
+  selection.unselect()
 }
 
-function handleMouseMove(event) {
-  if (!isDragging.value || dragStart.value === null) return
-
-  // Clear any native text selection that the browser creates
-  clearNativeSelection()
-
-  // Find which line we're over
-  const svgRect = svgRef.value.getBoundingClientRect()
-  const y = event.clientY - svgRect.top
-  const lineIndex = graphics.pixelToLineIndex(y, editorState.lineCount.value)
-
-  const pos = getPositionFromEvent(event, lineIndex)
-  if (pos !== null) {
-    selection.updateSelection(pos)
-  }
-}
-
-function handleMouseUp() {
-  isDragging.value = false
-  window.removeEventListener('mousemove', handleMouseMove)
-  window.removeEventListener('mouseup', handleMouseUp)
-
-  selection.endSelection()
-
-  // Emit select event if there's a non-zero selection
-  const domain = selection.domain.value
-  if (domain && domain.ranges.length > 0) {
-    const range = domain.ranges[0]
-    if (range.start !== range.end) {
-      const seq = editorState.sequence.value.slice(range.start, range.end)
-      emit('select', { start: range.start, end: range.end, sequence: seq })
-    }
-  }
+// Adapter for SequenceLayer context menu events
+function handleSequenceLayerContextMenu(data) {
+  handleContextMenu(data.event, data.lineIndex)
 }
 
 // Selection layer event handlers
 function handleSelectionChange(data) {
+  // selection.source is now set automatically by SequenceLayer when starting selection
+
   // Focus the appropriate container so keyboard shortcuts work
   if (viewMode.value === 'circular') {
     circularContainerRef.value?.focus()
@@ -1489,12 +1522,28 @@ function handleSelectionMouseDown(data) {
   // Start a new range (extend=true to add to existing selection)
   selection.startSelection(pos, true)
 
-  // Set up drag handling
-  isDragging.value = true
-  dragStart.value = pos
+  // Local handlers for this drag operation
+  function onMove(e) {
+    window.getSelection()?.removeAllRanges()
+    const rect = svgRef.value.getBoundingClientRect()
+    const moveY = e.clientY - rect.top
+    const moveX = e.clientX - rect.left
+    const moveLine = graphics.pixelToLineIndex(moveY, editorState.lineCount.value)
+    const moveLinePos = graphics.pixelToLinePosition(moveX)
+    const movePos = editorState.lineToPosition(moveLine, moveLinePos)
+    if (movePos !== null) {
+      selection.updateSelection(movePos)
+    }
+  }
 
-  window.addEventListener('mousemove', handleMouseMove)
-  window.addEventListener('mouseup', handleMouseUp)
+  function onUp() {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    selection.endSelection()
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
 }
 
 // Handle context menu on selection handles (for extend functionality)
@@ -1561,13 +1610,13 @@ function handleExtendSubmit(bases) {
 
   const range = domain.ranges[rangeIndex]
   const seqLen = editorState.sequenceLength.value
-  const isCircular = props.metadata?.circular === true
+  const docIsCircular = isCircular.value
 
   if (direction === 'negative') {
     // Extend leftward - decrease start
     const newStart = range.start - bases
 
-    if (newStart < 0 && isCircular) {
+    if (newStart < 0 && docIsCircular) {
       // Wrapping around origin - create two ranges
       const overflow = -newStart  // how much we went past 0
       range.start = 0  // Current range now starts at 0
@@ -1585,7 +1634,7 @@ function handleExtendSubmit(bases) {
     // Extend rightward - increase end
     const newEnd = range.end + bases
 
-    if (newEnd > seqLen && isCircular) {
+    if (newEnd > seqLen && docIsCircular) {
       // Wrapping around origin - create two ranges
       const overflow = newEnd - seqLen  // how much we went past seqLen
       range.end = seqLen  // Current range now ends at seqLen
@@ -1707,6 +1756,28 @@ function handleAnnotationHover(data) {
   emit('annotation-hover', data)
 }
 
+/**
+ * Handle request to edit an annotation (opens modal).
+ * Called from AnnotationLayer when user wants to edit an annotation.
+ */
+function handleEditAnnotation(data) {
+  const { annotation } = data
+  editingAnnotation.value = annotation
+  annotationModalSpan.value = annotation.span?.toJSON?.() || annotation.span || '0..0'
+  annotationModalOpen.value = true
+}
+
+/**
+ * Handle annotation deletion from AnnotationLayer.
+ * This is a fallback when AnnotationLayer doesn't have a document.
+ * Normally, AnnotationLayer calls document.deleteAnnotation directly.
+ */
+function handleDeleteAnnotation(data) {
+  const { id } = data
+  targetDoc.value.deleteAnnotation(id)
+  emit('annotations-update', localAnnotations.value)
+}
+
 function handleTranslationHover(data) {
   const { event, tooltipText, entering } = data
 
@@ -1724,11 +1795,8 @@ function handleTranslationClick(data) {
   const { event, element, codonStart, codonEnd } = data
 
   // Create span for the codon with correct orientation
-  // Minus strand uses parentheses: (start..end)
-  const isMinus = element.orientation === -1
-  const spanStr = isMinus
-    ? `(${codonStart}..${codonEnd})`
-    : `${codonStart}..${codonEnd}`
+  const orientation = element.orientation === -1 ? Orientation.MINUS : Orientation.PLUS
+  const codonSpan = new Span([new Range(codonStart, codonEnd, orientation)])
 
   if (event?.shiftKey) {
     // Shift-click extends existing selection to include codon
@@ -1736,12 +1804,10 @@ function handleTranslationClick(data) {
     selection.extendToPosition(codonEnd)
   } else if (event?.ctrlKey) {
     // Ctrl-click adds codon to existing selection
-    const codonSpan = Span.parse(spanStr)
     const newDomain = new SelectionDomain(codonSpan)
     selection.extendSelection(newDomain)
   } else {
     // Regular click replaces selection with codon
-    const codonSpan = Span.parse(spanStr)
     const newDomain = new SelectionDomain(codonSpan)
     selection.select(newDomain)
   }
@@ -1821,7 +1887,7 @@ function getPositionFromEvent(event, lineIndex) {
 
 // Zoom handling
 function handleZoomChange(event) {
-  editorState.setZoom(Number(event.target.value))
+  editorState.setZoom(Number(event))
 }
 
 // Clear native browser text selection (SVG text selection is hard to disable via CSS)
@@ -1860,25 +1926,9 @@ async function handleCopy() {
     saveOverlay(selectedSeq, overlappingAnnotations)
   }
 
-  if (effectiveBackend.value?.copy) {
-    // Backend handles copy (may do additional processing)
-    await effectiveBackend.value.copy({
-      text: selectedSeq,
-      selection: selection.domain.value
-    })
-  } else {
-    // Default: write to system clipboard
-    await navigator.clipboard.writeText(selectedSeq)
-  }
-}
-
-async function handleCut() {
-  const selectedSeq = getSelectedSequenceText()
-  if (selectedSeq && selection.isSelected.value) {
-    await handleCopy()  // Use the copy logic (backend or default)
-    deleteSelectedRange()
-    emit('edit', { type: 'cut', text: selectedSeq })
-  }
+  await copyText(selectedSeq, {
+    selection: selection.domain.value
+  })
 }
 
 async function handlePaste() {
@@ -1887,15 +1937,7 @@ async function handlePaste() {
   if (!domain || domain.ranges.length !== 1) return
 
   try {
-    let clipboardText
-
-    if (effectiveBackend.value?.paste) {
-      // Backend provides paste content (may transform or fetch from server)
-      clipboardText = await effectiveBackend.value.paste()
-    } else {
-      // Default: read from system clipboard
-      clipboardText = await navigator.clipboard.readText()
-    }
+    const clipboardText = await readText()
 
     if (clipboardText) {
       // Check for overlay (rich paste with annotations)
@@ -1921,7 +1963,7 @@ async function handlePaste() {
 
 /**
  * Delete the currently selected ranges (if non-zero).
- * Sends delete operations to backend for each range and clears selection.
+ * In alignment mode, routes deletion to the correct document based on selection.source.
  * Ranges are deleted from highest position first to avoid shifting issues.
  */
 function deleteSelectedRange() {
@@ -1937,9 +1979,8 @@ function deleteSelectedRange() {
   if (rangesToDelete.length === 0) return false
 
   // Check if ranges are contiguous/adjacent (for cursor placement after deletion)
-  // Sort ascending to check adjacency
   const sortedAsc = [...rangesToDelete].sort((a, b) => a.start - b.start)
-  const isCircular = props.metadata?.circular === true
+  const docIsCircular = isCircular.value
   const seqLen = editorState.sequenceLength.value
 
   // Check standard linear contiguity
@@ -1949,19 +1990,14 @@ function deleteSelectedRange() {
   })
 
   // For circular sequences, also check wrap-around contiguity
-  // e.g., ranges [0..10, 90..100] on a 100bp circular sequence are adjacent at the origin
-  if (!isContiguous && isCircular && sortedAsc.length >= 2) {
+  if (!isContiguous && docIsCircular && sortedAsc.length >= 2) {
     const firstRange = sortedAsc[0]
     const lastRange = sortedAsc[sortedAsc.length - 1]
 
-    // Check if ranges wrap around: first starts at 0, last ends at seqLen
     if (firstRange.start === 0 && lastRange.end === seqLen) {
-      // Check that all ranges except the wrap point are contiguous
       isContiguous = sortedAsc.every((range, i) => {
         if (i === 0) return true
-        // Skip the gap between last (by position) and first - that's the wrap point
         if (i === sortedAsc.length - 1 && sortedAsc[i - 1].end < range.start) {
-          // This is the wrap gap - allowed for circular
           return true
         }
         return sortedAsc[i - 1].end >= range.start
@@ -1971,24 +2007,24 @@ function deleteSelectedRange() {
 
   const cursorPosition = sortedAsc[0].start
 
-  for (const range of rangesToDelete) {
-    const editId = crypto.randomUUID()
+  // Apply delete to the document
+  const doc = targetDoc.value
 
-    // 1. Apply locally (optimistic UI)
-    editorState.deleteRange(range.start, range.end)
-
-    // 2. Adjust annotations (delete is a replace with 0-length text)
-    adjustAnnotationsForReplace(range.start, range.end, 0)
-
-    // 3. Send to backend if connected
-    if (effectiveBackend.value?.delete) {
-      effectiveBackend.value.delete({ id: editId, start: range.start, end: range.end })
+  if (doc) {
+    // Delete via document (handles sequence mutation, annotation adjustment, and backend notification)
+    doc.delete(rangesToDelete)
+    // Notify parent of annotation changes (tested by annotation tests)
+    emit('annotations-update', doc.annotations)
+  } else {
+    // For non-document mode (string sequence prop), apply to editorState directly
+    for (const range of rangesToDelete) {
+      editorState.deleteRange(range.start, range.end)
     }
   }
 
   // Leave cursor at deletion point if contiguous, otherwise clear selection
   if (isContiguous) {
-    selection.select(`${cursorPosition}..${cursorPosition}`)
+    selection.select([new Range(cursorPosition, cursorPosition)])
   } else {
     selection.unselect()
   }
@@ -2014,8 +2050,15 @@ function handleDelete() {
 
 function confirmDelete() {
   deleteConfirmVisible.value = false
+  // Capture selection data before deleteSelectedRange() clears it
+  const domain = selection.domain.value
+  const ranges = domain?.ranges?.map(r => ({ start: r.start, end: r.end })) || []
+
   if (deleteSelectedRange()) {
-    emit('edit', { type: 'delete' })
+    emit('edit', {
+      type: 'delete',
+      ranges
+    })
   }
 }
 
@@ -2037,159 +2080,26 @@ function showInsertModal(initialChar) {
   insertModalVisible.value = true
 }
 
-/**
- * Adjust annotations for a pure insertion at a position.
- *
- * Algorithm (disciplined inserts):
- * - By default, annotations touching the insertion point do NOT auto-extend
- * - Annotations starting at site: shift both start and end (insert goes before)
- * - Annotations ending at site: no change (insert goes after)
- * - extendStartIds: annotations to extend at their start (keep start, shift end)
- * - extendEndIds: annotations to extend at their end (shift end to include insert)
- *
- * @param {number} insertionSite - The position where insertion occurred
- * @param {number} insertionLength - The length of the inserted sequence
- * @param {Array<string>} extendStartIds - IDs of annotations to extend at their start boundary
- * @param {Array<string>} extendEndIds - IDs of annotations to extend at their end boundary
- */
-function adjustAnnotationsForInsert(insertionSite, insertionLength, extendStartIds = [], extendEndIds = []) {
-  if (localAnnotations.value.length === 0) return
-
-  const updatedAnnotations = localAnnotations.value.map(ann => {
-    const span = Span.parse(ann.span)
-    let modified = false
-    const shouldExtendStart = extendStartIds.includes(ann.id)
-    const shouldExtendEnd = extendEndIds.includes(ann.id)
-
-    for (let i = 0; i < span.ranges.length; i++) {
-      const range = span.ranges[i]
-      let newStart = range.start
-      let newEnd = range.end
-
-      // Annotation starts at insertion site
-      if (range.start === insertionSite) {
-        if (shouldExtendStart) {
-          // Keep start, shift end -> expands to include insert
-          newEnd += insertionLength
-        } else {
-          // Shift both -> insert goes before annotation
-          newStart += insertionLength
-          newEnd += insertionLength
-        }
-      }
-      // Annotation ends at insertion site
-      else if (range.end === insertionSite) {
-        if (shouldExtendEnd) {
-          // Shift end -> expands to include insert
-          newEnd += insertionLength
-        }
-        // else: no change (insert goes after annotation)
-      }
-      // Standard cases (not touching insertion site)
-      else if (range.start > insertionSite) {
-        newStart += insertionLength
-        newEnd += insertionLength
-      } else if (range.end > insertionSite) {
-        newEnd += insertionLength
-      }
-
-      if (newStart !== range.start || newEnd !== range.end) {
-        span.ranges[i] = new Range(newStart, newEnd, range.orientation)
-        modified = true
-      }
-    }
-
-    if (modified) {
-      return { ...ann, span: span.toString() }
-    }
-    return ann
-  })
-
-  // Update local state for optimistic UI
-  localAnnotations.value = updatedAnnotations
-  // Emit for parent components (standalone mode)
-  emit('annotations-update', updatedAnnotations)
-}
-
-/**
- * Adjust annotations for a replacement (delete + insert).
- */
-function adjustAnnotationsForReplace(selStart, selEnd, insertionLength) {
-  if (localAnnotations.value.length === 0) return
-
-  const deletionLength = selEnd - selStart
-  const netChange = insertionLength - deletionLength
-
-  const updatedAnnotations = localAnnotations.value.map(ann => {
-    const span = Span.parse(ann.span)
-    let modified = false
-
-    for (let i = 0; i < span.ranges.length; i++) {
-      const range = span.ranges[i]
-      let newStart = range.start
-      let newEnd = range.end
-
-      // Entirely before selection - no change
-      if (range.end <= selStart) {
-        // No change
-      }
-      // Entirely after selection - shift by net change
-      else if (range.start >= selEnd) {
-        newStart = range.start + netChange
-        newEnd = range.end + netChange
-      }
-      // Contains selection (annotation spans across replaced region)
-      else if (range.start <= selStart && range.end >= selEnd) {
-        newEnd = range.end + netChange
-      }
-      // Contained by selection (annotation is within replaced region)
-      else if (range.start >= selStart && range.end <= selEnd) {
-        newStart = selStart
-        newEnd = selStart
-      }
-      // Overlaps left (starts before, ends inside selection)
-      else if (range.start < selStart && range.end > selStart && range.end < selEnd) {
-        newEnd = selStart
-      }
-      // Overlaps right (starts inside selection, ends after)
-      else if (range.start > selStart && range.start < selEnd && range.end > selEnd) {
-        newStart = selStart + insertionLength
-        newEnd = range.end + netChange
-      }
-
-      if (newStart !== range.start || newEnd !== range.end) {
-        span.ranges[i] = new Range(newStart, newEnd, range.orientation)
-        modified = true
-      }
-    }
-
-    if (modified) {
-      return { ...ann, span: span.toString() }
-    }
-    return ann
-  })
-
-  // Update local state for optimistic UI
-  localAnnotations.value = updatedAnnotations
-  // Emit for parent components (standalone mode)
-  emit('annotations-update', updatedAnnotations)
-}
-
 function handleInsertSubmit(text, extendStartIds = [], extendEndIds = []) {
   const insertionSite = insertModalPosition.value
-  const editId = crypto.randomUUID()
+  const doc = targetDoc.value
 
-  // 1. Apply locally (optimistic UI)
-  editorState.insertAt(insertionSite, text)
-  adjustAnnotationsForInsert(insertionSite, text.length, extendStartIds, extendEndIds)
-
-  // 2. Send to backend if connected
-  if (effectiveBackend.value?.insert) {
-    effectiveBackend.value.insert({ id: editId, position: insertionSite, text })
+  // Apply to document (handles sequence mutation, annotation adjustment, and backend notification)
+  if (doc) {
+    doc.insert(insertionSite, text, { extendStartIds, extendEndIds })
+    // Notify parent of annotation changes (tested by backend tests)
+    emit('annotations-update', doc.annotations)
+  } else {
+    // For non-document mode (string sequence prop), apply to editorState directly
+    editorState.insertAt(insertionSite, text)
   }
 
-  // 3. Emit for standalone mode / parent components
-  emit('edit', { type: 'insert', position: insertionSite, text })
+  // Emit for standalone mode / parent components
+  emit('edit', {
+    type: 'insert',
+    position: insertionSite,
+    text
+  })
 
   // 4. Create overlay annotations (rich paste)
   if (pendingOverlayAnnotations.value) {
@@ -2208,15 +2118,11 @@ function handleInsertSubmit(text, extendStartIds = [], extendEndIds = []) {
  */
 function createOverlayAnnotations(pastePosition, overlayAnnotations) {
   for (const overlay of overlayAnnotations) {
-    // Build span string from relative ranges converted to absolute positions
     const absoluteRanges = overlay.relativeRanges.map(relRange => {
       const absStart = pastePosition + relRange.start
       const absEnd = pastePosition + relRange.end
       return new Range(absStart, absEnd, relRange.orientation)
     })
-
-    // Create span string
-    const spanStr = absoluteRanges.map(r => r.toString()).join(' + ')
 
     // Remove translation attribute if present - it will be recalculated
     const attributes = { ...overlay.attributes }
@@ -2226,7 +2132,7 @@ function createOverlayAnnotations(pastePosition, overlayAnnotations) {
     handleAnnotationCreate({
       caption: overlay.caption,
       type: overlay.type,
-      span: spanStr,
+      span: new Span(absoluteRanges),
       attributes
     })
   }
@@ -2241,40 +2147,34 @@ function handleReplaceSubmit(text, preserveAnnotations = false) {
     ? reverseComplement(text)
     : text
 
-  // 1. Apply locally (optimistic UI)
-  editorState.replaceRange(selStart, selEnd, insertText)
+  const doc = targetDoc.value
 
-  // Only adjust annotations if not preserving them
-  if (!preserveAnnotations) {
-    adjustAnnotationsForReplace(selStart, selEnd, insertText.length)
+  // Apply to document (handles sequence mutation, annotation adjustment, and backend notification)
+  if (doc) {
+    doc.replace(selStart, selEnd, insertText, { adjustAnnotations: !preserveAnnotations })
+    // Notify parent of annotation changes (only when annotations were adjusted)
+    if (!preserveAnnotations) {
+      emit('annotations-update', doc.annotations)
+    }
+  } else {
+    // For non-document mode (string sequence prop), apply to editorState directly
+    editorState.replaceRange(selStart, selEnd, insertText)
   }
 
-  // 2. Send to backend if connected (delete + insert)
-  if (effectiveBackend.value?.delete) {
-    effectiveBackend.value.delete({
-      id: crypto.randomUUID(),
-      start: selStart,
-      end: selEnd
-    })
-  }
-
-  if (effectiveBackend.value?.insert) {
-    effectiveBackend.value.insert({
-      id: crypto.randomUUID(),
-      position: selStart,
-      text: insertText
-    })
-  }
-
-  // 3. Update selection to cover the newly inserted text, preserving orientation
+  // 2. Update selection to cover the newly inserted text, preserving orientation
   const newEnd = selStart + insertText.length
-  const selectionStr = insertModalOrientation.value === Orientation.MINUS
-    ? `(${selStart}..${newEnd})`
-    : `${selStart}..${newEnd}`
-  selection.select(selectionStr)
+  selection.select([new Range(selStart, newEnd, insertModalOrientation.value)])
 
   // 4. Emit for standalone mode / parent components
-  emit('edit', { type: 'replace', text: insertText })
+  emit('edit', {
+    type: 'delete',
+    ranges: [{ start: selStart, end: selEnd }]
+  })
+  emit('edit', {
+    type: 'insert',
+    position: selStart,
+    text: insertText
+  })
 
   // Create overlay annotations (rich paste)
   if (pendingOverlayAnnotations.value) {
@@ -2343,11 +2243,6 @@ function handleKeyDown(event) {
       case 'c':
         event.preventDefault()
         handleCopy()
-        return
-      case 'x':
-        if (props.readonly) return
-        event.preventDefault()
-        handleCut()
         return
       case 'a':
         event.preventDefault()
@@ -2446,30 +2341,30 @@ function scrollToPosition(position) {
 
 /**
  * Set the selection programmatically.
- * @param {string} spec - Selection specification:
- *   - Span format: "10..20" or "10..20 + 30..40"
- *   - Annotation reference: "a:<annotation_id>"
+ * @param {Span|Range[]} spec - Selection specification (Span or array of Range objects)
  */
 function setSelection(spec) {
-  // Check for annotation reference format "a:<id>"
-  if (spec.startsWith('a:')) {
-    const annotationId = spec.slice(2)
-    const annotation = localAnnotations.value.find(ann => ann.id === annotationId)
-    if (annotation && annotation.span) {
-      selection.select(annotation.span)
-      // Scroll to annotation start using span's bounds
-      const bounds = annotation.span.bounds
-      if (bounds) {
-        scrollToPosition(bounds.start)
-      }
-    }
-    return
-  }
-  selection.select(spec)
+  const span = spec instanceof Span ? spec : new Span(spec)
+  selection.select(span)
   // Scroll to selection start
-  const startMatch = spec.match(/^(\d+)/)
-  if (startMatch) {
-    scrollToPosition(parseInt(startMatch[1], 10))
+  const bounds = span.bounds
+  if (bounds) {
+    scrollToPosition(bounds.start)
+  }
+}
+
+/**
+ * Set the selection to an annotation's span.
+ * @param {string} annotationId - The annotation ID to select
+ */
+function selectAnnotation(annotationId) {
+  const annotation = localAnnotations.value.find(ann => ann.id === annotationId)
+  if (annotation && annotation.span) {
+    selection.select(annotation.span)
+    const bounds = annotation.span.bounds
+    if (bounds) {
+      scrollToPosition(bounds.start)
+    }
   }
 }
 
@@ -2485,7 +2380,7 @@ function clearSelection() {
  * @param {number} position - The position to place the cursor
  */
 function setCursor(position) {
-  selection.select(`${position}..${position}`)
+  selection.select([new Range(position, position)])
   scrollToPosition(position)
 }
 
@@ -2521,32 +2416,6 @@ onMounted(() => {
   })
 })
 
-// Selection highlight helpers
-function isLineSelected(line) {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return false
-  const sel = domain.ranges[0]
-  return sel.start < line.end && sel.end > line.start
-}
-
-function getSelectionX(line) {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return 0
-  const sel = domain.ranges[0]
-  const start = Math.max(sel.start, line.start)
-  const linePos = start - line.start
-  return graphics.metrics.value.lmargin + linePos * graphics.metrics.value.charWidth
-}
-
-function getSelectionWidth(line) {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return 0
-  const sel = domain.ranges[0]
-  const start = Math.max(sel.start, line.start)
-  const end = Math.min(sel.end, line.end)
-  return (end - start) * graphics.metrics.value.charWidth
-}
-
 // Expose public API
 defineExpose({
   setSequence,
@@ -2554,167 +2423,93 @@ defineExpose({
   setZoom,
   getSelection,
   setSelection,
+  selectAnnotation,
   clearSelection,
   setCursor,
   scrollToPosition,
   editorState,
   graphics,
   eventBus,
-  openMetadataModal
+  // Document access
+  targetDoc,
+  getSelectedSequence: getSelectedSequenceText,
+  selectionStatusText,
+  selection
 })
-</script>
 
-<template>
-  <div class="sequence-editor" ref="containerRef">
-    <!-- Toolbar -->
-    <div class="toolbar">
-      <label v-if="viewMode === 'linear'" class="zoom-control">
-        Zoom:
-        <select :value="editorState.zoomLevel.value" @change="handleZoomChange">
-          <option
-            v-for="opt in availableZooms"
-            :key="opt.value"
-            :value="opt.value"
-          >
-            {{ opt.label }}
-          </option>
-        </select>
-      </label>
-
-      <span v-if="editorState.sequenceLength.value > 0" class="info">
-        <!-- Title editing mode -->
-        <span v-if="editingTitle" class="title-edit-container">
-          <input
-            ref="titleInputRef"
-            v-model="editTitleValue"
-            type="text"
-            class="title-input"
-            @keydown="handleTitleKeydown"
-            @blur="cancelEditingTitle"
-          />
-          <button
-            class="title-edit-btn title-edit-confirm"
-            @mousedown.prevent="confirmEditingTitle"
-            title="Save"
-          >
-            <CheckIcon class="icon-sm" />
-          </button>
-          <button
-            class="title-edit-btn title-edit-cancel"
-            @mousedown.prevent="cancelEditingTitle"
-            title="Cancel"
-          >
-            <XMarkIcon class="icon-sm" />
-          </button>
-        </span>
-        <!-- Title display mode -->
-        <strong
-          v-else
-          class="title-display"
-          :class="{ 'title-editable': !props.readonly }"
-          @dblclick="startEditingTitle"
-        >{{ editorState.title.value || 'Untitled' }}</strong>
-        &mdash; {{ editorState.sequenceLength.value.toLocaleString() }} bp
-        <button
-          v-if="hasMetadata"
-          class="info-button"
-          @click="openMetadataModal"
-          title="Sequence info"
-        >
-          <InformationCircleIcon class="icon-toolbar" />
-        </button>
-      </span>
-
-      <!-- View mode toggle (only for circular sequences) -->
-      <div v-if="showViewModeToggle" class="view-mode-toggle">
-        <button
-          :class="['view-mode-btn', { active: viewMode === 'linear' }]"
-          @click="viewMode = 'linear'"
-          title="Linear view"
-        >
-          Linear
-        </button>
-        <button
-          :class="['view-mode-btn', { active: viewMode === 'circular' }]"
-          @click="viewMode = 'circular'"
-          title="Circular view"
-        >
-          Circular
-        </button>
-      </div>
-
-      <!-- Spacer to push config to right -->
-      <div class="toolbar-spacer"></div>
-
-      <!-- Extension toolbar buttons -->
-      <component
-        v-for="ext in props.extensions.filter(e => e.toolbarButton)"
-        :key="ext.id"
-        :is="ext.toolbarButton"
-      />
-
-      <!-- Slot for external toolbar content (appears left of help button) -->
-      <slot name="toolbar"></slot>
-
-      <!-- Help button with selection instructions tooltip -->
-      <button
-        class="help-button"
-        title="Selection Controls:
+const toolbarHelpText = `Selection Controls:
 • Click: Set cursor / clear selection
 • Click+Drag: Select range
 • Shift+Click: Extend selection
 • Ctrl+Click: Add range
 • Escape: Clear selection
-• Drag handles: Resize selection"
-      >
-        <QuestionMarkCircleIcon class="icon-toolbar-lg" />
-      </button>
+• Drag handles: Resize selection`
+</script>
 
-      <!-- Config gear -->
-      <div class="config-container">
-        <button class="config-button" @click.stop="configPanelOpen = !configPanelOpen" title="Settings">
-          <Cog6ToothIcon class="icon-toolbar-lg" />
-        </button>
+<template>
+  <div class="sequence-editor" ref="containerRef">
+    <Toolbar
+      :zoom-level="editorState.zoomLevel.value"
+      :available-zooms="availableZooms"
+      :title-visible="editorState.sequenceLength.value > 0"
+      :show-zoom="viewMode === 'linear'"
+      :show-view-mode-toggle="showViewModeToggle"
+      :view-mode="viewMode"
+      :help-text="toolbarHelpText"
+      :config-panel-open="configPanelOpen"
+      :extensions="renderExtensions"
+      @zoom-change="handleZoomChange"
+      @update:view-mode="viewMode = $event"
+      @toggle-config="configPanelOpen = !configPanelOpen"
+    >
+      <template #title>
+        <slot name="title">
+          {{ editorState.sequenceLength.value.toLocaleString() }} bp
+        </slot>
+      </template>
 
-        <!-- Dropdown panel -->
-        <div v-if="configPanelOpen" class="config-panel" @click.stop>
-          <!-- Annotations section -->
-          <label class="config-header-toggle">
-            <input
-              type="checkbox"
-              v-model="showAnnotations"
-            >
-            <span>Annotations</span>
+      <template v-if="$slots.info" #info>
+        <slot name="info"></slot>
+      </template>
+
+      <template #toolbar>
+        <slot name="toolbar"></slot>
+      </template>
+
+      <template #config>
+        <label class="config-header-toggle">
+          <input
+            type="checkbox"
+            v-model="showAnnotations"
+          >
+          <span>Annotations</span>
+        </label>
+        <div v-if="showAnnotations && annotationTypes.length > 0" class="config-types">
+          <label v-for="type in annotationTypes" :key="type" class="type-row">
+            <input type="checkbox" :checked="!isTypeHidden(type)" @change="toggleAnnotationType(type)">
+            <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
+              <rect
+                x="0" y="0" width="14" height="14" rx="2"
+                :fill="getTypeColor(type)"
+                stroke="black"
+                stroke-width="1"
+              />
+            </svg>
+            <span class="type-name">{{ type }}</span>
           </label>
-          <div v-if="showAnnotations && annotationTypes.length > 0" class="config-types">
-            <label v-for="type in annotationTypes" :key="type" class="type-row">
-              <input type="checkbox" :checked="!isTypeHidden(type)" @change="toggleAnnotationType(type)">
-              <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
-                <rect
-                  x="0" y="0" width="14" height="14" rx="2"
-                  :fill="getTypeColor(type)"
-                  stroke="black"
-                  stroke-width="1"
-                />
-              </svg>
-              <span class="type-name">{{ type }}</span>
-            </label>
-          </div>
-
-          <!-- Translation section (only in linear mode) -->
-          <label v-if="cdsAnnotations.length > 0 && viewMode === 'linear'" class="config-header-toggle">
-            <input
-              type="checkbox"
-              v-model="showTranslation"
-            >
-            <span>Translation</span>
-          </label>
-
-          <!-- Slot for custom config sections -->
-          <slot name="config"></slot>
         </div>
-      </div>
-    </div>
+
+        <label v-if="cdsAnnotations.length > 0 && viewMode === 'linear'" class="config-header-toggle">
+          <input
+            type="checkbox"
+            v-model="showTranslation"
+          >
+          <span>Translation</span>
+        </label>
+
+        <slot name="config"></slot>
+      </template>
+    </Toolbar>
 
     <!-- Circular View (only shown when viewMode is circular) -->
     <div v-if="viewMode === 'circular'" class="editor-wrapper">
@@ -2740,10 +2535,7 @@ defineExpose({
       </div>
 
       <!-- Selection Status Display -->
-      <div
-        v-if="selectionStatusText"
-        class="selection-status"
-      >{{ selectionStatusText }}</div>
+      <Indicator :text="selectionStatusText" />
     </div>
 
     <!-- Linear SVG Editor (default view) -->
@@ -2756,7 +2548,7 @@ defineExpose({
         :height="svgHeight"
         tabindex="0"
         @keydown="handleKeyDown"
-        @click="focusSvg"
+        @click="handleSvgClick"
         @selectstart.prevent
         @dragstart.prevent
         @contextmenu.prevent
@@ -2794,74 +2586,19 @@ defineExpose({
           No sequence loaded
         </text>
 
-        <!-- Sequence lines -->
-        <g
-          v-for="line in editorState.lines.value"
-          :key="line.index"
-          :transform="`translate(0, ${graphics.getLineY(line.index)})`"
-          class="sequence-line"
-        >
-          <!-- Position label -->
-          <text
-            :x="graphics.metrics.value.lmargin - 8"
-            :y="graphics.lineHeight.value / 2"
-            text-anchor="end"
-            dominant-baseline="middle"
-            class="position-label"
-          >
-            {{ line.position }}
-          </text>
-
-          <!-- Sequence content (text or bar) -->
-          <g :transform="`translate(${graphics.metrics.value.lmargin}, 0)`">
-            <!-- Text mode -->
-            <text
-              v-if="graphics.metrics.value.textMode"
-              x="0"
-              :y="graphics.lineHeight.value / 2"
-              dominant-baseline="middle"
-              class="sequence-text"
-              :style="{ letterSpacing: `${graphics.metrics.value.charWidth - graphics.metrics.value.blockWidth}px` }"
-            >
-              {{ line.text }}
-            </text>
-
-            <!-- Bar mode - thin bar above center (matches original proportions) -->
-            <rect
-              v-else
-              x="0"
-              :y="graphics.lineHeight.value * 3 / 8"
-              :width="(line.end - line.start) * graphics.metrics.value.charWidth"
-              :height="graphics.lineHeight.value / 4"
-              class="sequence-bar"
-            />
-
-            <!-- Invisible overlay to capture mouse events and prevent text selection -->
-            <rect
-              x="0"
-              y="0"
-              :width="(line.end - line.start) * graphics.metrics.value.charWidth"
-              :height="graphics.lineHeight.value"
-              class="sequence-overlay"
-              @mousedown="handleMouseDown($event, line.index)"
-              @contextmenu="handleContextMenu($event, line.index)"
-            />
-          </g>
-
-          <!-- Selection highlight -->
-          <rect
-            v-if="isLineSelected(line)"
-            :x="getSelectionX(line)"
-            y="0"
-            :width="getSelectionWidth(line)"
-            :height="graphics.lineHeight.value"
-            class="selection-highlight"
-          />
-        </g>
+        <!-- Sequence Layer -->
+        <SequenceLayer
+          v-if="editorState.sequenceLength.value > 0"
+          ref="sequenceLayerRef"
+          :document="targetDoc"
+          @select="handleSelectionChange"
+          @contextmenu="handleSequenceLayerContextMenu"
+        />
 
         <!-- Selection Layer (behind annotations) -->
         <SelectionLayer
           ref="selectionLayerRef"
+          :line-height="graphics.lineHeight.value"
           @select="handleSelectionChange"
           @contextmenu="handleSelectionContextMenu"
           @mousedown="handleSelectionMouseDown"
@@ -2883,6 +2620,7 @@ defineExpose({
         <AnnotationLayer
           v-if="annotationInstances.length > 0"
           ref="annotationLayerRef"
+          :document="targetDoc"
           :annotations="annotationInstances"
           :show-captions="showAnnotationCaptions"
           :show-translation="translationLayerRef?.visible ?? false"
@@ -2890,11 +2628,13 @@ defineExpose({
           @click="handleAnnotationClick"
           @contextmenu="handleAnnotationContextMenu"
           @hover="handleAnnotationHover"
+          @edit-annotation="handleEditAnnotation"
+          @delete-annotation="handleDeleteAnnotation"
         />
 
         <!-- Extension graphics layers -->
         <component
-          v-for="ext in props.extensions.filter(e => e.graphicsLayer)"
+          v-for="ext in renderExtensions.filter(e => e.graphicsLayer)"
           :key="ext.id + '-layer'"
           :is="ext.graphicsLayer"
         />
@@ -2903,10 +2643,7 @@ defineExpose({
       </div>
 
       <!-- Selection Status Display -->
-      <div
-        v-if="selectionStatusText"
-        class="selection-status"
-      >{{ selectionStatusText }}</div>
+      <Indicator :text="selectionStatusText" />
     </div>
 
     <!-- Context Menu -->
@@ -2938,15 +2675,6 @@ defineExpose({
       :touching-annotations="touchingAnnotations"
       @submit="handleModalSubmit"
       @cancel="handleInsertCancel"
-    />
-
-    <!-- Metadata Modal -->
-    <MetadataModal
-      :open="metadataModalOpen"
-      :metadata="props.metadata"
-      :readonly="props.readonly"
-      :backend="effectiveBackend"
-      @close="closeMetadataModal"
     />
 
     <!-- Annotation Creation/Edit Modal -->
@@ -2982,7 +2710,7 @@ defineExpose({
 
     <!-- Extension panels/overlays -->
     <component
-      v-for="ext in props.extensions.filter(e => e.panel)"
+      v-for="ext in renderExtensions.filter(e => e.panel)"
       :key="ext.id + '-panel'"
       :is="ext.panel"
     />
@@ -3146,7 +2874,8 @@ defineExpose({
   cursor: text;
 }
 
-.position-label {
+/* Use :deep() to style elements inside child components (SequenceLayer, AlignmentTicksLayer) */
+:deep(.position-label) {
   font-family: "Lucida Console", Monaco, monospace;
   font-size: 10px;
   fill: #888;
@@ -3156,7 +2885,7 @@ defineExpose({
   pointer-events: none;
 }
 
-.sequence-text {
+:deep(.sequence-text) {
   font-family: "Lucida Console", Monaco, monospace;
   font-size: 16px;
   fill: #000;
@@ -3164,21 +2893,21 @@ defineExpose({
   text-anchor: start;
 }
 
-.sequence-overlay {
+:deep(.sequence-overlay) {
   fill: transparent;
   cursor: text;
 }
 
 /* Hide native browser text selection highlight */
-.sequence-text::selection {
+:deep(.sequence-text)::selection {
   background: transparent;
 }
 
-.sequence-text::-moz-selection {
+:deep(.sequence-text)::-moz-selection {
   background: transparent;
 }
 
-.sequence-bar {
+:deep(.sequence-bar) {
   fill: #333;
   stroke: #000;
   stroke-width: 1px;
@@ -3567,5 +3296,31 @@ defineExpose({
   .help-button {
     margin-right: 0;
   }
+}
+
+/* Alignment mode styles */
+.alignment-block {
+  /* Container for query + match + target rows */
+}
+
+/* Use :deep() for styles targeting elements inside SequenceLayer/AlignmentTicksLayer */
+:deep(.alignment-query-text) {
+  fill: #333;
+}
+
+:deep(.alignment-target-text) {
+  fill: #333;
+}
+
+:deep(.alignment-match-text) {
+  fill: #666;
+}
+
+.query-label {
+  fill: #666;
+}
+
+.target-label {
+  fill: #666;
 }
 </style>

@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'bun:test'
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
-import { ref, computed } from 'vue'
-import TranslationLayer from './TranslationLayer.vue'
+import { ref, computed, nextTick } from 'vue'
+import TranslationLayer, { __resetModuleState } from './TranslationLayer.vue'
+import { __resetModuleState as resetAnnotationState } from './AnnotationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
+
+const STORAGE_KEY = 'ogp-hidden-annotation-types'
 
 // Helper to create mock providers
 function createMockProviders(options = {}) {
@@ -28,28 +33,30 @@ function createMockProviders(options = {}) {
     lineHeight: ref(24)
   }
 
-  const showTranslation = ref(options.showTranslation !== false)
-
-  return { editorState, graphics, showTranslation }
+  return { editorState, graphics }
 }
 
 // Helper to mount with providers
 function mountWithProviders(props = {}, options = {}) {
-  const { editorState, graphics, showTranslation } = createMockProviders(options)
+  const { editorState, graphics } = createMockProviders(options)
 
   return mount(TranslationLayer, {
     props,
     global: {
       provide: {
         editorState,
-        graphics,
-        showTranslation
+        graphics
       }
     }
   })
 }
 
 describe('TranslationLayer', () => {
+  beforeEach(() => {
+    __resetModuleState()
+    resetAnnotationState()
+    localStorage.removeItem(STORAGE_KEY)
+  })
   describe('rendering', () => {
     it('renders empty when no CDS annotations', () => {
       const wrapper = mountWithProviders({ annotations: [] })
@@ -61,7 +68,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -78,7 +85,7 @@ describe('TranslationLayer', () => {
         id: 'gene1',
         caption: 'Test',
         type: 'gene',
-        span: '0..30'
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -87,27 +94,37 @@ describe('TranslationLayer', () => {
   })
 
   describe('visibility', () => {
-    it('hides when showTranslation is false', () => {
+    it('hides when showTranslation is toggled off via configItems onChange', async () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: '0..30'
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
         { annotations: [annotation] },
-        { showTranslation: false, sequence: 'ATGATGATGATGATGATGATGATGATGATG' }
+        { sequence: 'ATGATGATGATGATGATGATGATGATGATG' }
       )
 
-      const layer = wrapper.find('.translation-layer')
-      expect(layer.exists()).toBe(false)
+      // Initially visible
+      expect(wrapper.find('.translation-layer').exists()).toBe(true)
+
+      // Get configItems and toggle off
+      const configItems = wrapper.vm.configItems
+      const toggleItem = configItems.find(item => item.type === 'toggle')
+      expect(toggleItem).toBeDefined()
+
+      toggleItem.onChange()
+      await nextTick()
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(false)
     })
 
     it('shows when showTranslation is true', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: '0..30'
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -126,7 +143,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: '0..9' // 3 codons
+        span: parseSpan('0..9') // 3 codons
       })
 
       const wrapper = mountWithProviders(
@@ -146,7 +163,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: '0..30'
+        span: parseSpan('0..30')
       })
 
       const wrapper = mountWithProviders(
@@ -167,7 +184,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: '0..6'
+        span: parseSpan('0..6')
       })
 
       const wrapper = mountWithProviders(
@@ -193,7 +210,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: '(0..6)'  // Minus strand
+        span: parseSpan('(0..6)')  // Minus strand
       })
 
       const wrapper = mountWithProviders(
@@ -223,7 +240,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: '0..6 + (10..16)'
+        span: parseSpan('0..6 + (10..16)')
       })
 
       const wrapper = mountWithProviders(
@@ -239,6 +256,67 @@ describe('TranslationLayer', () => {
       expect(emitted).toBeTruthy()
       // Each range processed per its orientation, accumulated in range order
       expect(emitted[0][0].translation).toBe('MKPK')
+    })
+  })
+
+  describe('coordination with AnnotationLayer', () => {
+    it('hides when AnnotationLayer showAnnotations is off', async () => {
+      const annotation = new Annotation({
+        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
+      })
+
+      const wrapper = mountWithProviders(
+        { annotations: [annotation] },
+        { sequence: 'ATGATGATGATGATGATGATGATGATGATG' }
+      )
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(true)
+
+      const { showAnnotations } = await import('./AnnotationLayer.vue')
+      showAnnotations.value = false
+      await nextTick()
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(false)
+    })
+
+    it('hides when CDS type is hidden in AnnotationLayer', async () => {
+      const annotation = new Annotation({
+        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
+      })
+
+      const wrapper = mountWithProviders(
+        { annotations: [annotation] },
+        { sequence: 'ATGATGATGATGATGATGATGATGATGATG' }
+      )
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(true)
+
+      const { hiddenTypes } = await import('./AnnotationLayer.vue')
+      hiddenTypes.value = new Set(['CDS'])
+      await nextTick()
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(false)
+    })
+
+    it('shows when CDS type is unhidden', async () => {
+      const annotation = new Annotation({
+        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
+      })
+
+      const { hiddenTypes } = await import('./AnnotationLayer.vue')
+      hiddenTypes.value = new Set(['CDS'])
+
+      const wrapper = mountWithProviders(
+        { annotations: [annotation] },
+        { sequence: 'ATGATGATGATGATGATGATGATGATGATG' }
+      )
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(false)
+
+      hiddenTypes.value = new Set()
+      await nextTick()
+
+      expect(wrapper.find('.translation-layer').exists()).toBe(true)
     })
   })
 })

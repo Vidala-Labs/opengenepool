@@ -6,6 +6,7 @@ import { useEditorState } from '../composables/useEditorState.js'
 import { useGraphics } from '../composables/useGraphics.js'
 import { useSelection } from '../composables/useSelection.js'
 import { createEventBus } from '../composables/useEventBus.js'
+import { Range } from '../utils/dna.js'
 
 describe('SelectionLayer', () => {
   let editorState
@@ -41,7 +42,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two touching ranges: [10..50] and [50..100]
-      selection.select('10..50')
+      selection.select([new Range(10, 50)])
       selection.startSelection(50, true)  // Add second range starting at 50
       selection.updateSelection(100)
       selection.endSelection()
@@ -60,7 +61,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two touching ranges
-      selection.select('10..50')
+      selection.select([new Range(10, 50)])
       selection.startSelection(50, true)
       selection.updateSelection(100)
       selection.endSelection()
@@ -105,7 +106,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two touching ranges
-      selection.select('10..50')
+      selection.select([new Range(10, 50)])
       selection.startSelection(50, true)
       selection.updateSelection(100)
       selection.endSelection()
@@ -149,7 +150,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create a single range - no overlapping handles
-      selection.select('10..50')
+      selection.select([new Range(10, 50)])
 
       await wrapper.vm.$nextTick()
 
@@ -177,7 +178,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two touching ranges
-      selection.select('10..50')
+      selection.select([new Range(10, 50)])
       selection.startSelection(50, true)
       selection.updateSelection(100)
       selection.endSelection()
@@ -194,7 +195,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two non-touching ranges
-      selection.select('10..40')
+      selection.select([new Range(10, 40)])
       selection.startSelection(60, true)
       selection.updateSelection(100)
       selection.endSelection()
@@ -207,12 +208,36 @@ describe('SelectionLayer', () => {
     })
   })
 
+  describe('multi-line selection paths', () => {
+    it('generates single connected wrap-around path in normal mode', async () => {
+      const wrapper = createWrapper()
+      const selection = wrapper.vm.selection
+
+      // Create a selection that spans multiple lines (positions 0-150 at zoom 100)
+      // At zoom 100, line 0 is 0-99, line 1 is 100-199
+      selection.select([new Range(0, 150)])
+
+      await wrapper.vm.$nextTick()
+
+      // Should have exactly 1 selection path element (connected wrap-around)
+      const selectionPaths = wrapper.findAll('.selection')
+      expect(selectionPaths.length).toBe(1)
+
+      // The path should have wrap-around shape (more complex than a simple rectangle)
+      const pathD = selectionPaths[0].attributes('d')
+      // Wrap-around path has 8 commands: M, H, V, H, V, H, V, H, Z
+      // Count H commands - should have 4 for wrap-around (vs 2 for simple rectangle)
+      const hCommands = (pathD.match(/H /g) || []).length
+      expect(hCommands).toBe(4)
+    })
+  })
+
   describe('handle rendering', () => {
     it('renders post-it tab arrow handles', async () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('10..50')
+      selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       // Should have start and end handles
@@ -225,7 +250,7 @@ describe('SelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two ranges
-      selection.select('10..40')
+      selection.select([new Range(10, 40)])
       selection.startSelection(60, true)
       selection.updateSelection(100)
       selection.endSelection()

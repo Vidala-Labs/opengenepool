@@ -144,8 +144,10 @@ const selection = useSelection()
 ### Working with annotations
 ```javascript
 import { Annotation } from './utils/annotation.js'
+import { Span, Range, Orientation } from './utils/dna.js'
+
 const ann = new Annotation({
-  span: '10..50',        // or Span object
+  span: new Span([new Range(10, 50, Orientation.PLUS)]),
   type: 'CDS',
   label: 'My Gene',
   color: 'blue'
@@ -228,6 +230,99 @@ The `#toolbar` slot adds buttons to the main toolbar:
 </SequenceEditor>
 ```
 
+### Sequence Alignment Mode
+
+For sequence alignment, use the separate `AlignmentEditor` component. This component is a sibling to `SequenceEditor` and provides a dedicated two-sequence comparison view:
+
+```vue
+<AlignmentEditor
+  :target="targetDoc"
+  :query="queryDoc"
+  :extensions="extensions"
+/>
+
+<!-- Or conditionally render based on whether query exists -->
+<AlignmentEditor
+  v-if="queryDoc"
+  :target="targetDoc"
+  :query="queryDoc"
+/>
+<SequenceEditor
+  v-else
+  :sequence="targetDoc"
+/>
+```
+
+Props:
+- `target` (SequenceDocument, required): The main sequence document
+- `query` (SequenceDocument, required): The query sequence to align against target
+- `initialZoom`, `readonly`, `clipboardBackend`, `extensions`: Same as SequenceEditor
+
+The alignment view shows:
+- Side-by-side sequence comparison with gaps
+- Match line with `|` for identical bases
+- Annotations from both sequences mapped through gap positions
+- Selection support with `selection.source` tracking which row ('target' or 'query')
+- Edit operations (delete) routed to the correct document based on selection source
+
+#### Displaying Alignment Statistics
+
+Alignment statistics are available via the exposed `alignmentResult` property. To display them, provide an `#info` slot - this will automatically show an info icon (i) in the toolbar that opens a popup with your content when clicked:
+
+```vue
+<AlignmentEditor
+  ref="editorRef"
+  :target="targetDoc"
+  :query="queryDoc"
+>
+  <template #title>
+    {{ title }} &mdash; {{ length }} bp (alignment)
+  </template>
+  <template #info>
+    <div class="info-row">
+      <span class="info-label">Score:</span>
+      <span class="info-value">{{ editorRef?.alignmentResult?.score }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Identity:</span>
+      <span class="info-value">{{ editorRef?.alignmentResult?.identity }}%</span>
+    </div>
+    <!-- Add more fields as needed -->
+  </template>
+</AlignmentEditor>
+```
+
+The `alignmentResult` object contains:
+- `score`: Alignment score
+- `identity`: Identity percentage
+- `queryStart`, `queryEnd`: Query sequence range
+- `targetStart`, `targetEnd`: Target sequence range
+- `queryAligned`, `targetAligned`: Aligned sequences with gaps
+
+The info icon only appears when an `#info` slot is provided. See `example/App.vue` for a complete implementation.
+
+To use the alignment function directly:
+
+```javascript
+import { align } from 'opengenepool'
+
+const result = align('ATCGATCG', 'ATCGAATCG', {
+  match: 2,       // Score for matching bases (default: 2)
+  mismatch: -1,   // Penalty for mismatches (default: -1)
+  gapOpen: -3,    // Gap opening penalty (default: -3)
+  gapExtend: -1   // Gap extension penalty (default: -1)
+})
+
+// result = {
+//   score: 12,
+//   queryStart: 0, queryEnd: 8,
+//   targetStart: 0, targetEnd: 9,
+//   queryAligned: 'ATCG-ATCG',
+//   targetAligned: 'ATCGAATCG',
+//   identity: 88.9
+// }
+```
+
 ## Backend Adapter Protocol
 
 Backend adapters must implement these methods (all optional):
@@ -240,3 +335,10 @@ Backend adapters must implement these methods (all optional):
 - `setMetadata(key, value)` - Update metadata
 - `getClipboard()` - Get clipboard content
 - `setClipboard(content)` - Set clipboard content
+
+## IMPORTANT NOTE
+
+When applicable, always use TDD for new features or debugging:
+- write a failing test (RED)
+- apply your proposed fix
+- verify that the test now passes (GREEN)

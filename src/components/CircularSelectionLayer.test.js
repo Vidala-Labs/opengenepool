@@ -7,6 +7,7 @@ import { useGraphics } from '../composables/useGraphics.js'
 import { useSelection } from '../composables/useSelection.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
 import { createEventBus } from '../composables/useEventBus.js'
+import { Range, Orientation } from '../utils/dna.js'
 
 describe('CircularSelectionLayer', () => {
   function createWrapper(options = {}) {
@@ -47,7 +48,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       const paths = wrapper.findAll('.selection')
@@ -58,7 +59,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('100..100')
+      selection.select([new Range(100, 100)])
       await wrapper.vm.$nextTick()
 
       const cursors = wrapper.findAll('.selection.cursor')
@@ -71,7 +72,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       const handles = wrapper.findAll('.sel_handle')
@@ -83,7 +84,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('100..100')
+      selection.select([new Range(100, 100)])
       await wrapper.vm.$nextTick()
 
       const handles = wrapper.findAll('.sel_handle')
@@ -96,7 +97,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('100..500') // Plus strand by default
+      selection.select([new Range(100, 500)]) // Plus strand by default
       await wrapper.vm.$nextTick()
 
       const path = wrapper.find('.selection.plus')
@@ -107,7 +108,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('(100..500)') // Minus strand
+      selection.select([new Range(100, 500, Orientation.MINUS)]) // Minus strand
       await wrapper.vm.$nextTick()
 
       const path = wrapper.find('.selection.minus')
@@ -121,7 +122,7 @@ describe('CircularSelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create multi-range selection
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       selection.startSelection(1000, true)
       selection.updateSelection(1500)
       selection.endSelection()
@@ -137,7 +138,7 @@ describe('CircularSelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create multi-range selection
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       selection.startSelection(1000, true)
       selection.updateSelection(1500)
       selection.endSelection()
@@ -154,7 +155,7 @@ describe('CircularSelectionLayer', () => {
       const wrapper = createWrapper()
       const selection = wrapper.vm.selection
 
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
       const path = wrapper.find('.selection')
@@ -170,7 +171,7 @@ describe('CircularSelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create a wrapped selection: 4500..5000 + 0..500
-      selection.select('4500..5000')
+      selection.select([new Range(4500, 5000)])
       selection.domain.value.ranges.push({
         start: 0,
         end: 500,
@@ -190,7 +191,7 @@ describe('CircularSelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two touching ranges: 100..500 and 500..1000
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       selection.startSelection(500, true)
       selection.updateSelection(1000)
       selection.endSelection()
@@ -207,7 +208,7 @@ describe('CircularSelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two non-touching ranges: 100..500 and 600..1000
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       selection.startSelection(600, true)
       selection.updateSelection(1000)
       selection.endSelection()
@@ -224,7 +225,7 @@ describe('CircularSelectionLayer', () => {
       const selection = wrapper.vm.selection
 
       // Create two touching ranges
-      selection.select('100..500')
+      selection.select([new Range(100, 500)])
       selection.startSelection(500, true)
       selection.updateSelection(1000)
       selection.endSelection()
@@ -256,7 +257,7 @@ describe('CircularSelectionLayer', () => {
       const seqLen = 2000
 
       // Create two forward strand ranges: [10..20] (range 0) and [30..50] (range 1)
-      selection.select('10..20')
+      selection.select([new Range(10, 20)])
       selection.domain.value.ranges.push({
         start: 30,
         end: 50,
@@ -323,7 +324,7 @@ describe('CircularSelectionLayer', () => {
       const seqLen = 2000
 
       // Create two reverse strand ranges: (10..20) (range 0) and (30..50) (range 1)
-      selection.select('(10..20)')  // MINUS strand
+      selection.select([new Range(10, 20, Orientation.MINUS)])  // MINUS strand
       selection.domain.value.ranges.push({
         start: 30,
         end: 50,
@@ -390,7 +391,7 @@ describe('CircularSelectionLayer', () => {
       const seqLen = 2000
 
       // Create mixed ranges: [10..20] PLUS (range 0), (30..50) MINUS (range 1), [60..80] PLUS (range 2)
-      selection.select('10..20')
+      selection.select([new Range(10, 20)])
       selection.domain.value.ranges.push({
         start: 30,
         end: 50,
@@ -465,7 +466,7 @@ describe('CircularSelectionLayer', () => {
 
       // Create three ranges: [100..200], [10..20], [300..400]
       // We'll wrap the middle one (range 1: [10..20])
-      selection.select('100..200')
+      selection.select([new Range(100, 200)])
       selection.domain.value.ranges.push({
         start: 10,
         end: 20,
@@ -539,7 +540,7 @@ describe('CircularSelectionLayer', () => {
 
       // Create two ranges: [30..50], [10..20]
       // Wrapping the last range should work (this is the case that works by accident)
-      selection.select('30..50')
+      selection.select([new Range(30, 50)])
       selection.domain.value.ranges.push({
         start: 10,
         end: 20,

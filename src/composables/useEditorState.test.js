@@ -72,7 +72,7 @@ describe('useEditorState', () => {
         start: 0,
         end: 50,
         text: seq.slice(0, 50),
-        position: 0
+        position: 1  // GenBank 1-indexed
       })
 
       expect(lines[1]).toEqual({
@@ -80,7 +80,7 @@ describe('useEditorState', () => {
         start: 50,
         end: 100,
         text: seq.slice(50, 100),
-        position: 50
+        position: 51  // GenBank 1-indexed
       })
 
       expect(lines[2]).toEqual({
@@ -88,7 +88,7 @@ describe('useEditorState', () => {
         start: 100,
         end: 150,
         text: seq.slice(100, 150),
-        position: 100
+        position: 101  // GenBank 1-indexed
       })
     })
   })

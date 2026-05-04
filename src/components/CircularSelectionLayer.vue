@@ -505,13 +505,6 @@ function handleDragEnd() {
   }
 }
 
-function handlePathClick(event, rangeIndex) {
-  // Shift-click triggers context menu (Mac-friendly alternative to right-click)
-  if (event.shiftKey) {
-    handlePathContextMenu(event, rangeIndex)
-  }
-}
-
 function handlePathContextMenu(event, rangeIndex) {
   event.preventDefault()
   event.stopPropagation()
@@ -521,13 +514,6 @@ function handlePathContextMenu(event, rangeIndex) {
     rangeIndex,
     range: selection.domain.value.ranges[rangeIndex]
   })
-}
-
-function handleHandleClick(event, rangeIndex, handleType) {
-  // Shift-click triggers context menu (Mac-friendly alternative to right-click)
-  if (event.shiftKey) {
-    handleHandleContextMenu(event, rangeIndex, handleType)
-  }
 }
 
 function handleHandleContextMenu(event, rangeIndex, handleType) {
@@ -543,6 +529,98 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
     isCursor
   })
 }
+
+// ============================================
+// Click/Context Menu Items via elementsFromPoint
+// ============================================
+
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'circular-selection') return false
+
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  const handleType = dataset.handleType
+  const domain = selection.domain.value
+
+  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return false
+
+  // Handle clicks: do nothing special - drag is via mousedown
+  if (handleType) {
+    // Shift+click on handle shows context menu
+    if (event.shiftKey) {
+      handleHandleContextMenu(event, rangeIndex, handleType)
+    }
+    return true  // Handled - prevent other layers from processing
+  }
+
+  // Path clicks: do nothing special - selection already exists
+  // Shift+click shows context menu
+  if (event.shiftKey) {
+    handlePathContextMenu(event, rangeIndex)
+  }
+
+  return true  // Handled - prevent other layers from processing
+}
+
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'circular-selection') return []
+
+  const items = []
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  const handleType = dataset.handleType
+  const domain = selection.domain.value
+
+  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return []
+
+  const range = domain.ranges[rangeIndex]
+
+  if (handleType) {
+    // Handle context menu items
+    items.push({
+      label: 'Extend to position...',
+      action: () => emit('handle-contextmenu', {
+        event: null,
+        rangeIndex,
+        range,
+        handleType
+      })
+    })
+  } else {
+    // Selection arc context menu items
+    items.push({
+      label: 'Copy selection',
+      action: () => emit('contextmenu', {
+        event: null,
+        source: 'selection',
+        rangeIndex,
+        range,
+        action: 'copy'
+      })
+    })
+  }
+
+  return items
+}
+
+// Expose for click routing and context menu integration
+defineExpose({
+  handleClickForElement,
+  getMenuItemsForElement
+})
 </script>
 
 <template>
@@ -552,7 +630,8 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
       <path
         :d="sel.path"
         :class="sel.cssClass"
-        @click="handlePathClick($event, sel.index)"
+        data-layer="circular-selection"
+        :data-range-index="sel.index"
         @contextmenu="handlePathContextMenu($event, sel.index)"
       />
 
@@ -565,8 +644,10 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
           sel.startAngle
         )"
         :class="getHandleCssClass(sel.range)"
+        data-layer="circular-selection"
+        :data-range-index="sel.index"
+        data-handle-type="start"
         @mousedown="startHandleDrag($event, sel.index, 'start')"
-        @click="handleHandleClick($event, sel.index, 'start')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'start')"
       />
 
@@ -580,8 +661,10 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
           sel.endAngle
         )"
         :class="getHandleCssClass(sel.range)"
+        data-layer="circular-selection"
+        :data-range-index="sel.index"
+        data-handle-type="end"
         @mousedown="startHandleDrag($event, sel.index, 'end')"
-        @click="handleHandleClick($event, sel.index, 'end')"
         @contextmenu.prevent="handleHandleContextMenu($event, sel.index, 'end')"
       />
 

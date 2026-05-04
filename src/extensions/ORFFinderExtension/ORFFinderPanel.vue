@@ -2,7 +2,7 @@
 import { ref, inject, computed, watch } from 'vue'
 import { orfFinderVisible } from './state.js'
 import { CODON_TABLE, START_CODONS } from '../../utils/translation.js'
-import { reverseComplement, Span } from '../../utils/dna.js'
+import { reverseComplement, Span, Range, Orientation } from '../../utils/dna.js'
 
 const extensionAPI = inject('extensionAPI')
 
@@ -37,7 +37,7 @@ function findMatchingCDS(orf) {
     if (ann.type?.toUpperCase() !== 'CDS') continue
 
     // Parse the annotation's span
-    const span = ann.span instanceof Span ? ann.span : Span.parse(ann.span)
+    const span = ann.span
     if (!span || span.ranges.length === 0) continue
 
     // For simple single-range CDS, check if it matches the ORF
@@ -255,13 +255,8 @@ function confirmCreateCDS() {
   const name = cdsName.value.trim()
   if (!orf || !name) return
 
-  // Build span string in GenBank notation
-  const spanStr = orf.strand === '-'
-    ? `(${orf.start}..${orf.end})`
-    : `${orf.start}..${orf.end}`
-
   extensionAPI.addAnnotation({
-    span: spanStr,
+    span: new Span([new Range(orf.start, orf.end, orf.strand === '-' ? Orientation.MINUS : Orientation.PLUS)]),
     type: 'CDS',
     caption: name
   })

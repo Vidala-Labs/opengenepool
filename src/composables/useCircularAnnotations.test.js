@@ -1,8 +1,10 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { ref } from 'vue'
 import { useCircularAnnotations } from './useCircularAnnotations.js'
 import { useCircularGraphics } from './useCircularGraphics.js'
 import { Annotation } from '../utils/annotation.js'
+import { Span } from '../utils/dna.js'
 
 // Helper to create mock editor state
 function createMockEditorState(options = {}) {
@@ -35,7 +37,7 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { annotations, setAnnotations } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann = new Annotation({ id: 'test', span: '100..500', type: 'gene' })
+      const ann = new Annotation({ id: 'test', span: parseSpan('100..500'), type: 'gene' })
       setAnnotations([ann])
 
       expect(annotations.value).toHaveLength(1)
@@ -49,7 +51,7 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { setAnnotations, getElements } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann = new Annotation({ id: 'test', span: '100..500', type: 'gene', caption: 'GFP' })
+      const ann = new Annotation({ id: 'test', span: parseSpan('100..500'), type: 'gene', caption: 'GFP' })
       setAnnotations([ann])
 
       const elements = getElements.value
@@ -74,8 +76,8 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { annotations, setAnnotations, rowAssignments } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann1 = new Annotation({ id: 'ann1', span: '100..500', type: 'gene' })
-      const ann2 = new Annotation({ id: 'ann2', span: '1000..1500', type: 'gene' })
+      const ann1 = new Annotation({ id: 'ann1', span: parseSpan('100..500'), type: 'gene' })
+      const ann2 = new Annotation({ id: 'ann2', span: parseSpan('1000..1500'), type: 'gene' })
       setAnnotations([ann1, ann2])
 
       const { assignments, rowCount } = rowAssignments.value
@@ -90,8 +92,8 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { setAnnotations, rowAssignments } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann1 = new Annotation({ id: 'ann1', span: '100..500', type: 'gene' })
-      const ann2 = new Annotation({ id: 'ann2', span: '200..600', type: 'gene' })
+      const ann1 = new Annotation({ id: 'ann1', span: parseSpan('100..500'), type: 'gene' })
+      const ann2 = new Annotation({ id: 'ann2', span: parseSpan('200..600'), type: 'gene' })
       setAnnotations([ann1, ann2])
 
       const { rowCount } = rowAssignments.value
@@ -107,14 +109,14 @@ describe('useCircularAnnotations', () => {
       const multiPartAnnotation = new Annotation({
         id: 'multi',
         type: 'gene',
-        span: '1..10 + 40..50'
+        span: parseSpan('1..10 + 40..50')
       })
 
       // Single annotation in gap: 20..30
       const gapAnnotation = new Annotation({
         id: 'gap',
         type: 'gene',
-        span: '20..30'
+        span: parseSpan('20..30')
       })
 
       setAnnotations([multiPartAnnotation, gapAnnotation])
@@ -176,7 +178,7 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { hoveredAnnotation, tooltipPosition, showTooltip, hideTooltip } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann = new Annotation({ id: 'test', span: '100..500' })
+      const ann = new Annotation({ id: 'test', span: parseSpan('100..500') })
       showTooltip(ann, { x: 100, y: 200 })
 
       expect(hoveredAnnotation.value.id).toBe('test')
@@ -194,7 +196,7 @@ describe('useCircularAnnotations', () => {
       const eventBus = createMockEventBus()
       const { handleClick, setAnnotations } = useCircularAnnotations(editorState, circularGraphics, eventBus)
 
-      const ann = new Annotation({ id: 'test', span: '100..500' })
+      const ann = new Annotation({ id: 'test', span: parseSpan('100..500') })
       setAnnotations([ann])
 
       let clickedAnnotation = null
@@ -212,7 +214,7 @@ describe('useCircularAnnotations', () => {
       const eventBus = createMockEventBus()
       const { handleContextMenu, setAnnotations } = useCircularAnnotations(editorState, circularGraphics, eventBus)
 
-      const ann = new Annotation({ id: 'test', span: '100..500' })
+      const ann = new Annotation({ id: 'test', span: parseSpan('100..500') })
       setAnnotations([ann])
 
       let contextAnnotation = null
@@ -231,7 +233,7 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { setAnnotations, getAnnotationAtPosition } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann = new Annotation({ id: 'test', span: '100..500', type: 'gene' })
+      const ann = new Annotation({ id: 'test', span: parseSpan('100..500'), type: 'gene' })
       setAnnotations([ann])
 
       expect(getAnnotationAtPosition(200)?.id).toBe('test')
@@ -244,9 +246,9 @@ describe('useCircularAnnotations', () => {
       const circularGraphics = useCircularGraphics(editorState)
       const { setAnnotations, getAnnotationsInRange } = useCircularAnnotations(editorState, circularGraphics, null)
 
-      const ann1 = new Annotation({ id: 'ann1', span: '100..500', type: 'gene' })
-      const ann2 = new Annotation({ id: 'ann2', span: '400..800', type: 'gene' })
-      const ann3 = new Annotation({ id: 'ann3', span: '1000..1500', type: 'gene' })
+      const ann1 = new Annotation({ id: 'ann1', span: parseSpan('100..500'), type: 'gene' })
+      const ann2 = new Annotation({ id: 'ann2', span: parseSpan('400..800'), type: 'gene' })
+      const ann3 = new Annotation({ id: 'ann3', span: parseSpan('1000..1500'), type: 'gene' })
       setAnnotations([ann1, ann2, ann3])
 
       const overlapping = getAnnotationsInRange(450, 600)

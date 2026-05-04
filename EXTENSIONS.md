@@ -231,7 +231,7 @@ const extensionAPI = inject('extensionAPI')
 | `getSequence()` | `string` | Get the current DNA sequence |
 | `getSelectedSequence()` | `string` | Get the selected sequence text (orientation-aware) |
 | `getAnnotations()` | `array` | Get all annotations in the editor |
-| `setSelection(spec)` | `void` | Set selection using span notation (`'10..20'`, `'(10..20)'`, etc.) |
+| `setSelection(spec)` | `void` | Set selection using a `Span` or array of `Range` objects |
 | `clearSelection()` | `void` | Clear the current selection |
 | `scrollToPosition(pos)` | `void` | Scroll to make a position visible |
 | `addAnnotation(data)` | `void` | Create a new annotation (`{ span, type, label, color?, attributes? }`) |
@@ -302,6 +302,7 @@ function toggle() {
 <!-- extensions/MyExtension/MyPanel.vue -->
 <script setup>
 import { inject, onMounted, onUnmounted } from 'vue'
+import { Span, Range, Orientation } from 'opengenepool'
 import { panelVisible } from './index.js'
 
 const extensionAPI = inject('extensionAPI')
@@ -309,7 +310,7 @@ const extensionAPI = inject('extensionAPI')
 function doSomething() {
   const sequence = extensionAPI.getSequence()
   // Process sequence...
-  extensionAPI.setSelection('100..200')
+  extensionAPI.setSelection(new Span([new Range(100, 200, Orientation.PLUS)]))
 }
 
 // Subscribe to selection changes

@@ -1,7 +1,19 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
+
+// Helper to create a SequenceDocument for tests
+function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
+  const normalizedAnnotations = annotations.map(annotation => ({
+    ...annotation,
+    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
+  }))
+  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+}
 
 describe('SequenceEditor backend', () => {
   beforeEach(() => {
@@ -36,7 +48,7 @@ describe('SequenceEditor backend', () => {
   async function setupInsertAtPosition(wrapper, position) {
     const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
     const selection = selectionLayer.vm.selection
-    selection.select(`${position}..${position}`)
+    selection.select(parseSpan(`${position}..${position}`))
     await wrapper.vm.$nextTick()
 
     const svg = wrapper.find('svg.editor-svg')
@@ -49,8 +61,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -73,8 +84,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -95,8 +105,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -117,8 +126,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -145,8 +153,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -178,15 +185,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 2..5 (indices 2,3,4 = 'CGA')
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..5')
+      selectionLayer.vm.selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
@@ -207,15 +213,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 1..4
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('1..4')
+      selectionLayer.vm.selection.select([new Range(1, 4)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -234,8 +239,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -251,15 +255,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       // Zero-length selection (cursor at position 3)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('3..3')
+      selectionLayer.vm.selection.select([new Range(3, 3)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Backspace' })
@@ -272,15 +275,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 2..5 (delete 'CGA')
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..5')
+      selectionLayer.vm.selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -297,14 +299,13 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..5')
+      selectionLayer.vm.selection.select([new Range(2, 5)])
       await wrapper.vm.$nextTick()
 
       expect(selectionLayer.vm.selection.isSelected.value).toBe(true)
@@ -327,8 +328,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -336,14 +336,14 @@ describe('SequenceEditor backend', () => {
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
 
       // First delete
-      selectionLayer.vm.selection.select('2..4')
+      selectionLayer.vm.selection.select([new Range(2, 4)])
       await wrapper.vm.$nextTick()
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
       await confirmDelete(wrapper)
 
       // Second delete
-      selectionLayer.vm.selection.select('5..7')
+      selectionLayer.vm.selection.select([new Range(5, 7)])
       await wrapper.vm.$nextTick()
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
       await wrapper.vm.$nextTick()
@@ -359,15 +359,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       // Create multi-range selection: 2..4 and 8..10 (use ' + ' separator)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..4 + 8..10')
+      selectionLayer.vm.selection.select([new Range(2, 4), new Range(8, 10)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -394,15 +393,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCGATCG', // 16 chars
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCGATCG', [], false, mockBackend) // 16 chars
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select 2..4 (CG) and 8..10 (AT) using ' + ' separator
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('2..4 + 8..10')
+      selectionLayer.vm.selection.select([new Range(2, 4), new Range(8, 10)])
       await wrapper.vm.$nextTick()
 
       await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -423,14 +421,14 @@ describe('SequenceEditor backend', () => {
       it('leaves cursor at deletion point for single range', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCG' // 12 chars
+            sequence: createDoc('ATCGATCGATCG') // 12 chars
           }
         })
         await wrapper.vm.$nextTick()
 
         // Select positions 5..10
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('5..10')
+        selectionLayer.vm.selection.select([new Range(5, 10)])
         await wrapper.vm.$nextTick()
 
         // Delete the selection
@@ -451,14 +449,14 @@ describe('SequenceEditor backend', () => {
       it('leaves cursor for adjacent ranges', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCG' // 16 chars
+            sequence: createDoc('ATCGATCGATCGATCG') // 16 chars
           }
         })
         await wrapper.vm.$nextTick()
 
         // Select 5..10 + 10..15 (adjacent ranges)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('5..10 + 10..15')
+        selectionLayer.vm.selection.select([new Range(5, 10), new Range(10, 15)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -478,14 +476,14 @@ describe('SequenceEditor backend', () => {
       it('clears selection for non-adjacent ranges', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCGATCG' // 20 chars
+            sequence: createDoc('ATCGATCGATCGATCGATCG') // 20 chars
           }
         })
         await wrapper.vm.$nextTick()
 
         // Select 5..10 + 15..18 (gap between 10 and 15)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('5..10 + 15..18')
+        selectionLayer.vm.selection.select([new Range(5, 10), new Range(15, 18)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -502,15 +500,14 @@ describe('SequenceEditor backend', () => {
       it('leaves cursor for circular wrap-around selection', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCGATCG', // 20 chars
-            metadata: { circular: true }
+            sequence: createDoc('ATCGATCGATCGATCGATCG', [], true) // 20 chars, circular
           }
         })
         await wrapper.vm.$nextTick()
 
         // Select 0..5 + 15..20 (wraps around origin on circular sequence)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('0..5 + 15..20')
+        selectionLayer.vm.selection.select([new Range(0, 5), new Range(15, 20)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -530,15 +527,14 @@ describe('SequenceEditor backend', () => {
       it('clears selection for non-contiguous circular selection', async () => {
         const wrapper = mount(SequenceEditor, {
           props: {
-            sequence: 'ATCGATCGATCGATCGATCG', // 20 chars
-            metadata: { circular: true }
+            sequence: createDoc('ATCGATCGATCGATCGATCG', [], true) // 20 chars, circular
           }
         })
         await wrapper.vm.$nextTick()
 
         // Select 0..5 + 10..15 (does NOT wrap - gap between 5 and 10, and between 15 and 20)
         const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-        selectionLayer.vm.selection.select('0..5 + 10..15')
+        selectionLayer.vm.selection.select([new Range(0, 5), new Range(10, 15)])
         await wrapper.vm.$nextTick()
 
         await wrapper.find('.editor-svg').trigger('keydown', { key: 'Delete' })
@@ -559,8 +555,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
@@ -582,7 +577,7 @@ describe('SequenceEditor backend', () => {
     it('works without backend prop', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG'
+          sequence: createDoc('ATCGATCG')
         }
       })
       await wrapper.vm.$nextTick()
@@ -600,7 +595,7 @@ describe('SequenceEditor backend', () => {
     it('emits edit event even without backend', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCG'
+          sequence: createDoc('ATCGATCG')
         }
       })
       await wrapper.vm.$nextTick()
@@ -629,9 +624,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -653,7 +646,7 @@ describe('SequenceEditor backend', () => {
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
       // Annotation should expand: 10..50 -> 10..54 (4 chars inserted)
-      expect(emitted[0][0][0].span).toBe('10..54')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..54')
     })
 
     it('calls backend.insert before annotation shifts it', async () => {
@@ -663,9 +656,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -686,7 +677,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should shift: 20..40 -> 23..43
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('23..43')
+      expect(emitted[0][0][0].span.toJSON()).toBe('23..43')
     })
   })
 
@@ -695,8 +686,7 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(50),
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(50), [], false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -723,15 +713,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 4..8 on minus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8, Orientation.MINUS)]) // Minus strand selection
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -754,15 +743,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 4..8 on plus strand (default)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8)]) // Plus strand selection
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -784,15 +772,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG',
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend),
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 4..8 on minus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('(4..8)')
+      selectionLayer.vm.selection.select([new Range(4, 8, Orientation.MINUS)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -815,15 +802,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 4..8 on minus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('(4..8)') // Minus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8, Orientation.MINUS)]) // Minus strand selection
       await wrapper.vm.$nextTick()
 
       // Verify initial selection is minus strand
@@ -850,15 +836,14 @@ describe('SequenceEditor backend', () => {
       const mockBackend = createMockBackend()
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'ATCGATCGATCG', // 12 bases
-          backend: mockBackend
+          sequence: createDoc('ATCGATCGATCG', [], false, mockBackend) // 12 bases
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 4..8 on plus strand
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('4..8') // Plus strand selection
+      selectionLayer.vm.selection.select([new Range(4, 8)]) // Plus strand selection
       await wrapper.vm.$nextTick()
 
       // Verify initial selection is plus strand
@@ -890,16 +875,14 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 15..25 (inside the annotation)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('15..25')
+      selectionLayer.vm.selection.select([new Range(15, 25)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal to open (by typing a character)
@@ -930,16 +913,14 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 15..25 (inside the annotation)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('15..25')
+      selectionLayer.vm.selection.select([new Range(15, 25)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -961,7 +942,7 @@ describe('SequenceEditor backend', () => {
       expect(emitted).toBeTruthy()
       // For equal length replace within annotation, the annotation remains 10..30
       // (since net change is 0 and it contains the selection, end adjusts by 0)
-      expect(emitted[0][0][0].span).toBe('10..30')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..30')
     })
 
     it('should collapse annotation when selection contains it and annotationMode is default', async () => {
@@ -971,16 +952,14 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 10..30 (contains the annotation 15..25)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..30')
+      selectionLayer.vm.selection.select([new Range(10, 30)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -998,7 +977,7 @@ describe('SequenceEditor backend', () => {
       expect(emitted).toBeTruthy()
       // Annotation that was contained by selection gets collapsed to zero-width at selStart
       // Zero-width spans serialize as just the position (e.g., "10" not "10..10")
-      expect(emitted[0][0][0].span).toBe('10')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10')
     })
 
     it('should keep annotation when selection contains it and annotationMode is preserve', async () => {
@@ -1008,16 +987,14 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select positions 10..30 (contains the annotation 15..25)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..30')
+      selectionLayer.vm.selection.select([new Range(10, 30)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal
@@ -1044,9 +1021,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1073,9 +1048,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1094,7 +1067,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should shift entirely: 10..30 -> 13..33 (3-char insert)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('13..33')
+      expect(emitted[0][0][0].span.toJSON()).toBe('13..33')
     })
 
     it('should extend annotation starting at insert position when checked', async () => {
@@ -1104,9 +1077,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1125,7 +1096,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should expand: 10..30 -> 10..33 (start stays, end shifts)
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('10..33')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..33')
     })
 
     it('should not extend annotation ending at insert position by default', async () => {
@@ -1135,9 +1106,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1159,7 +1128,7 @@ describe('SequenceEditor backend', () => {
       const emitted = wrapper.emitted('annotations-update')
       // No changes means annotations-update not emitted OR annotation unchanged
       if (emitted) {
-        expect(emitted[0][0][0].span).toBe('10..30')
+        expect(emitted[0][0][0].span.toJSON()).toBe('10..30')
       }
     })
 
@@ -1170,9 +1139,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1191,7 +1158,7 @@ describe('SequenceEditor backend', () => {
       // Annotation should expand: 10..30 -> 10..33
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('10..33')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..33')
     })
 
     it('should handle multiple annotations touching same insert position', async () => {
@@ -1202,9 +1169,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1227,8 +1192,8 @@ describe('SequenceEditor backend', () => {
       const updatedAnns = emitted[0][0]
       const ann1 = updatedAnns.find(a => a.id === 'ann1')
       const ann2 = updatedAnns.find(a => a.id === 'ann2')
-      expect(ann1.span).toBe('10..33')
-      expect(ann2.span).toBe('33..53')
+      expect(ann1.span.toJSON()).toBe('10..33')
+      expect(ann2.span.toJSON()).toBe('33..53')
     })
 
     it('should handle extending both annotations at same position', async () => {
@@ -1239,9 +1204,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1264,8 +1227,8 @@ describe('SequenceEditor backend', () => {
       const updatedAnns = emitted[0][0]
       const ann1 = updatedAnns.find(a => a.id === 'ann1')
       const ann2 = updatedAnns.find(a => a.id === 'ann2')
-      expect(ann1.span).toBe('10..33')
-      expect(ann2.span).toBe('30..53')
+      expect(ann1.span.toJSON()).toBe('10..33')
+      expect(ann2.span.toJSON()).toBe('30..53')
     })
 
     it('should not show extend options for replacements', async () => {
@@ -1275,16 +1238,14 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select a range (makes it a replacement)
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..15')
+      selectionLayer.vm.selection.select([new Range(10, 15)])
       await wrapper.vm.$nextTick()
 
       // Trigger insert modal (which becomes replace modal due to selection)
@@ -1311,9 +1272,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()
@@ -1333,7 +1292,7 @@ describe('SequenceEditor backend', () => {
       // Second range should shift: 30..40 -> 33..43
       const emitted = wrapper.emitted('annotations-update')
       expect(emitted).toBeTruthy()
-      expect(emitted[0][0][0].span).toBe('10..23 + 33..43')
+      expect(emitted[0][0][0].span.toJSON()).toBe('10..23 + 33..43')
     })
 
     it('should still emit edit event with insert type', async () => {
@@ -1343,9 +1302,7 @@ describe('SequenceEditor backend', () => {
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: 'A'.repeat(100),
-          annotations,
-          backend: mockBackend
+          sequence: createDoc('A'.repeat(100), annotations, false, mockBackend)
         }
       })
       await wrapper.vm.$nextTick()

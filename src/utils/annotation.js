@@ -17,18 +17,17 @@ export class Annotation {
     this.type = type || 'misc_feature'
     this.attributes = attributes
 
-    // Parse span if it's a string, otherwise use directly
-    if (typeof span === 'string') {
-      this.span = Span.parse(span)
-    } else if (span instanceof Span) {
+    if (span instanceof Span) {
       this.span = span
     } else if (Array.isArray(span)) {
-      // Array of ranges
-      this.span = new Span(span.map(r =>
-        r instanceof Range ? r : Range.parse(r)
-      ))
-    } else {
+      // Array of Range objects
+      this.span = new Span(span)
+    } else if (span?.ranges) {
+      this.span = new Span(span.ranges)
+    } else if (span == null) {
       this.span = new Span()
+    } else {
+      throw new TypeError('Annotation requires span to be a Span, Range[], or object with ranges property')
     }
   }
 
@@ -152,7 +151,7 @@ export class Annotation {
   }
 
   toString() {
-    return `${this.caption} (${this.type}): ${this.span.toString()}`
+    return `${this.caption} (${this.type}): ${this.span.toFencedString()}`
   }
 }
 

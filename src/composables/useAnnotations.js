@@ -18,49 +18,49 @@ import { rangesOverlap } from '../utils/layout.js'
  * @param {number} params.blockWidth - Width of arrow point
  * @param {number} params.arrowEdge - Rounded edge offset
  * @param {number} params.orientation - Strand orientation
+ * @param {string} params.stackDirection - 'up' (extends into negative Y) or 'down' (extends into positive Y)
  * @returns {string} SVG path string
  */
-export function generateArrowPath({ left, right, height, blockWidth, arrowEdge, orientation }) {
+export function generateArrowPath({ left, right, height, blockWidth, arrowEdge, orientation, stackDirection = 'up' }) {
   const width = right - left
   const halfHeight = height / 2
+  // Y multiplier: -1 for up (negative Y), +1 for down (positive Y)
+  const yDir = stackDirection === 'down' ? 1 : -1
 
   // For narrow annotations, use a rectangle
   if (width <= blockWidth * 1.5) {
-    return `M ${left} ${-arrowEdge} ` +
+    return `M ${left} ${yDir * arrowEdge} ` +
            `H ${right} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${left} ` +
            `Z`
   }
 
   if (orientation === Orientation.PLUS) {
     // Plus strand: arrow pointing right
-    // Path starts at arrow tip (right edge, middle)
-    // Then draws to arrow base, down to edge, left to start, up to edge, to arrow base, close
-    return `M ${right} ${-halfHeight} ` +
+    return `M ${right} ${yDir * halfHeight} ` +
            `L ${right - blockWidth} 0 ` +
-           `V ${-arrowEdge} ` +
+           `V ${yDir * arrowEdge} ` +
            `H ${left} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${right - blockWidth} ` +
-           `V ${-height} ` +
+           `V ${yDir * height} ` +
            `Z`
   } else if (orientation === Orientation.MINUS) {
     // Minus strand: arrow pointing left
-    // Path starts at arrow tip (left edge, middle)
-    return `M ${left} ${-halfHeight} ` +
+    return `M ${left} ${yDir * halfHeight} ` +
            `L ${left + blockWidth} 0 ` +
-           `V ${-arrowEdge} ` +
+           `V ${yDir * arrowEdge} ` +
            `H ${right} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${left + blockWidth} ` +
-           `V ${-height} ` +
+           `V ${yDir * height} ` +
            `Z`
   } else {
     // Undirected: simple rectangle
-    return `M ${left} ${-arrowEdge} ` +
+    return `M ${left} ${yDir * arrowEdge} ` +
            `H ${right} ` +
-           `V ${-(height - arrowEdge)} ` +
+           `V ${yDir * (height - arrowEdge)} ` +
            `H ${left} ` +
            `Z`
   }
@@ -109,8 +109,14 @@ export class AnnotationElement {
  * @param {Object} eventBus - Event bus for plugin communication
  * @param {Object} options - Optional settings
  * @param {Ref<boolean>} options.showTranslation - When true, CDS annotations reserve extra height for translation
+ * @param {Ref<string>} options.stackDirection - 'up' (default) or 'down' for stacking direction
  */
 export function useAnnotations(editorState, graphics, eventBus, options = {}) {
+  // Get stack direction (default 'up')
+  const getStackDirection = () => {
+    const dir = options.stackDirection?.value ?? options.stackDirection ?? 'up'
+    return dir
+  }
   // Annotation state
   const annotations = ref([])
 
@@ -162,14 +168,18 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
           fragOrientation = Orientation.MINUS
         }
 
-        // Generate path
+        // Get stack direction
+        const stackDir = getStackDirection()
+
+        // Generate path (direction-aware)
         const path = generateArrowPath({
           left,
           right,
           height: annotationHeight,
           blockWidth,
           arrowEdge,
-          orientation: fragOrientation
+          orientation: fragOrientation,
+          stackDirection: stackDir
         })
 
         // Check if this is a CDS with translation enabled
@@ -178,16 +188,16 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
         const reserveTranslationSpace = isCDS && showTrans
 
         // Create element with bounding box
-        // Annotations are positioned ABOVE the sequence line (negative y)
-        // CDS annotations with translation reserve extra space below for the translation display
+        // stack-direction="up": positioned ABOVE the line (negative y), path extends upward
+        // stack-direction="down": positioned BELOW the line (positive y), path extends downward
         const totalHeight = reserveTranslationSpace
           ? annotationHeight + TRANSLATION_HEIGHT
           : annotationHeight
         const elem = new AnnotationElement({
           left,
-          top: -totalHeight,
+          top: stackDir === 'down' ? 0 : -totalHeight,
           right,
-          bottom: 0,
+          bottom: stackDir === 'down' ? totalHeight : 0,
           fragment: frag,
           path,
           reserveTranslationSpace
@@ -275,17 +285,23 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
         // Update row height if this element needs more space
         rows[placedRow].height = Math.max(rows[placedRow].height, elemHeight)
 
-        // Calculate deltaY based on cumulative height of rows below
-        // Row 0 = deltaY 0, subsequent rows stack above based on actual row heights
+        // Calculate deltaY based on cumulative height of rows
+        // Row 0 = deltaY 0, subsequent rows stack based on direction
+        const stackDown = getStackDirection() === 'down'
         let deltaY = 0
         for (let i = 0; i < placedRow; i++) {
-          deltaY -= rows[i].height + contentPadding
+          if (stackDown) {
+            deltaY += rows[i].height + contentPadding
+          } else {
+            deltaY -= rows[i].height + contentPadding
+          }
         }
         elem.deltaY = deltaY
       }
 
       // Second pass: recalculate deltaY now that all row heights are known
       // (in case earlier elements were placed before a tall element expanded the row)
+      const stackDown = getStackDirection() === 'down'
       for (const elem of elements) {
         // Use the row stored in the first pass (not looked up by annotationId,
         // which would be wrong for multi-range annotations with fragments on different rows)
@@ -294,14 +310,22 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
         // Recalculate deltaY with final row heights
         let deltaY = 0
         for (let i = 0; i < elemRow; i++) {
-          deltaY -= rows[i].height + contentPadding
+          if (stackDown) {
+            deltaY += rows[i].height + contentPadding
+          } else {
+            deltaY -= rows[i].height + contentPadding
+          }
         }
         elem.deltaY = deltaY
       }
     }
 
     // Report extra height needed per line to graphics system
-    if (graphics.setLineExtraHeight) {
+    // Skip this in alignment mode - alignment uses fixed block heights and having
+    // multiple AnnotationLayers call setLineExtraHeight causes infinite reactive loops
+    // ("Maximum recursive updates exceeded" error)
+    const skipLineHeight = options.skipLineHeightManagement?.value ?? options.skipLineHeightManagement ?? false
+    if (graphics.setLineExtraHeight && !skipLineHeight) {
       // First, reset all lines that previously had extra height but no longer have annotations
       const currentExtraHeights = graphics.lineExtraHeight?.value
       if (currentExtraHeights) {
@@ -362,7 +386,7 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
       // Shift-click extends the existing selection, regular click replaces it
       const eventType = event.shiftKey ? 'extendselect' : 'select'
       eventBus.emit(eventType, {
-        domain: annotation.span.toString()
+        domain: annotation.span.toJSON()
       })
     }
   }

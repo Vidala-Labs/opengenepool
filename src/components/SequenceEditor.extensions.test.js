@@ -1,8 +1,20 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { Annotation } from '../utils/annotation.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { SequenceDocument } from '../composables/SequenceDocument.js'
+import { Span, Range } from '../utils/dna.js'
+
+// Helper to create a SequenceDocument for tests
+function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
+  const normalizedAnnotations = annotations.map(annotation => ({
+    ...annotation,
+    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
+  }))
+  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+}
 
 describe('SequenceEditor extension context menu API', () => {
   beforeEach(() => {
@@ -34,7 +46,7 @@ describe('SequenceEditor extension context menu API', () => {
 
       // Create selection
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..50')
+      selectionLayer.vm.selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       // Right-click on selection
@@ -62,7 +74,7 @@ describe('SequenceEditor extension context menu API', () => {
 
       // Create selection
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..50')
+      selectionLayer.vm.selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       // Right-click on selection
@@ -86,17 +98,16 @@ describe('SequenceEditor extension context menu API', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: '10..50'
+        span: parseSpan('10..50')
       })
 
       const wrapper = mount(SequenceEditor, {
         props: {
+          sequence: createDoc('A'.repeat(100), [annotation]),
           initialZoom: 100,
-          annotations: [annotation],
           extensions: [extension]
         }
       })
-      wrapper.vm.setSequence('A'.repeat(100))
       await wrapper.vm.$nextTick()
 
       // Right-click on annotation
@@ -124,17 +135,16 @@ describe('SequenceEditor extension context menu API', () => {
         id: 'cds1',
         caption: 'Test CDS',
         type: 'CDS',
-        span: '0..30'
+        span: parseSpan('0..30')
       })
 
       const wrapper = mount(SequenceEditor, {
         props: {
+          sequence: createDoc('ATGATGATGATGATGATGATGATGATGATG', [annotation]),
           initialZoom: 100,
-          annotations: [annotation],
           extensions: [extension]
         }
       })
-      wrapper.vm.setSequence('ATGATGATGATGATGATGATGATGATGATG')
       await wrapper.vm.$nextTick()
 
       // Right-click on translation
@@ -165,7 +175,7 @@ describe('SequenceEditor extension context menu API', () => {
 
       // Create selection
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..50')
+      selectionLayer.vm.selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       // Right-click on handle
@@ -226,7 +236,7 @@ describe('SequenceEditor extension context menu API', () => {
 
       // Create selection and right-click
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..50')
+      selectionLayer.vm.selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       selectionLayer.vm.$emit('contextmenu', {
@@ -255,7 +265,7 @@ describe('SequenceEditor extension context menu API', () => {
 
       // Create selection and right-click
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..50')
+      selectionLayer.vm.selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       selectionLayer.vm.$emit('contextmenu', {
@@ -292,7 +302,7 @@ describe('SequenceEditor extension context menu API', () => {
 
       // Create selection and right-click
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      selectionLayer.vm.selection.select('10..50')
+      selectionLayer.vm.selection.select([new Range(10, 50)])
       await wrapper.vm.$nextTick()
 
       selectionLayer.vm.$emit('contextmenu', {

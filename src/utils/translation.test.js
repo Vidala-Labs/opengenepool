@@ -1,3 +1,4 @@
+import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import {
   CODON_TABLE,
@@ -164,7 +165,7 @@ describe('translate', () => {
 describe('iterateCodons', () => {
   describe('plus strand', () => {
     it('groups bases into codons and translates', () => {
-      const span = Span.parse('0..6')
+      const span = parseSpan('0..6')
       const sequence = 'ATGAAA'
 
       const bases = iterateSequence(span, sequence)
@@ -179,7 +180,7 @@ describe('iterateCodons', () => {
     })
 
     it('handles incomplete final codon', () => {
-      const span = Span.parse('0..5')  // Only 5 bases = 1 full codon + 2 leftover
+      const span = parseSpan('0..5')  // Only 5 bases = 1 full codon + 2 leftover
       const sequence = 'ATGAA'
 
       const bases = iterateSequence(span, sequence)
@@ -192,7 +193,7 @@ describe('iterateCodons', () => {
 
   describe('minus strand', () => {
     it('uses complemented bases from sequence iterator', () => {
-      const span = Span.parse('(0..6)')
+      const span = parseSpan('(0..6)')
       const sequence = 'ATGAAA'
 
       // Walking high to low: positions [5,4,3,2,1,0]
@@ -210,7 +211,7 @@ describe('iterateCodons', () => {
     })
 
     it('preserves base positions through translation', () => {
-      const span = Span.parse('(0..6)')
+      const span = parseSpan('(0..6)')
       const sequence = 'ATGAAA'
 
       const bases = iterateSequence(span, sequence)
@@ -225,7 +226,7 @@ describe('iterateCodons', () => {
 
   describe('translation cache', () => {
     it('accumulates amino acids in order', () => {
-      const span = Span.parse('0..9')
+      const span = parseSpan('0..9')
       const sequence = 'ATGAAATTT'
 
       const bases = iterateSequence(span, sequence)
@@ -237,7 +238,7 @@ describe('iterateCodons', () => {
     })
 
     it('accumulates in coding order for minus strand', () => {
-      const span = Span.parse('(0..6)')
+      const span = parseSpan('(0..6)')
       const sequence = 'ATGAAA'
 
       const bases = iterateSequence(span, sequence)

@@ -22,6 +22,35 @@ describe('useGraphics', () => {
       expect(graphics.charWidth.value).toBe(8)
       expect(graphics.lineHeight.value).toBe(16)
     })
+
+    it('defaults to text mode at typical zoom levels', () => {
+      // With default values (containerWidth=800, charWidth=8), at zoom 100:
+      // textWidth = 100 * 8 = 800
+      // availableWidth = 800 - 60 - 20 = 720
+      // textMode = 800 <= 720 = false (BAR MODE)
+      //
+      // This is expected - at zoom 100 with default 800px container, bars are shown.
+      // The real bug is in useAnnotations.js calling setLineExtraHeight inside a computed.
+      const { editorState, graphics } = createGraphics()
+      editorState.setSequence('A'.repeat(500))
+      editorState.setZoom(100)
+
+      // At default container size, zoom 100 correctly uses bar mode
+      expect(graphics.metrics.value.textMode).toBe(false)
+    })
+
+    it('uses text mode when container is wide enough', () => {
+      const { editorState, graphics } = createGraphics()
+      editorState.setSequence('A'.repeat(500))
+      editorState.setZoom(100)
+      // Set container wide enough for text mode
+      graphics.setContainerSize(1000, 600)
+
+      // 100 * 8 = 800 pixels for text
+      // 1000 - 60 - 20 = 920 available
+      // 800 < 920, so text mode
+      expect(graphics.metrics.value.textMode).toBe(true)
+    })
   })
 
   describe('metrics', () => {

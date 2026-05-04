@@ -234,7 +234,7 @@ export function useCircularAnnotations(editorState, circularGraphics, eventBus, 
       // Shift-click extends the existing selection, regular click replaces it
       const eventType = event.shiftKey ? 'extendselect' : 'select'
       eventBus.emit(eventType, {
-        domain: annotation.span.toString()
+        domain: annotation.span.toJSON()
       })
     }
   }

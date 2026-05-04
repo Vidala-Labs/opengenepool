@@ -1,18 +1,122 @@
+<script>
+// ============================================
+// Module-level state (shared across all instances)
+// ============================================
+import { ref, computed, watch } from 'vue'
+
+const HIDDEN_TYPES_STORAGE_KEY = 'ogp-hidden-annotation-types'
+
+// Reference to TranslationLayer's showTranslation (set by TranslationLayer on load)
+let translationShowRef = null
+export function _setTranslationShowRef(r) {
+  translationShowRef = r
+}
+
+function isTranslationEffectivelyVisible() {
+  if (!translationShowRef) return false
+  return translationShowRef.value
+}
+
+// Load hidden types from localStorage
+function loadHiddenTypes() {
+  try {
+    const stored = localStorage.getItem(HIDDEN_TYPES_STORAGE_KEY)
+    if (stored) return new Set(JSON.parse(stored))
+  } catch (e) {}
+  return new Set()
+}
+
+const showAnnotations = ref(true)
+const hiddenTypes = ref(loadHiddenTypes())
+
+watch(hiddenTypes, (newSet) => {
+  try {
+    localStorage.setItem(HIDDEN_TYPES_STORAGE_KEY, JSON.stringify([...newSet]))
+  } catch (e) {}
+}, { deep: true })
+
+const allAnnotationTypes = ref(new Set())
+let instanceCount = 0
+
+const MODULE_DEFAULT_COLORS = {
+  gene: '#4CAF50', CDS: '#2196F3', promoter: '#FF9800', terminator: '#F44336',
+  misc_feature: '#9E9E9E', rep_origin: '#9C27B0', origin: '#9C27B0',
+  primer_bind: '#00BCD4', protein_bind: '#795548', regulatory: '#FFEB3B',
+  source: '#B0BEC5', _default: '#607D8B'
+}
+
+let annotationColorsRef = null
+function getModuleTypeColor(type) {
+  const colors = annotationColorsRef?.value || MODULE_DEFAULT_COLORS
+  return colors[type] || colors._default
+}
+
+function moduleToggleAnnotationType(type) {
+  const newSet = new Set(hiddenTypes.value)
+  if (newSet.has(type)) newSet.delete(type)
+  else newSet.add(type)
+  hiddenTypes.value = newSet
+}
+
+const sortedAnnotationTypes = computed(() => [...allAnnotationTypes.value].sort())
+
+const moduleConfigItems = computed(() => {
+  const items = [{
+    type: 'toggle', label: 'Annotations', value: showAnnotations.value,
+    onChange: () => { showAnnotations.value = !showAnnotations.value }
+  }]
+  if (showAnnotations.value && sortedAnnotationTypes.value.length > 0) {
+    items.push({
+      type: 'type-filter', label: null, types: sortedAnnotationTypes.value,
+      hiddenTypes: hiddenTypes.value, getColor: getModuleTypeColor,
+      onToggle: moduleToggleAnnotationType
+    })
+  }
+  return items
+})
+
+// Export for TranslationLayer coordination
+export { showAnnotations, hiddenTypes, allAnnotationTypes }
+
+// Reset function for testing - resets module-level state
+export function __resetModuleState() {
+  showAnnotations.value = true
+  hiddenTypes.value = new Set()
+  allAnnotationTypes.value = new Set()
+  instanceCount = 0
+  annotationColorsRef = null
+  translationShowRef = null
+  try { localStorage.removeItem(HIDDEN_TYPES_STORAGE_KEY) } catch (e) {}
+}
+</script>
+
 <script setup>
-import { computed, inject, watch, ref } from 'vue'
+import { computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { useAnnotations, generateArrowPath } from '../composables/useAnnotations.js'
 
 // Height reserved for translation display (must match useAnnotations)
 const TRANSLATION_HEIGHT = 18
 
-// Inject shared visibility state from parent
-const showAnnotations = inject('showAnnotations', ref(true))
-
 // Display visibility - derived from shared state
 const visible = computed(() => showAnnotations.value)
 
+let isFirstInstance = false
+onMounted(() => {
+  instanceCount++
+  if (instanceCount === 1) isFirstInstance = true
+})
+onUnmounted(() => {
+  instanceCount--
+  if (instanceCount === 0) allAnnotationTypes.value = new Set()
+})
+
 const props = defineProps({
+  /** SequenceDocument for edit operations (delete, update annotations) */
+  document: {
+    type: Object,
+    default: null
+  },
   /** Array of Annotation objects to render */
   annotations: {
     type: Array,
@@ -37,10 +141,32 @@ const props = defineProps({
   showTranslation: {
     type: Boolean,
     default: false
+  },
+  /** Mode: null (normal), 'target', or 'query' (for alignment mode) */
+  mode: {
+    type: String,
+    default: null,
+    validator: (v) => v === null || v === 'target' || v === 'query'
+  },
+  /** Y offset within each alignment block (for alignment mode) */
+  yOffset: {
+    type: Number,
+    default: 0
+  },
+  /** Block height for alignment mode (height of target+match+query block) */
+  blockHeight: {
+    type: Number,
+    default: 0
+  },
+  /** Stack direction: 'up' (default, annotations stack above baseline) or 'down' */
+  stackDirection: {
+    type: String,
+    default: 'up',
+    validator: (v) => v === 'up' || v === 'down'
   }
 })
 
-const emit = defineEmits(['click', 'contextmenu', 'hover'])
+const emit = defineEmits(['click', 'contextmenu', 'hover', 'edit-annotation', 'delete-annotation'])
 
 // Inject from parent SequenceEditor
 const editorState = inject('editorState')
@@ -48,6 +174,10 @@ const graphics = inject('graphics')
 const eventBus = inject('eventBus', null)
 // Annotation colors from localStorage (provided by SequenceEditor)
 const annotationColors = inject('annotationColors', null)
+// Selection state for context menu items (optional)
+const selection = inject('selection', null)
+// Inject alignment line positioning function (provided by AlignmentEditor)
+const getAlignmentLineY = inject('getAlignmentLineY', null)
 
 // Default colors used when not provided via inject (e.g., in tests)
 const DEFAULT_COLORS = {
@@ -71,15 +201,34 @@ function getTypeColor(type) {
   return colors[type] || colors._default
 }
 
-// Use annotations composable for layout calculations
-// Pass showTranslation as a computed so CDS annotations can reserve extra space
-const showTranslationRef = computed(() => props.showTranslation)
-const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
-  showTranslation: showTranslationRef
+// Track this instance's annotation types
+const instanceTypes = computed(() => new Set(props.annotations.map(a => a.type || 'misc_feature')))
+
+watch(instanceTypes, (newTypes) => {
+  for (const type of newTypes) allAnnotationTypes.value.add(type)
+}, { immediate: true })
+
+// Filter annotations based on hiddenTypes
+const visibleAnnotations = computed(() => {
+  if (!showAnnotations.value) return []
+  return props.annotations.filter(a => !hiddenTypes.value.has(a.type || 'misc_feature'))
 })
 
-// Watch for annotation prop changes
-watch(() => props.annotations, (newAnnotations) => {
+// Use annotations composable for layout calculations
+// Pass showTranslation using coordinated visibility from TranslationLayer
+const showTranslationRef = computed(() => isTranslationEffectivelyVisible())
+const stackDirectionRef = computed(() => props.stackDirection)
+// In alignment mode, skip line height management to avoid infinite reactive loops
+// when multiple AnnotationLayers exist (one for target, one for query)
+const skipLineHeightRef = computed(() => props.mode !== null)
+const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
+  showTranslation: showTranslationRef,
+  stackDirection: stackDirectionRef,
+  skipLineHeightManagement: skipLineHeightRef
+})
+
+// Watch for visible annotation changes (filtered by hiddenTypes)
+watch(visibleAnnotations, (newAnnotations) => {
   annotationsComposable.setAnnotations(newAnnotations)
 }, { immediate: true })
 
@@ -148,6 +297,191 @@ const fragmentsByLine = computed(() => {
   return byLine
 })
 
+// ============================================
+// Context Menu Items via elementsFromPoint
+// ============================================
+
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'annotation') return false
+
+  const annotationId = dataset.annotationId
+  if (!annotationId) return false
+
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
+  if (!annotation) return false
+
+  // In alignment mode, use the original annotation span (not the aligned coordinates)
+  // The original annotation is stored in _originalAnnotation attribute by mapAnnotationThroughAlignment
+  const originalAnnotation = annotation.attributes?._originalAnnotation
+  const span = originalAnnotation?.span ?? annotation.span
+  if (!span) return false
+
+  // Emit click event for parent to handle (e.g., show tooltip)
+  emit('click', { event, annotation: originalAnnotation ?? annotation })
+
+  // Select the annotation's span
+  if (selection) {
+    if (event.shiftKey && selection.isSelected?.value) {
+      // Shift+click: extend selection to include annotation
+      // For now, just select the annotation (extending multi-range is complex)
+      selection.select(span)
+    } else if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd+click: add annotation span to existing selection
+      for (const range of span.ranges) {
+        selection.addRange(range)
+      }
+    } else {
+      // Normal click: select annotation span
+      selection.select(span)
+    }
+
+    // In alignment mode, set the selection source to track which row was clicked
+    if (props.mode && selection.source) {
+      selection.source.value = props.mode
+    }
+  }
+
+  return true
+}
+
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'annotation') return []
+
+  const annotationId = dataset.annotationId
+  if (!annotationId) return []
+
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
+  if (!annotation) return []
+
+  // In alignment mode, use the original annotation (not the aligned coordinates)
+  // The original annotation is stored in _originalAnnotation attribute by mapAnnotationThroughAlignment
+  const originalAnnotation = annotation.attributes?._originalAnnotation
+  const effectiveAnnotation = originalAnnotation ?? annotation
+
+  const items = []
+
+  // Edit annotation
+  items.push({
+    label: 'Edit Annotation',
+    action: () => emit('edit-annotation', { annotation: effectiveAnnotation })
+  })
+
+  // Delete annotation
+  items.push({
+    label: 'Delete Annotation',
+    action: () => {
+      if (props.document) {
+        props.document.deleteAnnotation(effectiveAnnotation.id)
+      } else {
+        emit('delete-annotation', { id: effectiveAnnotation.id })
+      }
+    }
+  })
+
+  // Subtract from selection (when annotation overlaps selection)
+  if (selection?.isSelected?.value && selection?.domain?.value) {
+    const annotationSpan = annotation.span
+    const hasOverlap = selection.domain.value.ranges.some(selRange =>
+      annotationSpan?.ranges?.some(annRange => selRange.overlaps?.(annRange))
+    )
+
+    if (hasOverlap) {
+      items.push({
+        label: 'Subtract from selection',
+        action: () => selection.subtractSpan(annotationSpan)
+      })
+    }
+  }
+
+  // Merge segment options for multi-range annotations
+  // Use effectiveAnnotation's span for merge/split operations
+  const effectiveSpanRanges = effectiveAnnotation.span?.ranges
+  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
+  if (rangeIndex !== undefined && effectiveSpanRanges && effectiveSpanRanges.length > 1) {
+    const currentRange = effectiveSpanRanges[rangeIndex]
+
+    // Check if can merge with left (previous range)
+    if (rangeIndex > 0) {
+      const leftRange = effectiveSpanRanges[rangeIndex - 1]
+      if (leftRange.end === currentRange.start && leftRange.orientation === currentRange.orientation) {
+        items.push({
+          label: 'Merge with left segment',
+          action: () => emit('contextmenu', {
+            event: null,
+            annotation: effectiveAnnotation,
+            fragment: { rangeIndex },
+            action: 'merge-left',
+            rangeIndex
+          })
+        })
+      }
+    }
+
+    // Check if can merge with right (next range)
+    if (rangeIndex < effectiveSpanRanges.length - 1) {
+      const rightRange = effectiveSpanRanges[rangeIndex + 1]
+      if (currentRange.end === rightRange.start && currentRange.orientation === rightRange.orientation) {
+        items.push({
+          label: 'Merge with right segment',
+          action: () => emit('contextmenu', {
+            event: null,
+            annotation: effectiveAnnotation,
+            fragment: { rangeIndex },
+            action: 'merge-right',
+            rangeIndex
+          })
+        })
+      }
+    }
+  }
+
+  // Split annotation option when cursor is strictly inside a range
+  if (selection?.isSelected?.value && rangeIndex !== undefined) {
+    const selRanges = selection.domain.value?.ranges
+    if (selRanges?.length === 1 && selRanges[0].start === selRanges[0].end) {
+      const cursorPos = selRanges[0].start
+
+      if (effectiveSpanRanges?.[rangeIndex]) {
+        const targetRange = effectiveSpanRanges[rangeIndex]
+
+        // Check if cursor is strictly inside (not at boundaries)
+        if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
+          items.push({
+            label: 'Split annotation',
+            action: () => emit('contextmenu', {
+              event: null,
+              annotation: effectiveAnnotation,
+              fragment: { rangeIndex },
+              action: 'split',
+              rangeIndex,
+              splitPosition: cursorPos
+            })
+          })
+        }
+      }
+    }
+  }
+
+  return items
+}
+
 // Calculate x position for a fragment
 function getFragmentX(fragment) {
   return graphics.metrics.value.lmargin + fragment.start * graphics.metrics.value.charWidth
@@ -158,8 +492,18 @@ function getFragmentWidth(fragment) {
   return fragment.width * graphics.metrics.value.charWidth
 }
 
+// Is this an alignment mode layer?
+const isAlignmentLayer = computed(() => props.mode !== null)
+
 // Get y position for a line
 function getLineY(lineIndex) {
+  if (isAlignmentLayer.value) {
+    // Use injected per-line positioning if available, otherwise fall back to uniform spacing
+    if (getAlignmentLineY) {
+      return getAlignmentLineY(lineIndex) + props.yOffset
+    }
+    return lineIndex * props.blockHeight + props.yOffset
+  }
   return graphics.getLineY(lineIndex)
 }
 
@@ -206,9 +550,15 @@ function getArrowPath(fragment) {
 }
 
 // Event handlers
+// Click handler for direct element clicks (routes to handleClickForElement)
 function handleClick(event, fragment) {
-  event.stopPropagation()  // Prevent bubbling to SVG mousedown
-  emit('click', { event, annotation: fragment.annotation, fragment })
+  event.stopPropagation()  // Prevent bubbling to SVG
+  const dataset = {
+    layer: 'annotation',
+    annotationId: fragment.annotation?.id,
+    rangeIndex: fragment.rangeIndex?.toString()
+  }
+  handleClickForElement(dataset, event)
 }
 
 function handleContextMenu(event, fragment) {
@@ -297,7 +647,35 @@ function getElementOpacity(element) {
   return 0.7
 }
 
-// Expose for testing and visibility control
+/**
+ * Delete an annotation by ID.
+ * If document is provided, calls document.deleteAnnotation directly.
+ * Otherwise, emits 'delete-annotation' event for parent to handle.
+ * @param {string} id - The annotation ID to delete
+ */
+function deleteAnnotation(id) {
+  if (props.document) {
+    props.document.deleteAnnotation(id)
+  } else {
+    emit('delete-annotation', { id })
+  }
+}
+
+/**
+ * Request editing an annotation (opens modal in parent).
+ * @param {Object} annotation - The annotation to edit
+ */
+function requestEditAnnotation(annotation) {
+  emit('edit-annotation', { annotation })
+}
+
+// Config items for Toolbar
+const configItems = computed(() => {
+  if (!isFirstInstance) return []
+  return moduleConfigItems.value
+})
+
+// Expose for testing, visibility control, and click/context menu integration
 defineExpose({
   showAnnotations,
   visible,
@@ -305,7 +683,12 @@ defineExpose({
   fragmentsByLine,
   getFragmentX,
   getFragmentWidth,
-  annotationDeltaYByLine
+  annotationDeltaYByLine,
+  deleteAnnotation,
+  requestEditAnnotation,
+  handleClickForElement,
+  getMenuItemsForElement,
+  configItems
 })
 </script>
 
@@ -340,17 +723,25 @@ defineExpose({
       :transform="`translate(0, ${getLineY(lineIndex)})`"
     >
       <!-- Each element on this line (with layout-computed deltaY) -->
-      <!-- When translation space is reserved, offset visual up to leave room below for translation -->
+      <!-- When translation space is reserved, offset visual to leave room for translation -->
+      <!-- stack-direction="up": shift up (subtract) to leave room below -->
+      <!-- stack-direction="down": shift down (add) to leave room above -->
       <g
         v-for="(element, elemIndex) in elementsByLine.get(lineIndex)"
         :key="`elem-${element.fragment.id}-${elemIndex}`"
         :class="['annotation-fragment', element.fragment.cssClass]"
-        :transform="`translate(0, ${element.deltaY - (element.reserveTranslationSpace ? TRANSLATION_HEIGHT : 0)})`"
+        :transform="`translate(0, ${element.deltaY + (element.reserveTranslationSpace ? (stackDirection === 'down' ? TRANSLATION_HEIGHT : -TRANSLATION_HEIGHT) : 0)})`"
+        data-layer="annotation"
+        :data-annotation-id="element.fragment.annotation?.id"
+        :data-range-index="element.fragment.rangeIndex"
         @click="handleClick($event, element.fragment)"
         @contextmenu="handleContextMenu($event, element.fragment)"
         @mouseenter="handleMouseEnter($event, element.fragment)"
         @mouseleave="handleMouseLeave($event, element.fragment)"
       >
+        <!-- Tooltip (native browser tooltip via SVG title element) -->
+        <title v-if="element.fragment.caption">{{ element.fragment.caption }}</title>
+
         <!-- Use pre-computed arrow path from layout, color/gradient based on indefinite state -->
         <path
           :d="element.path"
@@ -360,10 +751,11 @@ defineExpose({
         />
 
         <!-- Caption text (only shown if it fits within the arrow) -->
+        <!-- For down direction, nudge text down slightly to better center in the arrow -->
         <text
           v-if="showCaptions && captionFits(element)"
           :x="getCaptionX(element)"
-          :y="-height / 2"
+          :y="stackDirection === 'down' ? height / 2 + 2 : -height / 2"
           dominant-baseline="middle"
           class="annotation-caption"
         >

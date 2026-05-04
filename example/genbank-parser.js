@@ -12,11 +12,13 @@
  * - Conversion: start - 1, end stays same (inclusive→exclusive cancels the -1)
  */
 
+import { Span, Range, Orientation } from '../src/utils/dna.js'
+
 /**
- * Convert a single GenBank range to fenced format
+ * Convert a single GenBank range to a Range object
  * @param {string} rangeStr - Single GenBank range like "133..154" or "<133..>154"
  * @param {boolean} isComplement - Whether this is part of a complement
- * @returns {string} Fenced range string
+ * @returns {Range} Range object (0-based, half-open)
  */
 function convertSingleLocation(rangeStr, isComplement = false) {
   // Check for indefinite markers
@@ -26,36 +28,32 @@ function convertSingleLocation(rangeStr, isComplement = false) {
   // Remove indefinite markers for numeric parsing
   const cleanLoc = rangeStr.replace(/[<>]/g, '')
 
+  const orientation = isComplement ? Orientation.MINUS : Orientation.PLUS
+
   // Handle simple range: 133..154
   const rangeMatch = cleanLoc.match(/^(\d+)\.\.(\d+)$/)
   if (rangeMatch) {
     const start = parseInt(rangeMatch[1], 10) - 1  // Convert to 0-based
     const end = parseInt(rangeMatch[2], 10)        // Stays same (inclusive→exclusive)
-    const startStr = startIndefinite ? `<${start}` : `${start}`
-    const endStr = endIndefinite ? `>${end}` : `${end}`
-    const range = `${startStr}..${endStr}`
-    return isComplement ? `(${range})` : range
+    return new Range(start, end, orientation, startIndefinite, endIndefinite)
   }
 
   // Handle single position: 500
   const singleMatch = cleanLoc.match(/^(\d+)$/)
   if (singleMatch) {
     const pos = parseInt(singleMatch[1], 10) - 1
-    const startStr = startIndefinite ? `<${pos}` : `${pos}`
-    const endStr = endIndefinite ? `>${pos + 1}` : `${pos + 1}`
-    const range = `${startStr}..${endStr}`
-    return isComplement ? `(${range})` : range
+    return new Range(pos, pos + 1, orientation, startIndefinite, endIndefinite)
   }
 
-  return rangeStr
+  throw new Error(`Invalid GenBank location: ${rangeStr}`)
 }
 
 /**
- * Convert a GenBank location to fenced range format
+ * Convert a GenBank location to a Span object
  * Handles simple ranges like "133..154" and "complement(317..333)"
  * Also handles join() locations and indefinite markers
  * @param {string} location - GenBank location string
- * @returns {string} Fenced range string (0-based, half-open)
+ * @returns {Span} Span object (0-based, half-open)
  */
 function convertLocation(location) {
   // Handle complement wrapper
@@ -70,12 +68,12 @@ function convertLocation(location) {
   if (isJoin) {
     const inner = loc.slice(5, -1)  // Remove "join(" and ")"
     const parts = inner.split(',').map(p => p.trim())
-    const convertedParts = parts.map(p => convertSingleLocation(p, isComplement))
-    return convertedParts.join(' + ')
+    const ranges = parts.map(p => convertSingleLocation(p, isComplement))
+    return new Span(ranges)
   }
 
   // Simple range or single position
-  return convertSingleLocation(loc, isComplement)
+  return new Span([convertSingleLocation(loc, isComplement)])
 }
 
 /**

@@ -1,10 +1,13 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, shallowRef, computed, watch, onMounted } from 'vue'
 import SequenceEditor from '../src/components/SequenceEditor.vue'
+import AlignmentEditor from '../src/components/AlignmentEditor.vue'
+import { SequenceDocument } from '../src/composables/SequenceDocument.js'
+import { Span } from '../src/utils/dna.js'
 import Sidebar from './Sidebar.vue'
 import { ArrowDownTrayIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
-import { pUC19 } from './seed.js'
+import { pUC19, testAlignmentSequence } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
 import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
@@ -15,23 +18,102 @@ import { RestrictionExtension } from '../src/extensions/RestrictionExtension/ind
 // List of sequences for sidebar
 const sequences = ref([])
 
-// Currently selected sequence
+// Currently selected sequence (raw data from DB)
 const selectedId = ref(null)
-const currentSequence = ref(null)
+const currentSequenceData = ref(null)
 
 const editorRef = ref(null)
+
+// Alignment mode state
+const alignmentSequenceData = ref(null)
+
+function normalizeSpan(span) {
+  if (span instanceof Span) return span
+  if (typeof span === 'string') return Span.parse(span)
+  if (span?.ranges) return new Span(span.ranges)
+  return new Span()
+}
+
+function normalizeAnnotations(annotations = []) {
+  return annotations.map(annotation => ({
+    ...annotation,
+    span: normalizeSpan(annotation.span),
+    attributes: annotation.attributes || {}
+  }))
+}
+
+function normalizeSequenceData(data) {
+  if (!data) return null
+  return {
+    ...data,
+    annotations: normalizeAnnotations(data.annotations)
+  }
+}
+
+// Create SequenceDocument instances
+// IMPORTANT: Use shallowRef + watch instead of computed to avoid creating new
+// instances on every access. This allows mutations (delete, insert) to persist.
+const targetDoc = shallowRef(null)
+const queryDoc = shallowRef(null)
+
+// Watch for changes to currentSequenceData ID and create new document only when needed
+watch(
+  () => currentSequenceData.value?.id,
+  (newId, oldId) => {
+    if (!currentSequenceData.value) {
+      targetDoc.value = null
+      return
+    }
+    // Only create new document when ID changes (sequence was switched)
+    if (newId !== oldId || !targetDoc.value) {
+      targetDoc.value = new SequenceDocument({
+        sequence: currentSequenceData.value.sequence,
+        annotations: currentSequenceData.value.annotations || [],
+        circular: currentSequenceData.value.metadata?.circular || false
+      })
+    }
+  },
+  { immediate: true }
+)
+
+// Watch for changes to alignmentSequenceData ID
+watch(
+  () => alignmentSequenceData.value?.id,
+  (newId, oldId) => {
+    if (!alignmentSequenceData.value) {
+      queryDoc.value = null
+      return
+    }
+    // Only create new document when ID changes
+    if (newId !== oldId || !queryDoc.value) {
+      queryDoc.value = new SequenceDocument({
+        sequence: alignmentSequenceData.value.sequence,
+        annotations: alignmentSequenceData.value.annotations || [],
+        circular: alignmentSequenceData.value.metadata?.circular || false
+      })
+    }
+  },
+  { immediate: true }
+)
+
+// Note: targetDoc and queryDoc are passed directly to editors
 
 // Load sequences on mount, seed if empty
 onMounted(async () => {
   const empty = await isEmpty()
   if (empty) {
-    // Seed with pUC19
+    // Seed with pUC19 and test alignment sequence
     await saveSequence(pUC19)
+    await saveSequence(testAlignmentSequence)
   } else {
-    // Always update pUC19 seed to ensure latest data
+    // Always update seed sequences to ensure latest data
     const existing = await getSequence(pUC19.id)
     if (existing) {
       await saveSequence({ ...pUC19, createdAt: existing.createdAt })
+    }
+    const existingTest = await getSequence(testAlignmentSequence.id)
+    if (!existingTest) {
+      await saveSequence(testAlignmentSequence)
     }
   }
   await refreshList()
@@ -42,7 +124,7 @@ onMounted(async () => {
     const seq = await getSequence(hash)
     if (seq) {
       selectedId.value = hash
-      currentSequence.value = seq
+      currentSequenceData.value = normalizeSequenceData(seq)
     }
   }
 })
@@ -57,27 +139,32 @@ function selectSequence(id) {
   window.location.reload()
 }
 
+// Edit handling - now handled by SequenceDocument
 function handleEdit(data) {
-  // Edits are not auto-saved; use "Save As" to persist
+  // Edits are now handled by SequenceDocument methods internally
+  // This event is just for logging/analytics
+  console.log('Edit event:', data)
 }
 
 async function saveAs() {
-  if (!currentSequence.value || !editorRef.value) {
+  if (!currentSequenceData.value || !editorRef.value) {
     console.error('saveAs: no current sequence or editor ref')
     return
   }
 
-  const name = prompt('Save as:', `${currentSequence.value.name || 'Untitled'} (copy)`)
+  const name = prompt('Save as:', `${currentSequenceData.value.name || 'Untitled'} (copy)`)
   if (!name) return
 
+  // Get current state from the document
+  const doc = editorRef.value.targetDoc.value
+
   // Create new sequence entry with current editor state
-  // Use JSON parse/stringify to strip Vue reactive proxies
   const newSequence = JSON.parse(JSON.stringify({
     id: crypto.randomUUID(),
     name,
-    sequence: editorRef.value.getSequence(),
-    annotations: currentSequence.value.annotations || [],
-    metadata: currentSequence.value.metadata || {},
+    sequence: doc.sequence,
+    annotations: doc.annotations,
+    metadata: { ...currentSequenceData.value.metadata, circular: doc.circular },
     createdAt: new Date().toISOString()
   }))
 
@@ -96,26 +183,26 @@ function handleSelect(data) {
 }
 
 async function handleAnnotationsUpdate(updatedAnnotations) {
-  if (!currentSequence.value) return
+  if (!currentSequenceData.value) return
 
   // Update the current sequence's annotations
-  currentSequence.value.annotations = updatedAnnotations
+  currentSequenceData.value.annotations = updatedAnnotations
 
   // Persist to IndexedDB (deep clone to strip Vue proxies)
-  const plainData = JSON.parse(JSON.stringify(currentSequence.value))
+  const plainData = JSON.parse(JSON.stringify(currentSequenceData.value))
   await saveSequence(plainData)
 }
 
 function downloadSequence() {
-  if (!currentSequence.value) return
+  if (!currentSequenceData.value) return
 
-  const genbank = toGenBank(currentSequence.value)
+  const genbank = toGenBank(currentSequenceData.value)
   const blob = new Blob([genbank], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
 
   const a = document.createElement('a')
   a.href = url
-  a.download = `${currentSequence.value.name || 'sequence'}.gb`
+  a.download = `${currentSequenceData.value.name || 'sequence'}.gb`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -129,7 +216,7 @@ async function handleDelete(id) {
   // If we deleted the currently selected sequence, clear the view
   if (selectedId.value === id) {
     selectedId.value = null
-    currentSequence.value = null
+    currentSequenceData.value = null
   }
 }
 
@@ -157,6 +244,28 @@ async function handleUpload(file) {
     alert('Failed to parse file. Please ensure it is a valid GenBank format.')
   }
 }
+
+async function handleAlign(sequenceId) {
+  // Get the sequence to align with
+  const seqToAlign = await getSequence(sequenceId)
+  if (!seqToAlign) return
+
+  // Set alignment mode
+  alignmentSequenceData.value = normalizeSequenceData(seqToAlign)
+}
+
+function clearAlignment() {
+  alignmentSequenceData.value = null
+}
+
+// Computed for title display
+const displayTitle = computed(() => currentSequenceData.value?.name || 'Untitled')
+const queryTitle = computed(() => alignmentSequenceData.value?.name || 'Untitled')
+const sequenceLength = computed(() => targetDoc.value?.sequence?.length || 0)
+const hasMetadata = computed(() => {
+  const m = currentSequenceData.value?.metadata
+  return m && (m.molecule_type || m.definition)
+})
 </script>
 
 <template>
@@ -167,26 +276,97 @@ async function handleUpload(file) {
       @select="selectSequence"
       @upload="handleUpload"
       @delete="handleDelete"
+      @align="handleAlign"
     />
     <main class="main-content">
-      <div v-if="!currentSequence" class="placeholder">
+      <div v-if="!currentSequenceData" class="placeholder">
         <p class="placeholder-desktop">Please select a sequence on the left</p>
         <p class="placeholder-mobile">Please select a sequence above</p>
         <p class="mobile-note">Note: Some features may not have a good user experience on mobile devices.</p>
       </div>
+      <!-- AlignmentEditor - used when comparing two sequences (tested in AlignmentEditor.test.js) -->
+      <AlignmentEditor
+        v-else-if="queryDoc"
+        ref="editorRef"
+        :key="currentSequenceData.id + '-alignment'"
+        :target="targetDoc"
+        :query="queryDoc"
+        :extensions="[BlastExtension]"
+        @edit="handleEdit"
+        @select="handleSelect"
+        @annotations-update="handleAnnotationsUpdate"
+      >
+        <template #title>
+          <strong class="title-display">{{ displayTitle }}</strong> x <strong class="title-display">{{ queryTitle }}</strong>
+        </template>
+        <template #info>
+          <div class="info-row">
+            <span class="info-label">Score:</span>
+            <span class="info-value">{{ editorRef?.alignmentResult?.score }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Identity:</span>
+            <span class="info-value">{{ editorRef?.alignmentResult?.identity }}%</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Aligned Length:</span>
+            <span class="info-value">{{ editorRef?.alignmentResult?.targetAligned?.length || 0 }} positions</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Query Range:</span>
+            <span class="info-value">{{ (editorRef?.alignmentResult?.queryStart || 0) + 1 }}..{{ editorRef?.alignmentResult?.queryEnd }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Target Range:</span>
+            <span class="info-value">{{ (editorRef?.alignmentResult?.targetStart || 0) + 1 }}..{{ editorRef?.alignmentResult?.targetEnd }}</span>
+          </div>
+        </template>
+        <template #toolbar>
+          <button class="toolbar-icon-btn close-alignment-btn" @click="clearAlignment" title="Close alignment view">
+            ✕
+          </button>
+          <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
+            <DocumentDuplicateIcon class="toolbar-icon" />
+          </button>
+          <button class="toolbar-icon-btn" @click="downloadSequence" title="Download as GenBank">
+            <ArrowDownTrayIcon class="toolbar-icon" />
+          </button>
+        </template>
+      </AlignmentEditor>
+
+      <!-- SequenceEditor - for single sequence editing -->
       <SequenceEditor
         v-else
         ref="editorRef"
-        :key="currentSequence.id"
-        :sequence="currentSequence.sequence"
-        :title="currentSequence.name"
-        :annotations="currentSequence.annotations || []"
-        :metadata="currentSequence.metadata || {}"
+        :key="currentSequenceData.id"
+        :sequence="targetDoc"
         :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"
       >
+        <template #title>
+          <strong class="title-display">{{ displayTitle }}</strong>
+          &mdash; {{ sequenceLength.toLocaleString() }} bp
+        </template>
+        <template v-if="hasMetadata" #info>
+          <div v-if="currentSequenceData?.metadata?.molecule_type" class="info-row">
+            <span class="info-label">Molecule Type:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.molecule_type }}</span>
+          </div>
+          <div v-if="currentSequenceData?.metadata?.definition" class="info-row">
+            <span class="info-label">Definition:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.definition }}</span>
+          </div>
+          <div v-if="currentSequenceData?.metadata?.accession" class="info-row">
+            <span class="info-label">Accession:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.accession }}</span>
+          </div>
+          <div v-if="currentSequenceData?.metadata?.organism" class="info-row">
+            <span class="info-label">Organism:</span>
+            <span class="info-value">{{ currentSequenceData.metadata.organism }}</span>
+          </div>
+        </template>
         <template #toolbar>
           <button class="toolbar-icon-btn" @click="saveAs" title="Save as new sequence">
             <DocumentDuplicateIcon class="toolbar-icon" />
@@ -277,6 +457,10 @@ html, body, #app {
   }
 }
 
+.title-display {
+  cursor: default;
+}
+
 .toolbar-icon-btn {
   display: flex;
   align-items: center;
@@ -298,5 +482,36 @@ html, body, #app {
 .toolbar-icon {
   width: 18px;
   height: 18px;
+}
+
+.close-alignment-btn {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.close-alignment-btn:hover {
+  background: #fde8e8;
+  border-color: #e74c3c;
+}
+
+/* Info row styles for #info slot content */
+.info-row {
+  display: flex;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-weight: 500;
+  color: #666;
+  min-width: 120px;
+}
+
+.info-value {
+  color: #333;
 }
 </style>

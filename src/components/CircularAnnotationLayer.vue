@@ -43,10 +43,14 @@ const annotationElements = computed(() => {
 const { captionFits } = circularAnnotations
 
 // Event handlers - emit to parent and delegate to composable
+// Click handler for direct element clicks (routes to handleClickForElement)
 function handleClick(event, element) {
-  event.stopPropagation()
-  emit('click', { event, annotation: element.annotation })
-  circularAnnotations.handleClick(element.annotation, event)
+  event.stopPropagation()  // Prevent bubbling to SVG
+  const dataset = {
+    layer: 'circular-annotation',
+    annotationId: element.annotation?.id
+  }
+  handleClickForElement(dataset, event)
 }
 
 function handleContextMenu(event, element) {
@@ -63,6 +67,71 @@ function handleMouseEnter(event, element) {
 function handleMouseLeave(event, element) {
   emit('hover', { event, annotation: element.annotation, entering: false })
 }
+
+// ============================================
+// Click/Context Menu Items via elementsFromPoint
+// ============================================
+
+/**
+ * Handle click for an element with data attributes.
+ * Called by parent editor when routing clicks via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @param {MouseEvent} event - The click event
+ * @returns {boolean} True if the click was handled
+ */
+function handleClickForElement(dataset, event) {
+  if (dataset.layer !== 'circular-annotation') return false
+
+  const annotationId = dataset.annotationId
+  if (!annotationId) return false
+
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
+  if (!annotation) return false
+
+  // Emit click event for parent to handle
+  emit('click', { event, annotation })
+
+  // TODO: Selection integration - could select annotation span here
+  // For now, just return true to indicate handled
+  return true
+}
+
+/**
+ * Get context menu items for an element with data attributes.
+ * Called by parent editor when element is found via elementsFromPoint.
+ *
+ * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
+ * @returns {Array} Menu items for this element
+ */
+function getMenuItemsForElement(dataset) {
+  if (dataset.layer !== 'circular-annotation') return []
+
+  const annotationId = dataset.annotationId
+  if (!annotationId) return []
+
+  // Find the annotation by ID
+  const annotation = props.annotations.find(a => a.id === annotationId)
+  if (!annotation) return []
+
+  return [
+    {
+      label: 'Edit Annotation',
+      action: () => emit('contextmenu', { event: null, annotation, action: 'edit' })
+    },
+    {
+      label: 'Delete Annotation',
+      action: () => emit('contextmenu', { event: null, annotation, action: 'delete' })
+    }
+  ]
+}
+
+// Expose for click routing and context menu integration
+defineExpose({
+  handleClickForElement,
+  getMenuItemsForElement
+})
 </script>
 
 <template>
@@ -82,11 +151,16 @@ function handleMouseLeave(event, element) {
       v-for="(element, idx) in annotationElements"
       :key="`ann-${element.annotation.id || idx}`"
       class="annotation"
+      data-layer="circular-annotation"
+      :data-annotation-id="element.annotation?.id"
       @click="handleClick($event, element)"
       @contextmenu="handleContextMenu($event, element)"
       @mouseenter="handleMouseEnter($event, element)"
       @mouseleave="handleMouseLeave($event, element)"
     >
+      <!-- Tooltip (native browser tooltip via SVG title element) -->
+      <title v-if="element.caption">{{ element.caption }}</title>
+
       <!-- Annotation arc path -->
       <path
         :d="element.path"
