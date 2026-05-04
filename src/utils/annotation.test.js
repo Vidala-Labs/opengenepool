@@ -379,7 +379,7 @@ describe('ANNOTATION_COLORS', () => {
   })
 
   it('has a default color', () => {
-    expect(ANNOTATION_COLORS.default).toBe('#607D8B')
+    expect(ANNOTATION_COLORS._default).toBe('#607D8B')
   })
 })
 

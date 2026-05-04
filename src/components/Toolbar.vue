@@ -49,6 +49,16 @@ const props = defineProps({
   extensions: {
     type: Array,
     default: () => []
+  },
+  /**
+   * Array of config items to render in the config panel.
+   * Each item is either:
+   * - { type: 'toggle', label: string, value: boolean, onChange: () => void }
+   * - { type: 'type-filter', types: string[], hiddenTypes: Set, getColor: fn, onToggle: fn }
+   */
+  configItems: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -69,72 +79,102 @@ function toggleConfigPanel() {
 
 <template>
   <div class="toolbar">
-    <label v-if="showZoom" class="zoom-control">
-      Zoom:
-      <select :value="zoomLevel" @change="handleZoomChange">
-        <option
-          v-for="opt in availableZooms"
-          :key="opt.value"
-          :value="opt.value"
+    <!-- Left section: Zoom, title, info -->
+    <div class="toolbar-left">
+      <label v-if="showZoom" class="zoom-control">
+        Zoom:
+        <select :value="zoomLevel" @change="handleZoomChange">
+          <option
+            v-for="opt in availableZooms"
+            :key="opt.value"
+            :value="opt.value"
+          >
+            {{ opt.label }}
+          </option>
+        </select>
+      </label>
+
+      <span v-if="titleVisible" class="title-area">
+        <span class="title-text">
+          <slot name="title" />
+        </span>
+        <button
+          v-if="slots.info"
+          class="info-button"
+          title="Show info"
+          @click="toggleInfoPopup"
         >
-          {{ opt.label }}
-        </option>
-      </select>
-    </label>
-
-    <span v-if="titleVisible" class="info">
-      <slot name="title" />
-      <button
-        v-if="slots.info"
-        class="info-button"
-        title="Show info"
-        @click="toggleInfoPopup"
-      >
-        <InformationCircleIcon class="icon-toolbar-sm" />
-      </button>
-    </span>
-
-    <div v-if="showViewModeToggle" class="view-mode-toggle">
-      <button
-        :class="['view-mode-btn', { active: viewMode === 'linear' }]"
-        @click="emit('update:viewMode', 'linear')"
-        title="Linear view"
-      >
-        Linear
-      </button>
-      <button
-        :class="['view-mode-btn', { active: viewMode === 'circular' }]"
-        @click="emit('update:viewMode', 'circular')"
-        title="Circular view"
-      >
-        Circular
-      </button>
+          <InformationCircleIcon class="icon-toolbar-sm" />
+        </button>
+      </span>
     </div>
 
-    <div class="toolbar-spacer"></div>
+    <!-- Right section: Tool icons (can wrap) + gear on far right -->
+    <div class="toolbar-right">
+      <div class="toolbar-icons">
+        <div v-if="showViewModeToggle" class="view-mode-toggle">
+          <button
+            :class="['view-mode-btn', { active: viewMode === 'linear' }]"
+            @click="emit('update:viewMode', 'linear')"
+            title="Linear view"
+          >
+            Linear
+          </button>
+          <button
+            :class="['view-mode-btn', { active: viewMode === 'circular' }]"
+            @click="emit('update:viewMode', 'circular')"
+            title="Circular view"
+          >
+            Circular
+          </button>
+        </div>
 
-    <component
-      v-for="ext in props.extensions.filter(e => e.toolbarButton)"
-      :key="ext.id"
-      :is="ext.toolbarButton"
-    />
+        <component
+          v-for="ext in props.extensions.filter(e => e.toolbarButton)"
+          :key="ext.id"
+          :is="ext.toolbarButton"
+        />
 
-    <slot name="toolbar" />
+        <slot name="toolbar" />
 
-    <button
-      class="help-button"
-      :title="helpText"
-    >
-      <QuestionMarkCircleIcon class="icon-toolbar-lg" />
-    </button>
+        <button
+          class="help-button"
+          :title="helpText"
+        >
+          <QuestionMarkCircleIcon class="icon-toolbar-lg" />
+        </button>
+      </div>
 
-    <div class="config-container">
-      <button class="config-button" @click.stop="toggleConfigPanel" title="Settings">
-        <Cog6ToothIcon class="icon-toolbar-lg" />
-      </button>
+      <div class="config-container">
+        <button class="config-button" @click.stop="toggleConfigPanel" title="Settings">
+          <Cog6ToothIcon class="icon-toolbar-lg" />
+        </button>
 
-      <div v-if="configPanelOpen" class="config-panel" @click.stop>
-        <slot name="config" />
+        <div v-if="configPanelOpen" class="config-panel" @click.stop>
+          <!-- Dynamic config items from layers -->
+          <template v-for="(item, i) in configItems" :key="i">
+            <label v-if="item.type === 'toggle'" class="config-header-toggle">
+              <input type="checkbox" :checked="item.value" @change="item.onChange">
+              <span>{{ item.label }}</span>
+            </label>
+            <div v-else-if="item.type === 'type-filter'" class="config-types">
+              <label v-for="type in item.types" :key="type" class="type-row">
+                <input type="checkbox" :checked="!item.hiddenTypes.has(type)" @change="item.onToggle(type)">
+                <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
+                  <rect
+                    x="0" y="0" width="14" height="14" rx="2"
+                    :fill="item.getColor(type)"
+                    stroke="black"
+                    stroke-width="1"
+                  />
+                </svg>
+                <span class="type-name">{{ type }}</span>
+              </label>
+            </div>
+          </template>
+          <!-- Extra config content from parent -->
+          <slot name="config" />
+        </div>
       </div>
     </div>
 
@@ -156,6 +196,7 @@ function toggleConfigPanel() {
 <style scoped>
 .toolbar {
   display: flex;
+  justify-content: space-between;
   gap: 1rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid #ddd;
@@ -164,10 +205,46 @@ function toggleConfigPanel() {
   flex-shrink: 0;
 }
 
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  max-width: 50%;
+  min-width: 0;
+}
+
 .zoom-control {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.title-area {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.title-text {
+  /* Width/overflow handling left to harness */
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 50%;
+  justify-content: flex-end;
+}
+
+.toolbar-icons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: flex-end;
 }
 
 .zoom-control select {
@@ -175,10 +252,6 @@ function toggleConfigPanel() {
   border: 1px solid #ccc;
   border-radius: 0.25rem;
   background: white;
-}
-
-.toolbar-spacer {
-  flex: 1;
 }
 
 .help-button {
@@ -286,6 +359,7 @@ function toggleConfigPanel() {
   color: #666;
   cursor: pointer;
   vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .info-button:hover {
@@ -353,26 +427,37 @@ function toggleConfigPanel() {
     gap: 0.5rem;
   }
 
-  .toolbar-spacer {
-    display: none;
+  .toolbar-left {
+    flex-shrink: 1;
+    min-width: 0;
   }
 
   .zoom-control {
     font-size: 0.875rem;
   }
 
-  .view-mode-toggle {
-    order: 10;
-  }
-
-  .help-button {
-    margin-left: auto;
+  .toolbar-icons {
+    justify-content: flex-end;
   }
 }
 </style>
 
 <!-- Config panel content styles (unscoped so they apply to slot content) -->
 <style>
+.config-header-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+
+.config-header-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
 .config-types {
   padding: 8px 12px;
   max-height: 300px;

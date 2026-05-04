@@ -1,11 +1,12 @@
 import { parseSpan, parseRange } from '../../test/parse-utils.js'
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
 import { Span } from '../utils/dna.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
+import { showAnnotations, __resetModuleState as resetAnnotationLayerState } from './AnnotationLayer.vue'
 
 // Helper to create mock providers
 function createMockProviders(options = {}) {
@@ -20,15 +21,20 @@ function createMockProviders(options = {}) {
   // Create real circularGraphics with a mock editorState
   const circularGraphics = useCircularGraphics(editorState)
 
-  const showAnnotations = ref(options.showAnnotations !== false)
   const annotationColors = ref(null)
 
-  return { editorState, circularGraphics, showAnnotations, annotationColors }
+  return { editorState, circularGraphics, annotationColors }
 }
 
 // Helper to mount with providers
+// Note: showAnnotations is now module-level state from AnnotationLayer, not injected
 function mountWithProviders(props = {}, options = {}) {
-  const { editorState, circularGraphics, showAnnotations, annotationColors } = createMockProviders(options)
+  const { editorState, circularGraphics, annotationColors } = createMockProviders(options)
+
+  // Set module-level showAnnotations state before mounting
+  if (options.showAnnotations !== undefined) {
+    showAnnotations.value = options.showAnnotations
+  }
 
   return mount(CircularAnnotationLayer, {
     props: {
@@ -39,7 +45,6 @@ function mountWithProviders(props = {}, options = {}) {
       provide: {
         editorState,
         circularGraphics,
-        showAnnotations,
         annotationColors
       }
     }
@@ -47,6 +52,11 @@ function mountWithProviders(props = {}, options = {}) {
 }
 
 describe('CircularAnnotationLayer', () => {
+  // Reset module-level state before each test
+  beforeEach(() => {
+    resetAnnotationLayerState()
+  })
+
   describe('rendering', () => {
     it('renders empty when no annotations', () => {
       const wrapper = mountWithProviders({ annotations: [] })

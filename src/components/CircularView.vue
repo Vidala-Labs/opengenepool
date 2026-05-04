@@ -49,6 +49,9 @@ provide('circularAnnotations', computed(() => props.annotations))
 // SVG ref for mouse coordinate calculation
 const svgRef = ref(null)
 
+// Ref to annotation layer for config items
+const annotationLayerRef = ref(null)
+
 // Backbone circle path (simple circle)
 const backbonePath = computed(() => {
   const cx = circularGraphics.centerX.value
@@ -383,11 +386,15 @@ function handleOriginDragEnd() {
   window.removeEventListener('mouseup', handleOriginDragEnd)
 }
 
+// Config items from annotation layer (for Toolbar)
+const configItems = computed(() => annotationLayerRef.value?.configItems ?? [])
+
 // Expose for parent
 defineExpose({
   circularGraphics,
   isZooming,
-  showZoomTooltip
+  showZoomTooltip,
+  configItems
 })
 </script>
 
@@ -453,6 +460,7 @@ defineExpose({
 
     <!-- Annotation layer -->
     <CircularAnnotationLayer
+      ref="annotationLayerRef"
       :annotations="annotations"
       :show-captions="showAnnotationCaptions"
       @click="handleAnnotationClick"

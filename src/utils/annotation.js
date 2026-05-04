@@ -203,21 +203,29 @@ export class AnnotationFragment {
  * Predefined annotation colors by type
  */
 export const ANNOTATION_COLORS = {
-  gene: '#4CAF50',        // green
-  CDS: '#2196F3',         // blue
-  promoter: '#FF9800',    // orange
-  terminator: '#F44336',  // red
-  misc_feature: '#9E9E9E', // gray
-  rep_origin: '#9C27B0',  // purple
-  primer_bind: '#00BCD4', // cyan
-  protein_bind: '#795548', // brown
-  regulatory: '#FFEB3B',  // yellow
-  default: '#607D8B'      // blue-gray
+  // Standard GenBank feature types
+  gene: '#4CAF50',           // green
+  CDS: '#2196F3',            // blue
+  promoter: '#FF9800',       // orange
+  terminator: '#F44336',     // red
+  misc_feature: '#9E9E9E',   // gray
+  rep_origin: '#9C27B0',     // purple
+  origin: '#9C27B0',         // purple (alias for rep_origin)
+  primer_bind: '#00BCD4',    // cyan
+  protein_bind: '#795548',   // brown
+  regulatory: '#FFEB3B',     // yellow
+  source: '#B0BEC5',         // light blue-gray
+  // Alignment diff annotation types
+  mutation: '#F44336',       // red
+  insertion: '#FFEB3B',      // yellow
+  deletion: '#FFEB3B',       // yellow
+  // Default for unknown types
+  _default: '#607D8B'        // blue-gray
 }
 
 /**
  * Get color for annotation type
  */
 export function getAnnotationColor(type) {
-  return ANNOTATION_COLORS[type] || ANNOTATION_COLORS.default
+  return ANNOTATION_COLORS[type] || ANNOTATION_COLORS._default
 }
