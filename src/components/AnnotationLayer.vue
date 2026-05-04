@@ -76,7 +76,7 @@ const moduleConfigItems = computed(() => {
 })
 
 // Export for TranslationLayer coordination
-export { showAnnotations, hiddenTypes }
+export { showAnnotations, hiddenTypes, allAnnotationTypes }
 
 // Reset function for testing - resets module-level state
 export function __resetModuleState() {
@@ -205,10 +205,7 @@ function getTypeColor(type) {
 const instanceTypes = computed(() => new Set(props.annotations.map(a => a.type || 'misc_feature')))
 
 watch(instanceTypes, (newTypes) => {
-  // Create new Set to trigger reactivity (mutation doesn't trigger Vue updates)
-  const mergedSet = new Set(allAnnotationTypes.value)
-  for (const type of newTypes) mergedSet.add(type)
-  allAnnotationTypes.value = mergedSet
+  for (const type of newTypes) allAnnotationTypes.value.add(type)
 }, { immediate: true })
 
 // Filter annotations based on hiddenTypes

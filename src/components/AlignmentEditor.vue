@@ -371,7 +371,8 @@ const effectiveShowTranslation = computed(() => {
 const showAnnotations = ref(true)
 
 // Hidden annotation types (stored per session, not persisted)
-const hiddenTypes = ref(new Set())
+const DEFAULT_HIDDEN_TYPES = ['source']
+const hiddenTypes = ref(new Set(DEFAULT_HIDDEN_TYPES))
 
 // Annotation colors - shared with SequenceEditor via localStorage
 const COLORS_KEY = 'opengenepool-annotation-colors'
@@ -1078,8 +1079,8 @@ const lineAnnotationHeights = computed(() => {
   const showTrans = effectiveShowTranslation.value
 
   for (let line = 0; line < numLines; line++) {
-    targetHeights.set(line, computeStackedHeight(alignedTargetAnnotations.value, line, zoom, showTrans))
-    queryHeights.set(line, computeStackedHeight(alignedQueryAnnotations.value, line, zoom, showTrans))
+    targetHeights.set(line, computeStackedHeight(visibleAlignedTargetAnnotations.value, line, zoom, showTrans))
+    queryHeights.set(line, computeStackedHeight(visibleAlignedQueryAnnotations.value, line, zoom, showTrans))
   }
 
   return { target: targetHeights, query: queryHeights }
@@ -2665,5 +2666,57 @@ const toolbarHelpText = `Selection Controls:
 
 :deep(.alignment-match-text) {
   fill: #666;
+}
+
+/* Config panel content styles */
+.config-header-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+
+.config-header-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+.config-types {
+  padding: 8px 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.config-section {
+  border-top: 1px solid #eee;
+}
+
+.config-section .config-header {
+  border-bottom: none;
+}
+
+.type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.type-row input[type="checkbox"] {
+  margin: 0;
+}
+
+.type-swatch {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.type-name {
+  flex: 1;
+  font-size: 13px;
 }
 </style>

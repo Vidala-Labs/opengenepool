@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
-import AnnotationLayer, { __resetModuleState } from './AnnotationLayer.vue'
+import AnnotationLayer, { __resetModuleState, allAnnotationTypes } from './AnnotationLayer.vue'
 import { __resetModuleState as resetTranslationState } from './TranslationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
 import { Orientation, Span } from '../utils/dna.js'
@@ -656,6 +656,56 @@ describe('coordination with TranslationLayer', () => {
   })
 
   describe('configItems', () => {
+    it('allAnnotationTypes updates reactively when second instance mounts', async () => {
+      // This test verifies the Set reactivity fix:
+      // When mutating a Set with .add(), Vue doesn't detect the change.
+      // We must create a new Set to trigger reactivity.
+
+      const { editorState, graphics } = createMockProviders()
+      const globalConfig = { provide: { editorState, graphics } }
+
+      // Mount first instance with 'CDS' type
+      const wrapper1 = mount(AnnotationLayer, {
+        props: {
+          annotations: [new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') })],
+          mode: 'target'
+        },
+        global: globalConfig
+      })
+      await nextTick()
+
+      // allAnnotationTypes should have CDS
+      expect(allAnnotationTypes.value.has('CDS')).toBe(true)
+      const sizeAfterFirst = allAnnotationTypes.value.size
+
+      // Mount second instance with 'promoter' type (different type)
+      const wrapper2 = mount(AnnotationLayer, {
+        props: {
+          annotations: [new Annotation({ id: 'ann2', type: 'promoter', span: Span.parse('60..100') })],
+          mode: 'query'
+        },
+        global: globalConfig
+      })
+      await nextTick()
+
+      // BUG: With Set.add() mutation, Vue reactivity doesn't detect the change
+      // allAnnotationTypes should now have BOTH CDS and promoter
+      expect(allAnnotationTypes.value.has('CDS')).toBe(true)
+      expect(allAnnotationTypes.value.has('promoter')).toBe(true)
+
+      // The configItems from first instance should include both types
+      // This is the actual bug: sortedAnnotationTypes (computed) doesn't update
+      // because it depends on allAnnotationTypes which wasn't reactively updated
+      const configItems = wrapper1.vm.configItems
+      const typeFilter = configItems.find(item => item.type === 'type-filter')
+      expect(typeFilter).toBeTruthy()
+      expect(typeFilter.types).toContain('CDS')
+      expect(typeFilter.types).toContain('promoter') // This fails without the fix!
+
+      wrapper1.unmount()
+      wrapper2.unmount()
+    })
+
     it('includes type-filter when annotations exist (single instance)', async () => {
       const annotations = [
         new Annotation({ id: 'ann1', type: 'CDS', span: Span.parse('10..50') }),

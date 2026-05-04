@@ -370,3 +370,48 @@ function toggleConfigPanel() {
   }
 }
 </style>
+
+<!-- Config panel content styles (unscoped so they apply to slot content) -->
+<style>
+.config-types {
+  padding: 8px 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.config-section {
+  border-top: 1px solid #eee;
+}
+
+.config-section .config-header {
+  border-bottom: none;
+}
+
+.config-section .type-row {
+  padding: 4px 12px 8px 12px;
+}
+
+.type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.type-row input[type="checkbox"],
+.type-row input[type="radio"] {
+  margin: 0;
+}
+
+.type-swatch {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.type-name {
+  flex: 1;
+  font-size: 13px;
+}
+</style>
