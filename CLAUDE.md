@@ -144,8 +144,10 @@ const selection = useSelection()
 ### Working with annotations
 ```javascript
 import { Annotation } from './utils/annotation.js'
+import { Span, Range, Orientation } from './utils/dna.js'
+
 const ann = new Annotation({
-  span: '10..50',        // or Span object
+  span: new Span([new Range(10, 50, Orientation.PLUS)]),
   type: 'CDS',
   label: 'My Gene',
   color: 'blue'

@@ -55,13 +55,13 @@ npm install opengenepool
 </template>
 
 <script setup>
-import { SequenceEditor, SequenceDocument } from 'opengenepool'
+import { SequenceEditor, SequenceDocument, Span, Range, Orientation } from 'opengenepool'
 
 const doc = new SequenceDocument({
   sequence: 'ATCGATCG...',
   annotations: [
-    { id: '1', label: 'Gene A', type: 'gene', span: '0..500' },
-    { id: '2', label: 'Promoter', type: 'promoter', span: '(500..600)' }
+    { id: '1', label: 'Gene A', type: 'gene', span: new Span([new Range(0, 500, Orientation.PLUS)]) },
+    { id: '2', label: 'Promoter', type: 'promoter', span: new Span([new Range(500, 600, Orientation.MINUS)]) }
   ],
   circular: true
 })
