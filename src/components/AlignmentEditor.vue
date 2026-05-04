@@ -9,16 +9,17 @@ import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
+import { ANNOTATION_COLORS } from '../utils/annotation.js'
 import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
-import AnnotationLayer from './AnnotationLayer.vue'
+import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import AnnotationModal from './AnnotationModal.vue'
 import InsertModal from './InsertModal.vue'
 import SequenceLayer from './SequenceLayer.vue'
 import AlignmentTicksLayer from './AlignmentTicksLayer.vue'
-import TranslationLayer from './TranslationLayer.vue'
+import TranslationLayer, { showTranslation } from './TranslationLayer.vue'
 import Toolbar from './Toolbar.vue'
 import Indicator from './Indicator.vue'
 
@@ -281,6 +282,18 @@ const queryReverseMap = computed(() => {
   return buildReverseCoordinateMap(alignedQuerySequence.value, alignmentResult.value.queryStart)
 })
 
+// Inverted maps: aligned position -> original position (for converting selection to annotation)
+function invertCoordinateMap(map) {
+  const inverted = {}
+  for (const [origPos, alignedPos] of Object.entries(map)) {
+    inverted[alignedPos] = Number(origPos)
+  }
+  return inverted
+}
+
+const targetAlignedToOriginal = computed(() => invertCoordinateMap(targetReverseMap.value))
+const queryAlignedToOriginal = computed(() => invertCoordinateMap(queryReverseMap.value))
+
 // Active reverse coordinate map based on selection source
 // This is used by SelectionLayer to convert original positions to aligned positions for rendering
 const activeReverseCoordinateMap = computed(() => {
@@ -353,8 +366,7 @@ const alignedQueryCdsAnnotations = computed(() => {
   return alignedQueryAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
 })
 
-// Show translation toggle
-const showTranslation = ref(true)
+// showTranslation is imported from TranslationLayer (module-level state)
 
 // Minimum codon width needed to display amino acid letter (matches TranslationLayer)
 const MIN_CODON_WIDTH = 8
@@ -367,77 +379,10 @@ const effectiveShowTranslation = computed(() => {
   return codonWidth >= MIN_CODON_WIDTH
 })
 
-// Show annotations toggle
-const showAnnotations = ref(true)
+// showAnnotations and hiddenTypes are imported from AnnotationLayer (module-level state)
+// This ensures visibility toggles in config panel affect all editors consistently
 
-// Hidden annotation types (stored per session, not persisted)
-const DEFAULT_HIDDEN_TYPES = ['source']
-const hiddenTypes = ref(new Set(DEFAULT_HIDDEN_TYPES))
-
-// Annotation colors - shared with SequenceEditor via localStorage
-const COLORS_KEY = 'opengenepool-annotation-colors'
-const DEFAULT_ANNOTATION_COLORS = {
-  gene: '#4CAF50',           // green
-  CDS: '#2196F3',            // blue
-  promoter: '#FF9800',       // orange
-  terminator: '#F44336',     // red
-  misc_feature: '#9E9E9E',   // gray
-  rep_origin: '#9C27B0',     // purple
-  origin: '#9C27B0',         // purple (alias)
-  primer_bind: '#00BCD4',    // cyan
-  protein_bind: '#795548',   // brown
-  regulatory: '#FFEB3B',     // yellow
-  source: '#B0BEC5',         // light blue-gray
-  mutation: '#F44336',       // red (alignment diff)
-  insertion: '#FFEB3B',      // yellow (alignment diff)
-  deletion: '#FFEB3B',       // yellow (alignment diff)
-  _default: '#607D8B'        // default blue-gray for unknown types
-}
-
-function loadAnnotationColors() {
-  const stored = localStorage.getItem(COLORS_KEY)
-  if (stored) {
-    try {
-      return { ...DEFAULT_ANNOTATION_COLORS, ...JSON.parse(stored) }
-    } catch {
-      return { ...DEFAULT_ANNOTATION_COLORS }
-    }
-  }
-  return { ...DEFAULT_ANNOTATION_COLORS }
-}
-
-const annotationColors = ref(loadAnnotationColors())
-
-// Extract unique annotation types from both target and query
-const annotationTypes = computed(() => {
-  const targetTypes = localAnnotations.value.map(a => a.type || 'misc_feature')
-  const queryTypes = (queryDoc.value?.annotations || []).map(a => a.type || 'misc_feature')
-  const types = new Set([...targetTypes, ...queryTypes])
-  return [...types].sort()
-})
-
-// Toggle visibility of an annotation type
-function toggleAnnotationType(type) {
-  const newSet = new Set(hiddenTypes.value)
-  if (newSet.has(type)) {
-    newSet.delete(type)
-  } else {
-    newSet.add(type)
-  }
-  hiddenTypes.value = newSet
-}
-
-// Check if a type is hidden
-function isTypeHidden(type) {
-  return hiddenTypes.value.has(type)
-}
-
-// Get color for annotation type
-function getTypeColor(type) {
-  return annotationColors.value[type] || annotationColors.value._default
-}
-
-// Filter aligned annotations based on visibility settings
+// Filter aligned annotations based on visibility settings (uses imported state)
 const visibleAlignedTargetAnnotations = computed(() => {
   if (!showAnnotations.value) return []
   return alignedTargetAnnotations.value.filter(ann => !hiddenTypes.value.has(ann.type || 'misc_feature'))
@@ -1175,7 +1120,26 @@ const extensionAPI = {
   getAnnotations: () => targetDoc.value?.annotations ?? [],
 
   // Actions
-  setSelection: (spec) => selection.select(spec instanceof Span ? spec : new Span(spec)),
+  setSelection: (spec) => {
+    selection.select(spec instanceof Span ? spec : new Span(spec))
+    // Convert if in alignment mode (same logic as handleSelectionChange)
+    if (hasAlignment.value && selection.domain.value) {
+      const alignedToOrigMap = selection.source.value === 'query'
+        ? queryAlignedToOriginal.value
+        : targetAlignedToOriginal.value
+      if (alignedToOrigMap) {
+        for (const range of selection.domain.value.ranges) {
+          const origStart = alignedToOrigMap[range.start]
+          const origEnd = alignedToOrigMap[range.end]
+          if (origStart !== undefined && origEnd !== undefined) {
+            range.start = origStart
+            range.end = origEnd
+          }
+        }
+        selection.domain.value = selection.domain.value
+      }
+    }
+  },
   clearSelection: () => selection.unselect(),
   scrollToPosition: () => {}, // Not implemented for alignment view
 
@@ -1204,7 +1168,15 @@ const targetSequenceLayerRef = ref(null)
 const querySequenceLayerRef = ref(null)
 const targetAnnotationLayerRef = ref(null)
 const queryAnnotationLayerRef = ref(null)
+const targetTranslationLayerRef = ref(null)
+const queryTranslationLayerRef = ref(null)
 const alignmentTicksLayerRef = ref(null)
+
+// Collect config items from layer refs (for dynamic config panel)
+const collectedConfigItems = computed(() => [
+  ...(targetAnnotationLayerRef.value?.configItems ?? []),
+  ...(targetTranslationLayerRef.value?.configItems ?? [])
+])
 
 // Zoom levels for selector
 const zoomLevels = [50, 75, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
@@ -1534,26 +1506,12 @@ function hideContextMenu() {
 // Annotation modal functions
 function openAnnotationModal() {
   const domain = selection.domain.value
-
-  // Set the mode based on current selection source
   annotationModalMode.value = selection.source.value || 'target'
 
   if (domain && domain.ranges.length > 0 && domain.ranges[0].start !== domain.ranges[0].end) {
-    // Convert selection ranges to span string for annotation
-    // In alignment mode, we need to use the reverse coordinate map to get original positions
-    const reverseMap = annotationModalMode.value === 'query' ? queryReverseMap.value : targetReverseMap.value
-
+    // Selection is already in original coordinates (converted in handleSelectionChange)
     const spanStr = domain.ranges
-      .map(r => {
-        // Map aligned coordinates back to original coordinates
-        const origStart = reverseMap ? reverseMap[r.start] : r.start
-        const origEnd = reverseMap ? reverseMap[r.end] : r.end
-        if (origStart !== undefined && origEnd !== undefined) {
-          return new Range(origStart, origEnd, r.orientation).toFencedString()
-        }
-        return null
-      })
-      .filter(s => s !== null)
+      .map(r => new Range(r.start, r.end, r.orientation).toFencedString())
       .join(' + ')
     annotationModalSpan.value = spanStr || ''
   } else {
@@ -1571,7 +1529,9 @@ function closeAnnotationModal() {
 function openAnnotationModalForEdit(annotation, mode = 'target') {
   editingAnnotation.value = annotation
   annotationModalMode.value = mode
-  const spanStr = annotation.span?.toJSON?.() || '0..0'
+  // In alignment mode, use the original annotation's span (not the aligned coordinates)
+  const originalAnn = annotation.attributes?._originalAnnotation || annotation
+  const spanStr = originalAnn.span?.toJSON?.() || '0..0'
   annotationModalSpan.value = spanStr
   annotationModalOpen.value = true
 }
@@ -1584,7 +1544,7 @@ function handleAnnotationCreate(data) {
   doc.addAnnotation({
     span: data.span,
     type: data.type,
-    label: data.label,
+    caption: data.caption,
     color: data.color,
     orientation: data.orientation,
     attributes: data.attributes || {}
@@ -1604,7 +1564,7 @@ function handleAnnotationUpdate(data) {
     id: annotationId,
     span: data.span,
     type: data.type,
-    label: data.label,
+    caption: data.caption,
     color: data.color,
     orientation: data.orientation,
     attributes: data.attributes || {}
@@ -1700,7 +1660,34 @@ function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
 }
 
 // Handle selection change events
+// In alignment mode, convert selection from aligned to original coordinates
+// Both SelectionLayer and SequenceLayer produce aligned coords from mouse events
 function handleSelectionChange(data) {
+  if (hasAlignment.value && selection.domain.value) {
+    const alignedToOrigMap = selection.source.value === 'query'
+      ? queryAlignedToOriginal.value
+      : targetAlignedToOriginal.value
+
+    if (alignedToOrigMap) {
+      let anyChanged = false
+      for (const range of selection.domain.value.ranges) {
+        const origStart = alignedToOrigMap[range.start]
+        const origEnd = alignedToOrigMap[range.end]
+
+        // Only update if both positions map (gaps return undefined)
+        if (origStart !== undefined && origEnd !== undefined) {
+          range.start = origStart
+          range.end = origEnd
+          anyChanged = true
+        }
+      }
+      // Trigger reactivity if anything changed
+      if (anyChanged) {
+        selection.domain.value = selection.domain.value
+      }
+    }
+  }
+
   emit('select', data)
 }
 
@@ -2068,6 +2055,7 @@ const toolbarHelpText = `Selection Controls:
       :title-visible="editorState.sequenceLength.value > 0"
       :help-text="toolbarHelpText"
       :config-panel-open="configPanelOpen"
+      :config-items="collectedConfigItems"
       :extensions="renderExtensions"
       @zoom-change="handleZoomChange"
       @toggle-config="configPanelOpen = !configPanelOpen"
@@ -2087,36 +2075,6 @@ const toolbarHelpText = `Selection Controls:
       </template>
 
       <template #config>
-        <label class="config-header-toggle">
-          <input
-            type="checkbox"
-            v-model="showAnnotations"
-          >
-          <span>Annotations</span>
-        </label>
-        <div v-if="showAnnotations && annotationTypes.length > 0" class="config-types">
-          <label v-for="type in annotationTypes" :key="type" class="type-row">
-            <input type="checkbox" :checked="!isTypeHidden(type)" @change="toggleAnnotationType(type)">
-            <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
-              <rect
-                x="0" y="0" width="14" height="14" rx="2"
-                :fill="getTypeColor(type)"
-                stroke="black"
-                stroke-width="1"
-              />
-            </svg>
-            <span class="type-name">{{ type }}</span>
-          </label>
-        </div>
-
-        <label v-if="visibleAlignedTargetCdsAnnotations.length > 0 || visibleAlignedQueryCdsAnnotations.length > 0" class="config-header-toggle">
-          <input
-            type="checkbox"
-            v-model="showTranslation"
-          >
-          <span>Translation</span>
-        </label>
-
         <slot name="config"></slot>
       </template>
     </Toolbar>
@@ -2199,11 +2157,11 @@ const toolbarHelpText = `Selection Controls:
             <!-- Annotation Layers for alignment mode -->
             <!-- Target annotations above target sequence (paths extend upward with negative Y) -->
             <AnnotationLayer
-              v-if="visibleAlignedTargetAnnotations.length > 0"
+              v-if="alignedTargetAnnotations.length > 0"
               ref="targetAnnotationLayerRef"
               mode="target"
               :document="targetDoc"
-              :annotations="visibleAlignedTargetAnnotations"
+              :annotations="alignedTargetAnnotations"
               :y-offset="0"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
@@ -2213,10 +2171,10 @@ const toolbarHelpText = `Selection Controls:
             <!-- Translation Layers for CDS annotations -->
             <!-- Target translations above target sequence -->
             <TranslationLayer
-              v-if="visibleAlignedTargetCdsAnnotations.length > 0"
+              v-if="alignedTargetCdsAnnotations.length > 0"
               ref="targetTranslationLayerRef"
               mode="target"
-              :annotations="visibleAlignedTargetCdsAnnotations"
+              :annotations="alignedTargetCdsAnnotations"
               :sequence="alignedTargetSequence"
               :y-offset="0"
               :block-height="alignmentBlockHeight"
@@ -2226,11 +2184,11 @@ const toolbarHelpText = `Selection Controls:
             />
             <!-- Query annotations below query sequence (mirrors target positioning) -->
             <AnnotationLayer
-              v-if="visibleAlignedQueryAnnotations.length > 0"
+              v-if="alignedQueryAnnotations.length > 0"
               ref="queryAnnotationLayerRef"
               mode="query"
               :document="queryDoc"
-              :annotations="visibleAlignedQueryAnnotations"
+              :annotations="alignedQueryAnnotations"
               :y-offset="graphics.lineHeight.value * 3"
               :block-height="alignmentBlockHeight"
               :show-captions="true"
@@ -2240,10 +2198,10 @@ const toolbarHelpText = `Selection Controls:
             />
             <!-- Query translations below query sequence, above CDS annotation -->
             <TranslationLayer
-              v-if="visibleAlignedQueryCdsAnnotations.length > 0"
+              v-if="alignedQueryCdsAnnotations.length > 0"
               ref="queryTranslationLayerRef"
               mode="query"
-              :annotations="visibleAlignedQueryCdsAnnotations"
+              :annotations="alignedQueryCdsAnnotations"
               :sequence="alignedQuerySequence"
               :y-offset="graphics.lineHeight.value * 3"
               :block-height="alignmentBlockHeight"
@@ -2664,55 +2622,5 @@ const toolbarHelpText = `Selection Controls:
   fill: #666;
 }
 
-/* Config panel content styles */
-.config-header-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-weight: 600;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
-}
-
-.config-header-toggle input[type="checkbox"] {
-  margin: 0;
-}
-
-.config-types {
-  padding: 8px 12px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.config-section {
-  border-top: 1px solid #eee;
-}
-
-.config-section .config-header {
-  border-bottom: none;
-}
-
-.type-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  cursor: pointer;
-}
-
-.type-row input[type="checkbox"] {
-  margin: 0;
-}
-
-.type-swatch {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.type-name {
-  flex: 1;
-  font-size: 13px;
-}
+/* Config panel styles are now in Toolbar.vue */
 </style>

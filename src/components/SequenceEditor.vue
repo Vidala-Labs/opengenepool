@@ -7,11 +7,11 @@ import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Annotation } from '../utils/annotation.js'
+import { Annotation, ANNOTATION_COLORS } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
-import AnnotationLayer from './AnnotationLayer.vue'
-import TranslationLayer from './TranslationLayer.vue'
+import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
+import TranslationLayer, { showTranslation } from './TranslationLayer.vue'
 import SelectionLayer from './SelectionLayer.vue'
 import CircularView from './CircularView.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -436,10 +436,6 @@ watch(() => targetDoc.value?.sequence, (newSeq) => {
   }
 }, { immediate: true })
 
-// Annotation filtering state with localStorage persistence
-const HIDDEN_TYPES_KEY = 'opengenepool-hidden-annotation-types'
-const DEFAULT_HIDDEN_TYPES = ['source']  // Hide source annotations by default
-
 // Rich copy/paste overlay storage
 const OVERLAY_STORAGE_KEY = 'opengenepool-copy-overlay'
 
@@ -546,39 +542,9 @@ function getOverlappingAnnotations(selectionRanges) {
 }
 
 // Annotation colors with localStorage persistence
-// These default colors match annotation.js ANNOTATION_COLORS.
+// Uses ANNOTATION_COLORS from annotation.js as the single source of truth.
 // Colors are saved to localStorage so users can customize them in the future.
-// When first loaded, defaults are written to localStorage if not present.
 const COLORS_KEY = 'opengenepool-annotation-colors'
-const DEFAULT_ANNOTATION_COLORS = {
-  gene: '#4CAF50',           // green
-  CDS: '#2196F3',            // blue
-  promoter: '#FF9800',       // orange
-  terminator: '#F44336',     // red
-  misc_feature: '#9E9E9E',   // gray
-  rep_origin: '#9C27B0',     // purple
-  origin: '#9C27B0',         // purple (alias)
-  primer_bind: '#00BCD4',    // cyan
-  protein_bind: '#795548',   // brown
-  regulatory: '#FFEB3B',     // yellow
-  source: '#B0BEC5',         // light blue-gray
-  mutation: '#F44336',       // red (alignment diff)
-  insertion: '#FFEB3B',      // yellow (alignment diff)
-  deletion: '#FFEB3B',       // yellow (alignment diff)
-  _default: '#607D8B'        // default blue-gray for unknown types
-}
-
-function loadHiddenTypes() {
-  const stored = localStorage.getItem(HIDDEN_TYPES_KEY)
-  if (stored) {
-    try {
-      return new Set(JSON.parse(stored))
-    } catch {
-      return new Set(DEFAULT_HIDDEN_TYPES)
-    }
-  }
-  return new Set(DEFAULT_HIDDEN_TYPES)
-}
 
 // Load annotation colors from localStorage.
 // If no colors are stored, save the defaults to localStorage and return them.
@@ -588,30 +554,31 @@ function loadAnnotationColors() {
   if (stored) {
     try {
       // Merge with defaults to handle any new types added in future versions
-      return { ...DEFAULT_ANNOTATION_COLORS, ...JSON.parse(stored) }
+      return { ...ANNOTATION_COLORS, ...JSON.parse(stored) }
     } catch {
       // Corrupted data - reset to defaults
-      localStorage.setItem(COLORS_KEY, JSON.stringify(DEFAULT_ANNOTATION_COLORS))
-      return { ...DEFAULT_ANNOTATION_COLORS }
+      localStorage.setItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
+      return { ...ANNOTATION_COLORS }
     }
   }
   // First load - save defaults to localStorage
-  localStorage.setItem(COLORS_KEY, JSON.stringify(DEFAULT_ANNOTATION_COLORS))
-  return { ...DEFAULT_ANNOTATION_COLORS }
+  localStorage.setItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
+  return { ...ANNOTATION_COLORS }
 }
 
-const hiddenTypes = ref(loadHiddenTypes())
 const annotationColors = ref(loadAnnotationColors())
 const configPanelOpen = ref(false)
-
-// Shared visibility state for layers (used by both linear and circular views)
-const showAnnotations = ref(true)
-const showTranslation = ref(true)
 
 // Refs to layer components
 const annotationLayerRef = ref(null)
 const translationLayerRef = ref(null)
 const sequenceLayerRef = ref(null)
+
+// Collect config items from layers for Toolbar
+const collectedConfigItems = computed(() => [
+  ...(annotationLayerRef.value?.configItems ?? []),
+  ...(translationLayerRef.value?.configItems ?? [])
+])
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
@@ -623,32 +590,15 @@ function getTypeColor(type) {
   return annotationColors.value[type] || annotationColors.value._default
 }
 
-// Save to localStorage whenever hiddenTypes changes
-watch(hiddenTypes, (newValue) => {
-  localStorage.setItem(HIDDEN_TYPES_KEY, JSON.stringify([...newValue]))
-}, { deep: true })
-
-// Extract unique types from annotations for the filter UI
-const annotationTypes = computed(() => {
-  const types = new Set(localAnnotations.value.map(a => a.type || 'misc_feature'))
-  return [...types].sort()
-})
-
-// Convert plain annotation objects to Annotation class instances, filtering hidden types
+// Convert plain annotation objects to Annotation class instances
+// Note: Filtering by hidden types is now handled by AnnotationLayer internally
 const annotationInstances = computed(() => {
-  return localAnnotations.value
-    .filter(ann => !hiddenTypes.value.has(ann.type || 'misc_feature'))
-    .map(ann => {
-      // If already an Annotation instance, return as-is
-      if (ann instanceof Annotation) return ann
-      // Convert plain object to Annotation
-      return new Annotation(ann)
-    })
-})
-
-// CDS annotations for translation display (only visible CDS annotations)
-const cdsAnnotations = computed(() => {
-  return annotationInstances.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
+  return localAnnotations.value.map(ann => {
+    // If already an Annotation instance, return as-is
+    if (ann instanceof Annotation) return ann
+    // Convert plain object to Annotation
+    return new Annotation(ann)
+  })
 })
 
 // Annotation creation modal
@@ -821,21 +771,6 @@ const hasNonZeroSelection = computed(() => {
   if (!domain || domain.ranges.length === 0) return false
   return domain.ranges.every(r => r.start !== r.end)
 })
-
-// Annotation filter handlers
-function toggleAnnotationType(type) {
-  const newSet = new Set(hiddenTypes.value)
-  if (newSet.has(type)) {
-    newSet.delete(type)
-  } else {
-    newSet.add(type)
-  }
-  hiddenTypes.value = newSet
-}
-
-function isTypeHidden(type) {
-  return hiddenTypes.value.has(type)
-}
 
 // Provide state to child components
 provide('editorState', editorState)
@@ -2457,6 +2392,7 @@ const toolbarHelpText = `Selection Controls:
       :view-mode="viewMode"
       :help-text="toolbarHelpText"
       :config-panel-open="configPanelOpen"
+      :config-items="collectedConfigItems"
       :extensions="renderExtensions"
       @zoom-change="handleZoomChange"
       @update:view-mode="viewMode = $event"
@@ -2477,36 +2413,6 @@ const toolbarHelpText = `Selection Controls:
       </template>
 
       <template #config>
-        <label class="config-header-toggle">
-          <input
-            type="checkbox"
-            v-model="showAnnotations"
-          >
-          <span>Annotations</span>
-        </label>
-        <div v-if="showAnnotations && annotationTypes.length > 0" class="config-types">
-          <label v-for="type in annotationTypes" :key="type" class="type-row">
-            <input type="checkbox" :checked="!isTypeHidden(type)" @change="toggleAnnotationType(type)">
-            <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
-              <rect
-                x="0" y="0" width="14" height="14" rx="2"
-                :fill="getTypeColor(type)"
-                stroke="black"
-                stroke-width="1"
-              />
-            </svg>
-            <span class="type-name">{{ type }}</span>
-          </label>
-        </div>
-
-        <label v-if="cdsAnnotations.length > 0 && viewMode === 'linear'" class="config-header-toggle">
-          <input
-            type="checkbox"
-            v-model="showTranslation"
-          >
-          <span>Translation</span>
-        </label>
-
         <slot name="config"></slot>
       </template>
     </Toolbar>
@@ -2607,9 +2513,8 @@ const toolbarHelpText = `Selection Controls:
 
         <!-- Translation Layer (rendered below annotations, above sequence) -->
         <TranslationLayer
-          v-if="cdsAnnotations.length > 0"
           ref="translationLayerRef"
-          :annotations="cdsAnnotations"
+          :annotations="annotationInstances"
           :annotation-delta-y-by-line="annotationLayerRef?.annotationDeltaYByLine"
           @hover="handleTranslationHover"
           @click="handleTranslationClick"
@@ -2618,7 +2523,6 @@ const toolbarHelpText = `Selection Controls:
 
         <!-- Annotation Layer -->
         <AnnotationLayer
-          v-if="annotationInstances.length > 0"
           ref="annotationLayerRef"
           :document="targetDoc"
           :annotations="annotationInstances"

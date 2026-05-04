@@ -8,6 +8,8 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range } from '../utils/dna.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { __resetModuleState as resetAnnotationLayerState } from './AnnotationLayer.vue'
+import { __resetModuleState as resetTranslationLayerState } from './TranslationLayer.vue'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
@@ -21,6 +23,8 @@ function createDoc(sequence = '', annotations = [], circular = false, backend = 
 describe('SequenceEditor annotations', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEY)
+    resetAnnotationLayerState()
+    resetTranslationLayerState()
   })
 
   // Helper to confirm delete in the confirmation dialog (teleported to body)
@@ -55,7 +59,8 @@ describe('SequenceEditor annotations', () => {
       expect(layer.exists()).toBe(true)
     })
 
-    it('does not render AnnotationLayer when no annotations', async () => {
+    it('renders AnnotationLayer even when no annotations (layer handles visibility)', async () => {
+      // AnnotationLayer is always rendered now - it handles its own visibility internally
       const wrapper = mount(SequenceEditor, {
         props: {
           sequence: createDoc('A'.repeat(500), []),
@@ -65,7 +70,9 @@ describe('SequenceEditor annotations', () => {
       await wrapper.vm.$nextTick()
 
       const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
-      expect(layer.exists()).toBe(false)
+      expect(layer.exists()).toBe(true)
+      // But with no annotations, fragments should be empty
+      expect(layer.vm.fragments.length).toBe(0)
     })
 
     it('passes showAnnotationCaptions prop to AnnotationLayer', async () => {

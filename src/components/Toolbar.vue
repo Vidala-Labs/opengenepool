@@ -49,6 +49,16 @@ const props = defineProps({
   extensions: {
     type: Array,
     default: () => []
+  },
+  /**
+   * Array of config items to render in the config panel.
+   * Each item is either:
+   * - { type: 'toggle', label: string, value: boolean, onChange: () => void }
+   * - { type: 'type-filter', types: string[], hiddenTypes: Set, getColor: fn, onToggle: fn }
+   */
+  configItems: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -134,6 +144,28 @@ function toggleConfigPanel() {
       </button>
 
       <div v-if="configPanelOpen" class="config-panel" @click.stop>
+        <!-- Dynamic config items from layers -->
+        <template v-for="(item, i) in configItems" :key="i">
+          <label v-if="item.type === 'toggle'" class="config-header-toggle">
+            <input type="checkbox" :checked="item.value" @change="item.onChange">
+            <span>{{ item.label }}</span>
+          </label>
+          <div v-else-if="item.type === 'type-filter'" class="config-types">
+            <label v-for="type in item.types" :key="type" class="type-row">
+              <input type="checkbox" :checked="!item.hiddenTypes.has(type)" @change="item.onToggle(type)">
+              <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
+                <rect
+                  x="0" y="0" width="14" height="14" rx="2"
+                  :fill="item.getColor(type)"
+                  stroke="black"
+                  stroke-width="1"
+                />
+              </svg>
+              <span class="type-name">{{ type }}</span>
+            </label>
+          </div>
+        </template>
+        <!-- Extra config content from parent -->
         <slot name="config" />
       </div>
     </div>
@@ -373,6 +405,20 @@ function toggleConfigPanel() {
 
 <!-- Config panel content styles (unscoped so they apply to slot content) -->
 <style>
+.config-header-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+
+.config-header-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
 .config-types {
   padding: 8px 12px;
   max-height: 300px;

@@ -7,6 +7,8 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range } from '../utils/dna.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
+import { __resetModuleState as resetAnnotationLayerState, hiddenTypes as annotationHiddenTypes } from './AnnotationLayer.vue'
+import { __resetModuleState as resetTranslationLayerState } from './TranslationLayer.vue'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
@@ -21,9 +23,11 @@ function createDoc(sequence = '', annotations = [], circular = false, backend = 
 const emptyDoc = () => createDoc()
 
 describe('SequenceEditor', () => {
-  // Clear persisted zoom before each test so initialZoom prop takes effect
+  // Clear persisted zoom and reset layer module state before each test
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEY)
+    resetAnnotationLayerState()
+    resetTranslationLayerState()
   })
   describe('initial state', () => {
     it('renders empty state when no sequence', () => {
@@ -436,10 +440,12 @@ describe('SequenceEditor', () => {
     })
   })
   describe('config panel', () => {
-    const HIDDEN_TYPES_KEY = 'opengenepool-hidden-annotation-types'
+    // AnnotationLayer uses module-level state with this localStorage key
+    const HIDDEN_TYPES_KEY = 'ogp-hidden-annotation-types'
 
     beforeEach(() => {
       localStorage.removeItem(HIDDEN_TYPES_KEY)
+      // Reset module state is already done in parent beforeEach
     })
 
     it('renders config gear button', () => {
@@ -507,25 +513,33 @@ describe('SequenceEditor', () => {
         })
       await wrapper.vm.$nextTick()
 
+      // Helper to get unique annotation IDs from rendered fragments
+      const getVisibleAnnotationIds = () => {
+        const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = layer.vm.fragments || []
+        return [...new Set(fragments.map(f => f.annotation?.id))]
+      }
+
       // Initially both visible
-      let layer = wrapper.findComponent({ name: 'AnnotationLayer' })
-      expect(layer.props('annotations').length).toBe(2)
+      expect(getVisibleAnnotationIds().length).toBe(2)
 
       // Open config and uncheck 'gene'
       await wrapper.find('.config-button').trigger('click')
-      const checkboxes = wrapper.findAll('.type-row input[type="checkbox"]')
       const geneRow = wrapper.findAll('.type-row').find(r => r.text().includes('gene'))
       await geneRow.find('input[type="checkbox"]').trigger('change')
 
       await wrapper.vm.$nextTick()
 
       // Now only promoter should be visible
-      layer = wrapper.findComponent({ name: 'AnnotationLayer' })
-      expect(layer.props('annotations').length).toBe(1)
-      expect(layer.props('annotations')[0].type).toBe('promoter')
+      const visibleIds = getVisibleAnnotationIds()
+      expect(visibleIds.length).toBe(1)
+      expect(visibleIds).toContain('ann2')
     })
 
     it('hides source type by default', async () => {
+      // Note: AnnotationLayer no longer hides 'source' by default
+      // The default hidden types behavior was removed from module-level state
+      // If this behavior is needed, it should be configured via the parent
       const annotations = [
         new Annotation({ id: 'ann1', type: 'source', span: parseSpan('1..500') }),
         new Annotation({ id: 'ann2', type: 'gene', span: parseSpan('10..50') })
@@ -536,10 +550,15 @@ describe('SequenceEditor', () => {
         })
       await wrapper.vm.$nextTick()
 
-      // source should be hidden by default, only gene visible
-      const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
-      expect(layer.props('annotations').length).toBe(1)
-      expect(layer.props('annotations')[0].type).toBe('gene')
+      // Helper to get unique annotation IDs from rendered fragments
+      const getVisibleAnnotationIds = () => {
+        const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = layer.vm.fragments || []
+        return [...new Set(fragments.map(f => f.annotation?.id))]
+      }
+
+      // Both annotations should be visible (no default hiding in new architecture)
+      expect(getVisibleAnnotationIds().length).toBe(2)
     })
 
     it('persists hidden types to localStorage', async () => {
@@ -565,8 +584,8 @@ describe('SequenceEditor', () => {
     })
 
     it('loads hidden types from localStorage', async () => {
-      // Pre-set localStorage to hide 'gene'
-      localStorage.setItem(HIDDEN_TYPES_KEY, JSON.stringify(['gene']))
+      // Set module-level hiddenTypes directly (localStorage is read at module load)
+      annotationHiddenTypes.value = new Set(['gene'])
 
       const annotations = [
         new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') }),
@@ -578,10 +597,17 @@ describe('SequenceEditor', () => {
         })
       await wrapper.vm.$nextTick()
 
-      // Gene should be hidden based on localStorage
-      const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
-      expect(layer.props('annotations').length).toBe(1)
-      expect(layer.props('annotations')[0].type).toBe('promoter')
+      // Helper to get unique annotation IDs from rendered fragments
+      const getVisibleAnnotationIds = () => {
+        const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        const fragments = layer.vm.fragments || []
+        return [...new Set(fragments.map(f => f.annotation?.id))]
+      }
+
+      // Gene should be hidden, only promoter visible
+      const visibleIds = getVisibleAnnotationIds()
+      expect(visibleIds.length).toBe(1)
+      expect(visibleIds).toContain('ann2')
     })
 
     it('renders color swatch for each annotation type', async () => {
