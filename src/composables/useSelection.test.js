@@ -221,12 +221,13 @@ describe('useSelection', () => {
   })
 
   describe('selectAll', () => {
-    it('selects entire sequence', () => {
+    it('selects entire sequence with forward orientation', () => {
       const sel = createSelection()
       sel.selectAll()
 
       expect(sel.domain.value.ranges[0].start).toBe(0)
       expect(sel.domain.value.ranges[0].end).toBe(500)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
     })
   })
 
@@ -510,6 +511,28 @@ describe('useSelection', () => {
       expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
     })
 
+    it('sets plus orientation when extending cursor to the right', () => {
+      const sel = createSelection()
+      sel.select([new Range(50, 50, Orientation.NONE)])  // cursor at position 50
+
+      sel.extendToPosition(100)
+
+      expect(sel.domain.value.ranges[0].start).toBe(50)
+      expect(sel.domain.value.ranges[0].end).toBe(100)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+    })
+
+    it('sets minus orientation when extending cursor to the left', () => {
+      const sel = createSelection()
+      sel.select([new Range(50, 50, Orientation.NONE)])  // cursor at position 50
+
+      sel.extendToPosition(20)
+
+      expect(sel.domain.value.ranges[0].start).toBe(20)
+      expect(sel.domain.value.ranges[0].end).toBe(50)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+    })
+
     it('extends leftmost range when clicking before all ranges', () => {
       const sel = createSelection()
       sel.select([new Range(30, 50), new Range(70, 90)])
@@ -682,6 +705,97 @@ describe('useSelection', () => {
       expect(sel.domain.value.ranges).toHaveLength(1)
       expect(sel.domain.value.ranges[0].start).toBe(50)
       expect(sel.domain.value.ranges[0].end).toBe(200)
+    })
+  })
+
+  describe('extendToSpan', () => {
+    it('extends selection to include annotation span on the right', () => {
+      const sel = createSelection()
+      sel.select([new Range(10, 30, Orientation.PLUS)])
+      const annotationSpan = new Span([new Range(50, 80)])
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(true)
+      expect(sel.domain.value.ranges.length).toBe(1)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(80)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+    })
+
+    it('extends selection to include annotation span on the left', () => {
+      const sel = createSelection()
+      sel.select([new Range(50, 80, Orientation.MINUS)])
+      const annotationSpan = new Span([new Range(10, 30)])
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(true)
+      expect(sel.domain.value.ranges.length).toBe(1)
+      expect(sel.domain.value.ranges[0].start).toBe(10)
+      expect(sel.domain.value.ranges[0].end).toBe(80)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+    })
+
+    it('sets plus orientation when extending cursor to annotation on right', () => {
+      const sel = createSelection()
+      sel.select([new Range(20, 20, Orientation.NONE)])  // cursor
+      const annotationSpan = new Span([new Range(50, 80)])
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(true)
+      expect(sel.domain.value.ranges[0].start).toBe(20)
+      expect(sel.domain.value.ranges[0].end).toBe(80)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+    })
+
+    it('sets minus orientation when extending cursor to annotation on left', () => {
+      const sel = createSelection()
+      sel.select([new Range(100, 100, Orientation.NONE)])  // cursor
+      const annotationSpan = new Span([new Range(20, 50)])
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(true)
+      expect(sel.domain.value.ranges[0].start).toBe(20)
+      expect(sel.domain.value.ranges[0].end).toBe(100)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+    })
+
+    it('returns false and does nothing for multi-span selection', () => {
+      const sel = createSelection()
+      sel.select([new Range(10, 30), new Range(50, 70)])  // multi-span
+      const annotationSpan = new Span([new Range(80, 100)])
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(false)
+      expect(sel.domain.value.ranges.length).toBe(2)
+      expect(sel.domain.value.ranges[0].end).toBe(30)
+      expect(sel.domain.value.ranges[1].end).toBe(70)
+    })
+
+    it('returns false when no selection exists', () => {
+      const sel = createSelection()
+      const annotationSpan = new Span([new Range(50, 80)])
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(false)
+    })
+
+    it('handles annotation that overlaps current selection', () => {
+      const sel = createSelection()
+      sel.select([new Range(30, 60, Orientation.PLUS)])
+      const annotationSpan = new Span([new Range(50, 100)])  // overlaps
+
+      const result = sel.extendToSpan(annotationSpan)
+
+      expect(result).toBe(true)
+      expect(sel.domain.value.ranges[0].start).toBe(30)
+      expect(sel.domain.value.ranges[0].end).toBe(100)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
     })
   })
 

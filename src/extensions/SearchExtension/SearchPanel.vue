@@ -1,6 +1,7 @@
 <script setup>
 import { ref, inject, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { searchVisible } from './state.js'
+import { Span, Range, Orientation } from '../../utils/dna.js'
 
 const extensionAPI = inject('extensionAPI')
 
@@ -99,10 +100,13 @@ function goToMatch(index) {
   isNavigating = true
 
   // Select the match in the editor (with strand orientation)
-  const spec = match.strand === '-'
-    ? `(${match.start}..${match.end})`
-    : `${match.start}..${match.end}`
-  extensionAPI.setSelection(spec)
+  const orientation = match.strand === '-' ? Orientation.MINUS : Orientation.PLUS
+  const range = new Range(match.start, match.end, orientation)
+  const span = new Span([range])
+  extensionAPI.setSelection(span)
+
+  // Scroll to the match position
+  extensionAPI.scrollToPosition(match.start)
 
   // Reset navigation flag after a short delay
   setTimeout(() => {

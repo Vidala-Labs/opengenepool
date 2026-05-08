@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref, nextTick, watch } from 'vue'
 import SearchPanel from './SearchPanel.vue'
 import { searchVisible } from './state.js'
+import { Span, Range } from '../../utils/dna.js'
 
 describe('SearchPanel', () => {
   let selectionChangeHandler = null
@@ -151,5 +152,78 @@ describe('SearchPanel', () => {
 
     // Handler should be unsubscribed
     expect(selectionChangeHandler).toBeNull()
+  })
+
+  it('selects found sequence with proper Span object, not a string', async () => {
+    const setSelectionCalls = []
+    const apiWithTracking = {
+      ...mockExtensionAPI,
+      getSequence: () => 'AAAAGAATTCAAAA',
+      setSelection: (spec) => {
+        setSelectionCalls.push(spec)
+      }
+    }
+
+    const wrapper = mount(SearchPanel, {
+      global: {
+        provide: {
+          extensionAPI: apiWithTracking
+        }
+      }
+    })
+
+    // Open the search panel
+    searchVisible.value = true
+    await nextTick()
+
+    // Search for GAATTC (EcoRI site)
+    const input = wrapper.find('.search-input')
+    await input.setValue('GAATTC')
+    await nextTick()
+
+    // Should have called setSelection
+    expect(setSelectionCalls.length).toBe(1)
+
+    // The selection should be a Span object, NOT a string
+    const selection = setSelectionCalls[0]
+    expect(selection).toBeInstanceOf(Span)
+
+    // The Span should contain a Range from position 4 to 10
+    expect(selection.ranges.length).toBe(1)
+    expect(selection.ranges[0]).toBeInstanceOf(Range)
+    expect(selection.ranges[0].start).toBe(4)
+    expect(selection.ranges[0].end).toBe(10)
+  })
+
+  it('scrolls to the found sequence position', async () => {
+    const scrollCalls = []
+    const apiWithTracking = {
+      ...mockExtensionAPI,
+      getSequence: () => 'AAAAGAATTCAAAA',
+      scrollToPosition: (position) => {
+        scrollCalls.push(position)
+      }
+    }
+
+    const wrapper = mount(SearchPanel, {
+      global: {
+        provide: {
+          extensionAPI: apiWithTracking
+        }
+      }
+    })
+
+    // Open the search panel
+    searchVisible.value = true
+    await nextTick()
+
+    // Search for GAATTC
+    const input = wrapper.find('.search-input')
+    await input.setValue('GAATTC')
+    await nextTick()
+
+    // Should have called scrollToPosition with the match start position
+    expect(scrollCalls.length).toBe(1)
+    expect(scrollCalls[0]).toBe(4)
   })
 })
