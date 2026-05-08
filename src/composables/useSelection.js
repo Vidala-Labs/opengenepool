@@ -594,6 +594,53 @@ export function useSelection(editorState, graphics, eventBus) {
     return true
   }
 
+  /**
+   * Extend selection to contiguously include an annotation span.
+   * Only works for single-range selections.
+   * Preserves orientation unless selection is a cursor.
+   *
+   * @param {Span} span - The annotation span to include
+   * @returns {boolean} - True if extended, false if multi-span or no selection
+   */
+  function extendToSpan(span) {
+    if (!isSelected.value || !domain.value || domain.value.ranges.length === 0) {
+      return false
+    }
+
+    const ranges = domain.value.ranges
+
+    // Only works for single-range selections
+    if (ranges.length !== 1) {
+      return false
+    }
+
+    const range = ranges[0]
+    const spanBounds = span.bounds
+    const isCursor = range.start === range.end
+
+    // Calculate new bounds that include both selection and annotation
+    const newStart = Math.min(range.start, spanBounds.start)
+    const newEnd = Math.max(range.end, spanBounds.end)
+
+    // Determine orientation
+    let newOrientation = range.orientation
+    if (isCursor) {
+      // For cursor, set orientation based on annotation position
+      if (spanBounds.start >= range.start) {
+        newOrientation = Orientation.PLUS
+      } else {
+        newOrientation = Orientation.MINUS
+      }
+    }
+
+    // Update the range
+    range.start = newStart
+    range.end = newEnd
+    range.orientation = newOrientation
+
+    return true
+  }
+
   // Event bus integration
   if (eventBus) {
     eventBus.on('startselect', (data) => {
@@ -636,6 +683,7 @@ export function useSelection(editorState, graphics, eventBus) {
     select,
     extendSelection,
     extendToPosition,
+    extendToSpan,
     unselect,
     selectAll,
 
