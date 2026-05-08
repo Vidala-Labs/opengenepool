@@ -203,7 +203,7 @@ export function useSelection(editorState, graphics, eventBus) {
    * Select the entire sequence.
    */
   function selectAll() {
-    select([new Range(0, editorState.sequenceLength.value, Orientation.NONE)])
+    select([new Range(0, editorState.sequenceLength.value, Orientation.PLUS)])
   }
 
   /**

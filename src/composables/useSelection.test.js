@@ -221,12 +221,13 @@ describe('useSelection', () => {
   })
 
   describe('selectAll', () => {
-    it('selects entire sequence', () => {
+    it('selects entire sequence with forward orientation', () => {
       const sel = createSelection()
       sel.selectAll()
 
       expect(sel.domain.value.ranges[0].start).toBe(0)
       expect(sel.domain.value.ranges[0].end).toBe(500)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
     })
   })
 
