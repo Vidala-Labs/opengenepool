@@ -511,6 +511,28 @@ describe('useSelection', () => {
       expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
     })
 
+    it('sets plus orientation when extending cursor to the right', () => {
+      const sel = createSelection()
+      sel.select([new Range(50, 50, Orientation.NONE)])  // cursor at position 50
+
+      sel.extendToPosition(100)
+
+      expect(sel.domain.value.ranges[0].start).toBe(50)
+      expect(sel.domain.value.ranges[0].end).toBe(100)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+    })
+
+    it('sets minus orientation when extending cursor to the left', () => {
+      const sel = createSelection()
+      sel.select([new Range(50, 50, Orientation.NONE)])  // cursor at position 50
+
+      sel.extendToPosition(20)
+
+      expect(sel.domain.value.ranges[0].start).toBe(20)
+      expect(sel.domain.value.ranges[0].end).toBe(50)
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+    })
+
     it('extends leftmost range when clicking before all ranges', () => {
       const sel = createSelection()
       sel.select([new Range(30, 50), new Range(70, 90)])

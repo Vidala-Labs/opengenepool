@@ -524,15 +524,26 @@ export function useSelection(editorState, graphics, eventBus) {
 
     // Extend in a direction (linear mode, or circular with single range)
     if (!circular || ranges.length === 1) {
+      const range = ranges.length === 1 ? ranges[0] : null
+      const isCursor = range && range.start === range.end
+
       // Case 1: pos is before all ranges - extend leftmost
       if (pos < leftmost.start) {
         ranges[leftmost.index].start = pos
+        // Set minus orientation if extending a cursor to the left
+        if (isCursor) {
+          ranges[leftmost.index].orientation = Orientation.MINUS
+        }
         return true
       }
 
       // Case 2: pos is after all ranges - extend rightmost
       if (pos > rightmost.end) {
         ranges[rightmost.index].end = pos
+        // Set plus orientation if extending a cursor to the right
+        if (isCursor) {
+          ranges[rightmost.index].orientation = Orientation.PLUS
+        }
         return true
       }
     }
