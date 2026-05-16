@@ -3207,3 +3207,138 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
     expect(ann.caption).toBe('AAC(5..7)GAT [GFP-K2R,H3Y]')
   })
 })
+
+describe('AlignmentEditor Selection with non-zero alignment start', () => {
+  beforeEach(() => {
+    localStorage.removeItem(STORAGE_KEY)
+  })
+
+  it('selection on target row returns original coordinates when targetStart > 0', async () => {
+    // Target has leading unaligned bases - alignment starts at position 5
+    // Target: NNNNNGATCGATCG (14 bases, alignment at 5..14)
+    // Query:  GATCGATCG (9 bases, full alignment)
+    // The align() function should produce targetStart=5
+    const targetDoc = createDoc('NNNNNGATCGATCG')
+    const queryDoc = createDoc('GATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment has non-zero targetStart
+    expect(wrapper.vm.alignmentResult.targetStart).toBe(5)
+
+    // Simulate selection on target row (positions 5-8 in original coordinates)
+    // This is what SequenceLayer would produce when clicking on target row
+    wrapper.vm.selection.select([new Range(5, 8)])
+    wrapper.vm.selection.source.value = 'target'
+    await wrapper.vm.$nextTick()
+
+    // Selection status should show original coordinates (GenBank 1-indexed)
+    // Range 5..8 (0-indexed) = 6..8 (1-indexed GenBank)
+    expect(wrapper.vm.selectionStatusText).toContain('6..8')
+  })
+
+  it('selection on query row returns original coordinates when queryStart > 0', async () => {
+    // Query has leading unaligned bases - alignment starts at position 5
+    // Target: GATCGATCG (9 bases, full alignment)
+    // Query:  NNNNNGATCGATCG (14 bases, alignment at 5..14)
+    const targetDoc = createDoc('GATCGATCG')
+    const queryDoc = createDoc('NNNNNGATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment has non-zero queryStart
+    expect(wrapper.vm.alignmentResult.queryStart).toBe(5)
+
+    // Select positions on query (5-8 original)
+    wrapper.vm.selection.select([new Range(5, 8)])
+    wrapper.vm.selection.source.value = 'query'
+    await wrapper.vm.$nextTick()
+
+    // Selection status should show original coordinates (GenBank 1-indexed)
+    expect(wrapper.vm.selectionStatusText).toContain('6..8')
+  })
+
+  it('position maps correctly reflect non-zero start offsets', async () => {
+    // Test that position maps are built correctly with offsets
+    // Target: NNNNNGATCGATCG (14 bases)
+    // Query:  GATCGATCG (9 bases)
+    // Alignment should be: GATCGATCG vs GATCGATCG (at target positions 5-13)
+    const targetDoc = createDoc('NNNNNGATCGATCG')
+    const queryDoc = createDoc('GATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Check target position map - should start at position 5
+    // Aligned position 0 should map to original position 5
+    const targetPosMap = wrapper.vm.targetPositionMap
+    expect(targetPosMap[0]).toBe(5)
+    expect(targetPosMap[1]).toBe(6)
+    expect(targetPosMap[8]).toBe(13)
+
+    // Check query position map - should start at 0 (full alignment)
+    const queryPosMap = wrapper.vm.queryPositionMap
+    expect(queryPosMap[0]).toBe(0)
+    expect(queryPosMap[8]).toBe(8)
+  })
+
+  it('handleSelectionChange does not double-convert original coordinates', async () => {
+    // This tests the bug: when SequenceLayer sends original coordinates,
+    // handleSelectionChange should NOT try to convert them again.
+    //
+    // Bug scenario:
+    // - Target: NNNNNGATCGATCG (14 bases), alignment starts at position 5
+    // - User clicks on aligned position 0-3 (the first 3 bases of aligned region)
+    // - SequenceLayer converts to original positions 5-8 using positionMap
+    // - SequenceLayer sets selection.domain to (5, 8) and emits 'select'
+    // - handleSelectionChange receives the event
+    // - BUG: handleSelectionChange looks up alignedToOrigMap[5] and alignedToOrigMap[8]
+    // - alignedToOrigMap maps aligned→original, so position 5 in aligned = position 10 in original
+    // - Selection gets corrupted to (10, 13) instead of staying at (5, 8)
+    const targetDoc = createDoc('NNNNNGATCGATCG')
+    const queryDoc = createDoc('GATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    // Verify alignment setup
+    expect(wrapper.vm.alignmentResult.targetStart).toBe(5)
+
+    // Simulate what SequenceLayer does internally:
+    // 1. User clicks on aligned positions 0-3 (first 3 visible bases)
+    // 2. SequenceLayer's getPositionFromEvent converts to original positions 5-8
+    // 3. SequenceLayer calls selection.startSelection/updateSelection/endSelection
+    // 4. selection.domain.value now has original positions (5, 8)
+    wrapper.vm.selection.startSelection(5, false, 'target')
+    wrapper.vm.selection.updateSelection(8)
+    wrapper.vm.selection.endSelection()
+    await wrapper.vm.$nextTick()
+
+    // At this point, selection.domain has original coords (5, 8)
+    expect(wrapper.vm.selection.domain.value.ranges[0].start).toBe(5)
+    expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(8)
+
+    // Now simulate SequenceLayer emitting 'select' event which triggers handleSelectionChange
+    // Find the target SequenceLayer and emit from it
+    const targetSeqLayer = wrapper.vm.targetSequenceLayerRef
+    targetSeqLayer.$emit('select', { ranges: wrapper.vm.selection.domain.value.ranges })
+    await wrapper.vm.$nextTick()
+
+    // BUG CHECK: After handleSelectionChange, the coordinates should still be (5, 8)
+    // But with the bug, they get converted to (10, 13) because handleSelectionChange
+    // treats them as aligned positions and converts using alignedToOrigMap
+    const domain = wrapper.vm.selection.domain.value
+    expect(domain.ranges[0].start).toBe(5)  // Will fail with bug: gets 10
+    expect(domain.ranges[0].end).toBe(8)    // Will fail with bug: gets 13
+  })
+})

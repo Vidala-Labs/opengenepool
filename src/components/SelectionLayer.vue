@@ -56,6 +56,8 @@ const injectedGetAlignmentLineY = inject('getAlignmentLineY', null)
 const injectedAlignmentLines = inject('alignmentLines', null)
 const injectedLineAnnotationHeights = inject('lineAnnotationHeights', null)
 const injectedAlignmentTopPadding = inject('alignmentTopPadding', 30)
+// Position map for alignment mode: aligned position -> original position
+const injectedPositionMap = inject('positionMap', null)
 
 // Handle drag state
 const draggedHandle = ref(null) // { rangeIndex, type: 'start'|'end' }
@@ -704,7 +706,38 @@ function handleDragMove(event) {
   // Convert to sequence position (use alignment-aware helper for Y)
   const lineIndex = getLineIndexFromYForSelection(y)
   const linePos = graphics.pixelToLinePosition(x)
-  let pos = editorState.lineToPosition(lineIndex, linePos)
+  let pos
+
+  // In alignment mode, use positionMap to convert aligned position to original
+  // This matches SequenceLayer's behavior, ensuring consistent coordinates
+  if (props.alignmentMode && injectedPositionMap?.value) {
+    const alignedPos = editorState.lineToPosition(lineIndex, linePos)
+    const map = injectedPositionMap.value
+    const clampedPos = Math.max(0, Math.min(alignedPos, map.length - 1))
+    pos = map[clampedPos]
+
+    // Handle gaps - find nearest non-gap position
+    if (pos === null || pos === undefined) {
+      // Search backwards for non-gap
+      for (let i = clampedPos - 1; i >= 0; i--) {
+        if (map[i] !== null && map[i] !== undefined) {
+          pos = map[i] + 1
+          break
+        }
+      }
+      // If still null, search forwards
+      if (pos === null || pos === undefined) {
+        for (let i = clampedPos + 1; i < map.length; i++) {
+          if (map[i] !== null && map[i] !== undefined) {
+            pos = map[i]
+            break
+          }
+        }
+      }
+    }
+  } else {
+    pos = editorState.lineToPosition(lineIndex, linePos)
+  }
 
   // Clamp to limits
   pos = Math.max(dragLimits.value.low, Math.min(pos, dragLimits.value.high))

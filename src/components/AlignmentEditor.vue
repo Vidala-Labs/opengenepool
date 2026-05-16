@@ -951,6 +951,15 @@ const isAlignmentMode = computed(() => true)  // Always true for this component
 provide('isAlignmentMode', isAlignmentMode)
 provide('alignmentLines', alignmentLines)
 
+// Active position map based on selection source - for SelectionLayer to convert aligned to original
+const activePositionMap = computed(() => {
+  if (!hasAlignment.value) return null
+  return selection.source.value === 'query'
+    ? queryPositionMap.value
+    : targetPositionMap.value
+})
+provide('positionMap', activePositionMap)
+
 // Layout constants for alignment view
 const TOP_PADDING = 30  // Space at top of SVG (similar to SequenceEditor's vmargin + tooltipMargin)
 const ANNOTATION_HEIGHT = 18  // Height of a single annotation bar
@@ -1121,24 +1130,8 @@ const extensionAPI = {
 
   // Actions
   setSelection: (spec) => {
+    // Extensions pass original coordinates directly - no conversion needed
     selection.select(spec instanceof Span ? spec : new Span(spec))
-    // Convert if in alignment mode (same logic as handleSelectionChange)
-    if (hasAlignment.value && selection.domain.value) {
-      const alignedToOrigMap = selection.source.value === 'query'
-        ? queryAlignedToOriginal.value
-        : targetAlignedToOriginal.value
-      if (alignedToOrigMap) {
-        for (const range of selection.domain.value.ranges) {
-          const origStart = alignedToOrigMap[range.start]
-          const origEnd = alignedToOrigMap[range.end]
-          if (origStart !== undefined && origEnd !== undefined) {
-            range.start = origStart
-            range.end = origEnd
-          }
-        }
-        selection.domain.value = selection.domain.value
-      }
-    }
   },
   clearSelection: () => selection.unselect(),
   scrollToPosition: () => {}, // Not implemented for alignment view
@@ -1658,34 +1651,9 @@ function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
 }
 
 // Handle selection change events
-// In alignment mode, convert selection from aligned to original coordinates
-// Both SelectionLayer and SequenceLayer produce aligned coords from mouse events
+// Both SequenceLayer and SelectionLayer now send original coordinates directly
+// (they convert from aligned to original using positionMap internally)
 function handleSelectionChange(data) {
-  if (hasAlignment.value && selection.domain.value) {
-    const alignedToOrigMap = selection.source.value === 'query'
-      ? queryAlignedToOriginal.value
-      : targetAlignedToOriginal.value
-
-    if (alignedToOrigMap) {
-      let anyChanged = false
-      for (const range of selection.domain.value.ranges) {
-        const origStart = alignedToOrigMap[range.start]
-        const origEnd = alignedToOrigMap[range.end]
-
-        // Only update if both positions map (gaps return undefined)
-        if (origStart !== undefined && origEnd !== undefined) {
-          range.start = origStart
-          range.end = origEnd
-          anyChanged = true
-        }
-      }
-      // Trigger reactivity if anything changed
-      if (anyChanged) {
-        selection.domain.value = selection.domain.value
-      }
-    }
-  }
-
   emit('select', data)
 }
 
