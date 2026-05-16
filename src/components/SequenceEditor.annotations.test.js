@@ -1220,8 +1220,8 @@ describe('SequenceEditor annotations', () => {
         // Modal should be open
         const annotationModal = wrapper.findComponent({ name: 'AnnotationModal' })
         expect(annotationModal.props('open')).toBe(true)
-        // Span should be blank (empty string or default value)
-        expect(annotationModal.props('span')).toBe('')
+        // Span should be an empty Span object
+        expect(annotationModal.props('span').ranges).toHaveLength(0)
         // No annotation should be passed (create mode)
         expect(annotationModal.props('annotation')).toBeNull()
       })

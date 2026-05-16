@@ -1242,7 +1242,7 @@ const contextMenuItems = ref([])
 
 // Annotation modal state
 const annotationModalOpen = ref(false)
-const annotationModalSpan = ref('0..0')
+const annotationModalSpan = ref(new Span())
 const editingAnnotation = ref(null)  // null = create mode, annotation object = edit mode
 const annotationModalMode = ref('target')  // Track which document to add annotation to
 
@@ -1510,12 +1510,11 @@ function openAnnotationModal() {
 
   if (domain && domain.ranges.length > 0 && domain.ranges[0].start !== domain.ranges[0].end) {
     // Selection is already in original coordinates (converted in handleSelectionChange)
-    const spanStr = domain.ranges
-      .map(r => new Range(r.start, r.end, r.orientation).toFencedString())
-      .join(' + ')
-    annotationModalSpan.value = spanStr || ''
+    annotationModalSpan.value = new Span(
+      domain.ranges.map(r => new Range(r.start, r.end, r.orientation))
+    )
   } else {
-    annotationModalSpan.value = ''
+    annotationModalSpan.value = new Span()
   }
   editingAnnotation.value = null
   annotationModalOpen.value = true
@@ -1531,8 +1530,7 @@ function openAnnotationModalForEdit(annotation, mode = 'target') {
   annotationModalMode.value = mode
   // In alignment mode, use the original annotation's span (not the aligned coordinates)
   const originalAnn = annotation.attributes?._originalAnnotation || annotation
-  const spanStr = originalAnn.span?.toJSON?.() || '0..0'
-  annotationModalSpan.value = spanStr
+  annotationModalSpan.value = originalAnn.span || new Span()
   annotationModalOpen.value = true
 }
 

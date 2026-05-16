@@ -9,8 +9,8 @@ const props = defineProps({
     default: false
   },
   span: {
-    type: String,
-    default: '0..0'
+    type: Span,
+    default: () => new Span()
   },
   sequenceLength: {
     type: Number,
@@ -59,43 +59,18 @@ const attributes = ref({})
 const visibleFields = ref([])
 const customFieldName = ref('')
 
-// Parse span string to extract ranges with orientation and indefinite flags
-// This is a UI boundary - parses span strings from toJSON() format
-function parseSpan(spanStr) {
-  // Split on " + " for multi-range spans
-  const parts = spanStr.split(/\s*\+\s*/)
-  return parts.map(part => {
-    try {
-      const trimmed = part.trim()
-      let orientation = Orientation.PLUS
-      let inner = trimmed
-
-      if (trimmed.startsWith('(') && trimmed.endsWith(')')) {
-        orientation = Orientation.MINUS
-        inner = trimmed.slice(1, -1)
-      } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        orientation = Orientation.NONE
-        inner = trimmed.slice(1, -1)
-      }
-
-      const startIndefinite = inner.startsWith('<')
-      const endIndefinite = inner.includes('..>') || (inner.endsWith('>') && !inner.includes('..'))
-      const cleaned = inner.replace(/[<>]/g, '')
-      const rangeParts = cleaned.split('..')
-      const start = parseInt(rangeParts[0], 10)
-      const end = rangeParts[1] !== undefined ? parseInt(rangeParts[1], 10) : start
-
-      return {
-        start: start + 1,  // Convert fenced to GenBank (1-based)
-        end: end,
-        strand: orientationToStrand(orientation),
-        startIndefinite,
-        endIndefinite
-      }
-    } catch {
-      return { start: 1, end: 1, strand: 'forward', startIndefinite: false, endIndefinite: false }
-    }
-  })
+// Convert Span object to form-friendly range array
+function spanToFormRanges(span) {
+  if (!span || !span.ranges || span.ranges.length === 0) {
+    return [{ start: 1, end: 1, strand: 'forward', startIndefinite: false, endIndefinite: false }]
+  }
+  return span.ranges.map(range => ({
+    start: range.start + 1,  // Convert fenced to GenBank (1-based)
+    end: range.end,
+    strand: orientationToStrand(range.orientation),
+    startIndefinite: range.startIndefinite,
+    endIndefinite: range.endIndefinite
+  }))
 }
 
 function orientationToStrand(orientation) {
@@ -121,16 +96,15 @@ watch(() => props.open, (isOpen) => {
       // Edit mode - pre-fill from existing annotation
       caption.value = props.annotation.caption || ''
       annotationType.value = props.annotation.type || ''
-      // Parse span from the existing annotation object
-      const spanStr = props.annotation.span?.toJSON?.() || props.span
-      ranges.value = parseSpan(spanStr)
+      // Get ranges from existing annotation span
+      ranges.value = spanToFormRanges(props.annotation.span || props.span)
       // Pre-fill attributes (filter underscore-prefixed keys from display)
       const attrs = props.annotation.attributes || {}
       attributes.value = { ...attrs }
       visibleFields.value = Object.keys(attrs).filter(key => !key.startsWith('_'))
     } else {
       // Create mode - use span prop and reset fields
-      ranges.value = parseSpan(props.span)
+      ranges.value = spanToFormRanges(props.span)
       caption.value = ''
       annotationType.value = ''
       attributes.value = {}

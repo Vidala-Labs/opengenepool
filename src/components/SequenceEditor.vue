@@ -211,7 +211,7 @@ const touchingAnnotations = computed(() => {
 
 // Annotation modal state
 const annotationModalOpen = ref(false)
-const annotationModalSpan = ref('0..0')
+const annotationModalSpan = ref(new Span())
 const editingAnnotation = ref(null)  // null = create mode, annotation object = edit mode
 
 // Extend modal state
@@ -620,14 +620,13 @@ function openAnnotationModal() {
                            domain.ranges.every(r => r.start !== r.end)
 
   if (hasValidSelection) {
-    // Build a fenced span string from all selected ranges
-    const spanStr = domain.ranges
-      .map(r => new Range(r.start, r.end, r.orientation).toFencedString())
-      .join(' + ')
-    annotationModalSpan.value = spanStr
+    // Build a Span from all selected ranges
+    annotationModalSpan.value = new Span(
+      domain.ranges.map(r => new Range(r.start, r.end, r.orientation))
+    )
   } else {
     // No selection or zero-length selection - open with blank fields
-    annotationModalSpan.value = ''
+    annotationModalSpan.value = new Span()
   }
   annotationModalOpen.value = true
 }
@@ -639,9 +638,8 @@ function closeAnnotationModal() {
 
 function openAnnotationModalForEdit(annotation) {
   editingAnnotation.value = annotation
-  // Set span for display in the modal
-  const spanStr = annotation.span?.toJSON?.() || '0..0'
-  annotationModalSpan.value = spanStr
+  // Pass the span directly
+  annotationModalSpan.value = annotation.span || new Span()
   annotationModalOpen.value = true
 }
 

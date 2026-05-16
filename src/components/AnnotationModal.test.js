@@ -1,7 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import AnnotationModal from './AnnotationModal.vue'
-import { Span } from '../utils/dna.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
+import { ezSpan } from '../../test/span-helpers.js'
 
 describe('AnnotationModal', () => {
   describe('visibility', () => {
@@ -14,7 +15,7 @@ describe('AnnotationModal', () => {
 
     it('is visible when open is true', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.modal-overlay').exists()).toBe(true)
     })
@@ -23,14 +24,14 @@ describe('AnnotationModal', () => {
   describe('form fields', () => {
     it('shows caption input', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('#annotation-caption').exists()).toBe(true)
     })
 
     it('shows type combo input (dropdown + text entry)', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       // Should be an input with datalist for combo behavior
       expect(wrapper.find('#annotation-type').exists()).toBe(true)
@@ -41,7 +42,7 @@ describe('AnnotationModal', () => {
   describe('type combo control', () => {
     it('has standard annotation types in datalist', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       const options = wrapper.findAll('#annotation-type-list option')
       const values = options.map(o => o.element.value)
@@ -55,7 +56,7 @@ describe('AnnotationModal', () => {
 
     it('allows typing custom type directly', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-type').setValue('my_custom_type')
@@ -67,28 +68,28 @@ describe('AnnotationModal', () => {
   describe('ranges section', () => {
     it('shows ranges section', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.ranges-section').exists()).toBe(true)
     })
 
     it('shows "Range" label for single range', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.ranges-section label').text()).toBe('Range')
     })
 
     it('shows "Ranges" label for multiple ranges', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(0, 10), new Range(20, 30)]) }
       })
       expect(wrapper.find('.ranges-section label').text()).toBe('Ranges')
     })
 
     it('shows one range row for single-range span', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '5..15' }
+        props: { open: true, span: ezSpan(5, 15) }
       })
       const rows = wrapper.findAll('.range-row')
       expect(rows.length).toBe(1)
@@ -96,7 +97,7 @@ describe('AnnotationModal', () => {
 
     it('shows multiple range rows for multi-range span', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '5..15 + 20..30' }
+        props: { open: true, span: new Span([new Range(5, 15), new Range(20, 30)]) }
       })
       const rows = wrapper.findAll('.range-row')
       expect(rows.length).toBe(2)
@@ -104,14 +105,14 @@ describe('AnnotationModal', () => {
 
     it('has add range button', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.btn-add-range').exists()).toBe(true)
     })
 
     it('adds new range when + button clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.findAll('.range-row').length).toBe(1)
 
@@ -122,7 +123,7 @@ describe('AnnotationModal', () => {
 
     it('new range inherits strand from last range', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '(0..10)' } // reverse strand
+        props: { open: true, span: ezSpan(0, 10, Orientation.MINUS) } // reverse strand
       })
 
       await wrapper.find('.btn-add-range').trigger('click')
@@ -133,7 +134,7 @@ describe('AnnotationModal', () => {
 
     it('does not show range controls when only one range', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.btn-remove-range').exists()).toBe(false)
       expect(wrapper.find('.btn-move-up').exists()).toBe(false)
@@ -142,7 +143,7 @@ describe('AnnotationModal', () => {
 
     it('shows trash button for each range when multiple ranges', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(0, 10), new Range(20, 30)]) }
       })
       const trashButtons = wrapper.findAll('.btn-remove-range')
       expect(trashButtons.length).toBe(2)
@@ -150,7 +151,7 @@ describe('AnnotationModal', () => {
 
     it('removes range when trash clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(0, 10), new Range(20, 30)]) }
       })
       expect(wrapper.findAll('.range-row').length).toBe(2)
 
@@ -163,7 +164,7 @@ describe('AnnotationModal', () => {
 
     it('shows up/down buttons for ranges when multiple ranges', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(0, 10), new Range(20, 30)]) }
       })
       // First range: no up, has down
       const firstRow = wrapper.findAll('.range-row')[0]
@@ -178,7 +179,7 @@ describe('AnnotationModal', () => {
 
     it('moves range up when up button clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(0, 10), new Range(20, 30)]) }
       })
 
       // Click up on second range
@@ -191,7 +192,7 @@ describe('AnnotationModal', () => {
 
     it('moves range down when down button clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(0, 10), new Range(20, 30)]) }
       })
 
       // Click down on first range
@@ -204,7 +205,7 @@ describe('AnnotationModal', () => {
 
     it('each range row has start, end, and strand controls', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       const row = wrapper.find('.range-row')
 
@@ -215,7 +216,7 @@ describe('AnnotationModal', () => {
 
     it('pre-fills range values from span prop', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '100..200' }
+        props: { open: true, span: ezSpan(100, 200) }
       })
       // Start is displayed in GenBank (1-based): fenced 100 → GenBank 101
       // End stays the same (fenced end = GenBank end due to half-open vs closed intervals)
@@ -225,14 +226,14 @@ describe('AnnotationModal', () => {
 
     it('sets max attribute on range inputs from sequenceLength prop', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10', sequenceLength: 500 }
+        props: { open: true, span: ezSpan(0, 10), sequenceLength: 500 }
       })
       expect(wrapper.find('.range-end').element.max).toBe('500')
     })
 
     it('sets end min to GenBank start', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '50..100' }
+        props: { open: true, span: ezSpan(50, 100) }
       })
       // GenBank start is 51 (fenced 50 + 1), min for end is GenBank start
       expect(wrapper.find('.range-end').element.min).toBe('51')
@@ -240,7 +241,7 @@ describe('AnnotationModal', () => {
 
     it('sets start max to end', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '50..100' }
+        props: { open: true, span: ezSpan(50, 100) }
       })
       // Max for GenBank start equals the fenced end (since GenBank start can equal fenced end for 1-base ranges)
       expect(wrapper.find('.range-start').element.max).toBe('100')
@@ -248,7 +249,7 @@ describe('AnnotationModal', () => {
 
     it('strand dropdown has Forward, Reverse, None options', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       const options = wrapper.findAll('.range-strand option')
       const values = options.map(o => o.element.value)
@@ -260,21 +261,21 @@ describe('AnnotationModal', () => {
 
     it('pre-fills forward strand for plain span', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.range-strand').element.value).toBe('forward')
     })
 
     it('pre-fills reverse strand from parentheses span', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '(0..10)' }
+        props: { open: true, span: ezSpan(0, 10, Orientation.MINUS) }
       })
       expect(wrapper.find('.range-strand').element.value).toBe('reverse')
     })
 
     it('pre-fills none strand from bracket span', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '[0..10]' }
+        props: { open: true, span: new Span([new Range(0, 10, Orientation.NONE)]) }
       })
       expect(wrapper.find('.range-strand').element.value).toBe('none')
     })
@@ -283,7 +284,7 @@ describe('AnnotationModal', () => {
   describe('indefinite locations', () => {
     it('shows indefinite checkboxes for each range', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       const checkboxes = wrapper.findAll('.indefinite-checkbox')
       expect(checkboxes.length).toBe(2) // start and end
@@ -291,7 +292,7 @@ describe('AnnotationModal', () => {
 
     it('indefinite checkboxes are unchecked by default', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
       expect(checkboxes[0].element.checked).toBe(false)
@@ -300,7 +301,7 @@ describe('AnnotationModal', () => {
 
     it('pre-fills start indefinite from span with < marker', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '<0..10' }
+        props: { open: true, span: ezSpan(0, 10, Orientation.PLUS, true, false) }
       })
       const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
       expect(checkboxes[0].element.checked).toBe(true)
@@ -309,7 +310,7 @@ describe('AnnotationModal', () => {
 
     it('pre-fills end indefinite from span with > marker', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..>10' }
+        props: { open: true, span: ezSpan(0, 10, Orientation.PLUS, false, true) }
       })
       const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
       expect(checkboxes[0].element.checked).toBe(false)
@@ -318,7 +319,7 @@ describe('AnnotationModal', () => {
 
     it('pre-fills both indefinite from span with both markers', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '<0..>10' }
+        props: { open: true, span: ezSpan(0, 10, Orientation.PLUS, true, true) }
       })
       const checkboxes = wrapper.findAll('.indefinite-checkbox input[type="checkbox"]')
       expect(checkboxes[0].element.checked).toBe(true)
@@ -327,7 +328,7 @@ describe('AnnotationModal', () => {
 
     it('emits span with < marker for start indefinite', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Test')
@@ -345,7 +346,7 @@ describe('AnnotationModal', () => {
 
     it('emits span with > marker for end indefinite', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Test')
@@ -363,7 +364,7 @@ describe('AnnotationModal', () => {
 
     it('emits span with both markers for both indefinite', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Test')
@@ -382,7 +383,7 @@ describe('AnnotationModal', () => {
 
     it('works with reverse strand and indefinite', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '(<0..>10)' }
+        props: { open: true, span: ezSpan(0, 10, Orientation.MINUS, true, true) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Test')
@@ -395,7 +396,7 @@ describe('AnnotationModal', () => {
 
     it('works with multi-range and indefinite', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '<0..10 + 20..>30' }
+        props: { open: true, span: new Span([new Range(0, 10, Orientation.PLUS, true, false), new Range(20, 30, Orientation.PLUS, false, true)]) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Test')
@@ -408,7 +409,7 @@ describe('AnnotationModal', () => {
 
     it('newly added range has indefinite unchecked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '<0..>10' }
+        props: { open: true, span: ezSpan(0, 10, Orientation.PLUS, true, true) }
       })
 
       await wrapper.find('.btn-add-range').trigger('click')
@@ -425,14 +426,14 @@ describe('AnnotationModal', () => {
   describe('optional fields', () => {
     it('shows add field dropdown', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.add-field-select').exists()).toBe(true)
     })
 
     it('adds optional field when selected from dropdown', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.add-field-select').setValue('gene')
@@ -442,7 +443,7 @@ describe('AnnotationModal', () => {
 
     it('removes optional field when trash clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.add-field-select').setValue('product')
@@ -455,14 +456,14 @@ describe('AnnotationModal', () => {
 
     it('shows custom qualifier input', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.custom-field-input').exists()).toBe(true)
     })
 
     it('shows dropdown when custom input is empty', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       expect(wrapper.find('.add-field-select').exists()).toBe(true)
@@ -471,7 +472,7 @@ describe('AnnotationModal', () => {
 
     it('shows button when custom input has text', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.custom-field-input').setValue('my_qualifier')
@@ -483,7 +484,7 @@ describe('AnnotationModal', () => {
 
     it('adds custom qualifier when button clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.custom-field-input').setValue('my_qualifier')
@@ -494,7 +495,7 @@ describe('AnnotationModal', () => {
 
     it('clears custom qualifier input after adding', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.custom-field-input').setValue('my_qualifier')
@@ -505,7 +506,7 @@ describe('AnnotationModal', () => {
 
     it('includes custom qualifier in emitted attributes', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       // Fill required fields
@@ -537,7 +538,7 @@ describe('AnnotationModal', () => {
 
     it('does not show add button when custom input is empty', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       // With empty input, button should not exist (dropdown shows instead)
@@ -549,14 +550,14 @@ describe('AnnotationModal', () => {
   describe('form validation', () => {
     it('Create button is disabled when caption is empty', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
       expect(wrapper.find('.btn-create').element.disabled).toBe(true)
     })
 
     it('Create button is disabled when type is empty', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -567,7 +568,7 @@ describe('AnnotationModal', () => {
 
     it('Create button is enabled when caption and type are filled', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -578,7 +579,7 @@ describe('AnnotationModal', () => {
 
     it('Create button works with custom type', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -589,7 +590,7 @@ describe('AnnotationModal', () => {
 
     it('Create button is disabled when any range is incomplete', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -603,7 +604,7 @@ describe('AnnotationModal', () => {
 
     it('Create button is enabled when all ranges are complete', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -621,7 +622,7 @@ describe('AnnotationModal', () => {
 
     it('Create button is disabled when ranges overlap', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..20' }
+        props: { open: true, span: ezSpan(0, 20) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -639,7 +640,7 @@ describe('AnnotationModal', () => {
 
     it('shows overlap error on second overlapping range', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..20' }
+        props: { open: true, span: ezSpan(0, 20) }
       })
 
       // Add overlapping range
@@ -658,7 +659,7 @@ describe('AnnotationModal', () => {
 
     it('no overlap error when ranges do not overlap', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       // Add non-overlapping range
@@ -673,7 +674,7 @@ describe('AnnotationModal', () => {
 
     it('adjacent ranges do not count as overlapping', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -694,7 +695,7 @@ describe('AnnotationModal', () => {
   describe('create action', () => {
     it('emits create event with annotation data including span object', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '5..15' }
+        props: { open: true, span: ezSpan(5, 15) }
       })
 
       await wrapper.find('#annotation-caption').setValue('GFP')
@@ -711,7 +712,7 @@ describe('AnnotationModal', () => {
 
     it('emits span with parentheses for reverse strand', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Promoter')
@@ -725,7 +726,7 @@ describe('AnnotationModal', () => {
 
     it('emits span with brackets for unoriented', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Feature')
@@ -739,7 +740,7 @@ describe('AnnotationModal', () => {
 
     it('updates span when range inputs are changed', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       // Input is GenBank (1-based): 21 converts to fenced 20
@@ -756,7 +757,7 @@ describe('AnnotationModal', () => {
 
     it('builds multi-range span correctly', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '5..10 + 20..30' }
+        props: { open: true, span: new Span([new Range(5, 10), new Range(20, 30)]) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Split Gene')
@@ -769,7 +770,7 @@ describe('AnnotationModal', () => {
 
     it('includes optional attributes when filled', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('lacZ')
@@ -784,7 +785,7 @@ describe('AnnotationModal', () => {
 
     it('emits close after create', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('#annotation-caption').setValue('Test')
@@ -798,7 +799,7 @@ describe('AnnotationModal', () => {
   describe('close behavior', () => {
     it('emits close when X clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.modal-close').trigger('click')
@@ -808,7 +809,7 @@ describe('AnnotationModal', () => {
 
     it('emits close when Cancel clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.btn-cancel').trigger('click')
@@ -818,7 +819,7 @@ describe('AnnotationModal', () => {
 
     it('emits close when overlay clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.modal-overlay').trigger('click')
@@ -828,7 +829,7 @@ describe('AnnotationModal', () => {
 
     it('does not close when modal content clicked', async () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10' }
+        props: { open: true, span: ezSpan(0, 10) }
       })
 
       await wrapper.find('.modal-content').trigger('click')
@@ -840,7 +841,7 @@ describe('AnnotationModal', () => {
   describe('readonly mode', () => {
     it('does not render in readonly mode', () => {
       const wrapper = mount(AnnotationModal, {
-        props: { open: true, span: '0..10', readonly: true }
+        props: { open: true, span: ezSpan(0, 10), readonly: true }
       })
 
       // Modal should not render at all in readonly mode
