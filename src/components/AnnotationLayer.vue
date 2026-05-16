@@ -332,8 +332,7 @@ function handleClickForElement(dataset, event) {
   if (selection) {
     if (event.shiftKey && selection.isSelected?.value) {
       // Shift+click: extend selection to include annotation
-      // For now, just select the annotation (extending multi-range is complex)
-      selection.select(span)
+      selection.extendToSpan(span)
     } else if (event.ctrlKey || event.metaKey) {
       // Ctrl/Cmd+click: add annotation span to existing selection
       for (const range of span.ranges) {

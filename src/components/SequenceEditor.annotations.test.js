@@ -6,7 +6,7 @@ import { join } from 'path'
 import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span, Range } from '../utils/dna.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { __resetModuleState as resetAnnotationLayerState } from './AnnotationLayer.vue'
 import { __resetModuleState as resetTranslationLayerState } from './TranslationLayer.vue'
@@ -146,38 +146,244 @@ describe('SequenceEditor annotations', () => {
       expect(selection.domain.value.ranges[0].end).toBe(50)
     })
 
-    it('shift-click on annotation with existing selection extends selection', async () => {
-      const annotation = new Annotation({
-        id: 'ann1',
-        caption: 'GFP',
-        type: 'gene',
-        span: parseSpan('100..150')
-      })
+    describe('shift-click extends selection to annotation', () => {
+      // Helper to set up editor with annotation and selection
+      async function setupShiftClickTest(annotationSpan, selectionRange) {
+        const annotation = new Annotation({
+          id: 'ann1',
+          caption: 'TestGene',
+          type: 'gene',
+          span: parseSpan(annotationSpan)
+        })
 
-      const wrapper = mount(SequenceEditor, {
-        props: {
-          sequence: createDoc('A'.repeat(500), [annotation]),
-          initialZoom: 100
+        const wrapper = mount(SequenceEditor, {
+          props: {
+            sequence: createDoc('A'.repeat(500), [annotation]),
+            initialZoom: 100
+          }
+        })
+        await wrapper.vm.$nextTick()
+
+        const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
+        const selection = selectionLayer.vm.selection
+
+        if (selectionRange) {
+          selection.select([selectionRange])
+          await wrapper.vm.$nextTick()
         }
+
+        return { wrapper, selection, annotation }
+      }
+
+      async function shiftClickAnnotation(wrapper, annotation) {
+        const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
+        layer.vm.$emit('click', { annotation, event: { shiftKey: true }, fragment: {} })
+        await wrapper.vm.$nextTick()
+      }
+
+      describe('forward (PLUS) annotation', () => {
+        it('extends selection on left to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // fwd annotation
+            new Range(10, 50, Orientation.PLUS)  // selection on left
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(10)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+        })
+
+        it('extends selection on right to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // fwd annotation
+            new Range(200, 250, Orientation.PLUS)  // selection on right
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(250)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+        })
+
+        it('extends spanning selection to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // fwd annotation
+            new Range(80, 200, Orientation.PLUS)  // selection spanning annotation
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          // Should still span both (no change needed, already encompasses)
+          expect(selection.domain.value.ranges[0].start).toBe(80)
+          expect(selection.domain.value.ranges[0].end).toBe(200)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+        })
       })
-      await wrapper.vm.$nextTick()
 
-      const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
-      const selection = selectionLayer.vm.selection
+      describe('reverse (MINUS) annotation', () => {
+        it('extends selection on left to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '(100..150)',  // rev annotation
+            new Range(10, 50, Orientation.MINUS)  // selection on left
+          )
 
-      // Create initial selection at 10..50
-      selection.select([new Range(10, 50)])
-      await wrapper.vm.$nextTick()
-      expect(selection.isSelected.value).toBe(true)
+          await shiftClickAnnotation(wrapper, annotation)
 
-      // Shift-click on annotation at 100..150 should extend selection
-      const layer = wrapper.findComponent({ name: 'AnnotationLayer' })
-      layer.vm.$emit('click', { annotation, event: { shiftKey: true }, fragment: {} })
-      await wrapper.vm.$nextTick()
+          expect(selection.domain.value.ranges[0].start).toBe(10)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+        })
 
-      // Selection should now span from 10 to 150
-      expect(selection.domain.value.ranges[0].start).toBe(10)
-      expect(selection.domain.value.ranges[0].end).toBe(150)
+        it('extends selection on right to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '(100..150)',  // rev annotation
+            new Range(200, 250, Orientation.MINUS)  // selection on right
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(250)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+        })
+
+        it('extends spanning selection to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '(100..150)',  // rev annotation
+            new Range(80, 200, Orientation.MINUS)  // selection spanning annotation
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(80)
+          expect(selection.domain.value.ranges[0].end).toBe(200)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+        })
+      })
+
+      describe('undirected (NONE) annotation', () => {
+        it('extends selection on left to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // undirected annotation (PLUS by default, but we test with NONE selection)
+            new Range(10, 50, Orientation.NONE)  // undirected selection on left
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(10)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.NONE)
+        })
+
+        it('extends selection on right to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',
+            new Range(200, 250, Orientation.NONE)  // undirected selection on right
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(250)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.NONE)
+        })
+
+        it('extends spanning selection to include annotation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',
+            new Range(80, 200, Orientation.NONE)  // undirected selection spanning
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(80)
+          expect(selection.domain.value.ranges[0].end).toBe(200)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.NONE)
+        })
+      })
+
+      describe('cursor extends to annotation', () => {
+        it('cursor on left of fwd annotation takes PLUS orientation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // fwd annotation
+            new Range(50, 50, Orientation.NONE)  // cursor on left
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(50)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+        })
+
+        it('cursor on right of fwd annotation takes PLUS orientation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // fwd annotation
+            new Range(200, 200, Orientation.NONE)  // cursor on right
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(200)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+        })
+
+        it('cursor inside fwd annotation takes PLUS orientation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '100..150',  // fwd annotation
+            new Range(125, 125, Orientation.NONE)  // cursor inside
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+        })
+
+        it('cursor on left of rev annotation takes MINUS orientation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '(100..150)',  // rev annotation
+            new Range(50, 50, Orientation.NONE)  // cursor on left
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(50)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+        })
+
+        it('cursor on right of rev annotation takes MINUS orientation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '(100..150)',  // rev annotation
+            new Range(200, 200, Orientation.NONE)  // cursor on right
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(200)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+        })
+
+        it('cursor inside rev annotation takes MINUS orientation', async () => {
+          const { wrapper, selection, annotation } = await setupShiftClickTest(
+            '(100..150)',  // rev annotation
+            new Range(125, 125, Orientation.NONE)  // cursor inside
+          )
+
+          await shiftClickAnnotation(wrapper, annotation)
+
+          expect(selection.domain.value.ranges[0].start).toBe(100)
+          expect(selection.domain.value.ranges[0].end).toBe(150)
+          expect(selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+        })
+      })
     })
 
     it('shift-click on annotation with no selection shows context menu', async () => {

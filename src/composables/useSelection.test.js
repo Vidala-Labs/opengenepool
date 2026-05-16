@@ -750,17 +750,18 @@ describe('useSelection', () => {
       expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
     })
 
-    it('sets minus orientation when extending cursor to annotation on left', () => {
+    it('takes span orientation when extending cursor to annotation on left', () => {
       const sel = createSelection()
       sel.select([new Range(100, 100, Orientation.NONE)])  // cursor
-      const annotationSpan = new Span([new Range(20, 50)])
+      const annotationSpan = new Span([new Range(20, 50)])  // PLUS orientation
 
       const result = sel.extendToSpan(annotationSpan)
 
       expect(result).toBe(true)
       expect(sel.domain.value.ranges[0].start).toBe(20)
       expect(sel.domain.value.ranges[0].end).toBe(100)
-      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+      // Cursor takes span's orientation (PLUS), not position-based
+      expect(sel.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
     })
 
     it('returns false and does nothing for multi-span selection', () => {

@@ -1630,9 +1630,7 @@ function handleAnnotationClick(data) {
     if (event?.shiftKey) {
       // Shift-click: extend selection if one exists, otherwise show context menu
       if (selection.isSelected.value) {
-        const bounds = annotation.span.bounds
-        selection.extendToPosition(bounds.start)
-        selection.extendToPosition(bounds.end)
+        selection.extendToSpan(annotation.span)
       } else {
         // No selection - trigger context menu (Mac-friendly right-click alternative)
         handleAnnotationContextMenu(data)

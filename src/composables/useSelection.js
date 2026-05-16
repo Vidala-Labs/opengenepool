@@ -625,12 +625,8 @@ export function useSelection(editorState, graphics, eventBus) {
     // Determine orientation
     let newOrientation = range.orientation
     if (isCursor) {
-      // For cursor, set orientation based on annotation position
-      if (spanBounds.start >= range.start) {
-        newOrientation = Orientation.PLUS
-      } else {
-        newOrientation = Orientation.MINUS
-      }
+      // For cursor, take orientation from the span being extended to
+      newOrientation = span.orientation
     }
 
     // Update the range
