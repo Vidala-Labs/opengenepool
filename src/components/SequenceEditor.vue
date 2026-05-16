@@ -1673,10 +1673,10 @@ function handleAnnotationHover(data) {
       parts.push(annotation.span.toGenBank())
     }
 
-    // Add attributes (except translation which is too long)
+    // Add attributes (except translation which is too long, and underscore-prefixed internal attrs)
     if (annotation.attributes) {
       const entries = Object.entries(annotation.attributes)
-        .filter(([key]) => key !== 'translation')
+        .filter(([key]) => key !== 'translation' && !key.startsWith('_'))
       if (entries.length > 0) {
         parts.push('')
         for (const [key, value] of entries) {

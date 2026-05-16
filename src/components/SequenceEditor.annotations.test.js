@@ -1971,4 +1971,99 @@ describe('SequenceEditor annotations', () => {
       }
     })
   })
+
+  describe('annotation tooltip', () => {
+    it('suppresses attributes with underscore prefix in tooltip', async () => {
+      const annotation = {
+        id: 'ann1',
+        caption: 'Test Gene',
+        type: 'gene',
+        span: parseSpan('10..50'),
+        attributes: {
+          gene: 'testGene',
+          product: 'Test Product',
+          _internal: 'should not show',
+          _metadata: 'also hidden',
+          note: 'visible note'
+        }
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('A'.repeat(100), [annotation]),
+          initialZoom: 100
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      // Get the AnnotationLayer and emit a hover event
+      const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+      annotationLayer.vm.$emit('hover', {
+        event: { clientX: 100, clientY: 100 },
+        annotation: wrapper.vm.localAnnotations[0],
+        entering: true
+      })
+      await wrapper.vm.$nextTick()
+
+      // Check the tooltip is visible and contains correct content
+      const tooltip = wrapper.find('.annotation-tooltip')
+      expect(tooltip.exists()).toBe(true)
+
+      const tooltipText = tooltip.text()
+
+      // Should contain regular attributes
+      expect(tooltipText).toContain('gene: testGene')
+      expect(tooltipText).toContain('product: Test Product')
+      expect(tooltipText).toContain('note: visible note')
+
+      // Should NOT contain underscore-prefixed attributes
+      expect(tooltipText).not.toContain('_internal')
+      expect(tooltipText).not.toContain('should not show')
+      expect(tooltipText).not.toContain('_metadata')
+      expect(tooltipText).not.toContain('also hidden')
+    })
+
+    it('shows tooltip without attributes section when all attributes are underscore-prefixed', async () => {
+      const annotation = {
+        id: 'ann1',
+        caption: 'Hidden Attrs',
+        type: 'misc_feature',
+        span: parseSpan('10..30'),
+        attributes: {
+          _internal: 'hidden',
+          _cache: 'also hidden'
+        }
+      }
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('A'.repeat(100), [annotation]),
+          initialZoom: 100
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      const annotationLayer = wrapper.findComponent({ name: 'AnnotationLayer' })
+      annotationLayer.vm.$emit('hover', {
+        event: { clientX: 100, clientY: 100 },
+        annotation: wrapper.vm.localAnnotations[0],
+        entering: true
+      })
+      await wrapper.vm.$nextTick()
+
+      const tooltip = wrapper.find('.annotation-tooltip')
+      expect(tooltip.exists()).toBe(true)
+
+      const tooltipText = tooltip.text()
+
+      // Should contain caption and type
+      expect(tooltipText).toContain('Hidden Attrs')
+      expect(tooltipText).toContain('[misc_feature]')
+
+      // Should NOT contain any underscore-prefixed attributes
+      expect(tooltipText).not.toContain('_internal')
+      expect(tooltipText).not.toContain('_cache')
+      expect(tooltipText).not.toContain('hidden')
+    })
+  })
 })
