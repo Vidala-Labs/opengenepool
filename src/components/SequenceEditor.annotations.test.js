@@ -1213,7 +1213,9 @@ describe('SequenceEditor annotations', () => {
 
         expect(mockBackend.annotationUpdate).toHaveBeenCalledTimes(1)
         const call = mockBackend.annotationUpdate.mock.calls[0][0]
-        expect(call.annotationId).toBe('ann1')
+        expect(call.id).toBe('ann1')
+        expect(call.editId).toBeDefined()
+        expect(call.editId.startsWith('update-')).toBe(true)
         expect(call.caption).toBe('Updated')
       })
     })
@@ -1278,7 +1280,9 @@ describe('SequenceEditor annotations', () => {
 
         expect(mockBackend.annotationDeleted).toHaveBeenCalledTimes(1)
         const call = mockBackend.annotationDeleted.mock.calls[0][0]
-        expect(call.annotationId).toBe('ann1')
+        expect(call.id).toBe('ann1')
+        expect(call.editId).toBeDefined()
+        expect(call.editId.startsWith('del-')).toBe(true)
       })
 
       it('does not show delete option in readonly mode', async () => {
@@ -1749,7 +1753,9 @@ describe('SequenceEditor annotations', () => {
 
         expect(mockBackend.annotationUpdate).toHaveBeenCalledTimes(1)
         const call = mockBackend.annotationUpdate.mock.calls[0][0]
-        expect(call.annotationId).toBe('ann1')
+        expect(call.id).toBe('ann1')
+        expect(call.editId).toBeDefined()
+        expect(call.editId.startsWith('update-')).toBe(true)
         expect(call.span.toJSON()).toBe('10..20 + 20..30')
       })
 

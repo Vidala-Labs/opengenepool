@@ -76,8 +76,8 @@ describe('SequenceEditor backend', () => {
       const call = mockBackend.insert.mock.calls[0][0]
       expect(call.position).toBe(4)
       expect(call.text).toBe('GGG')
-      expect(call.id).toBeDefined()
-      expect(typeof call.id).toBe('string')
+      expect(call.editId).toBeDefined()
+      expect(typeof call.editId).toBe('string')
     })
 
     it('calls backend.insert at beginning of sequence', async () => {
@@ -144,8 +144,8 @@ describe('SequenceEditor backend', () => {
       await wrapper.vm.$nextTick()
 
       expect(mockBackend.insert).toHaveBeenCalledTimes(2)
-      const id1 = mockBackend.insert.mock.calls[0][0].id
-      const id2 = mockBackend.insert.mock.calls[1][0].id
+      const id1 = mockBackend.insert.mock.calls[0][0].editId
+      const id2 = mockBackend.insert.mock.calls[1][0].editId
       expect(id1).not.toBe(id2)
     })
 
@@ -205,8 +205,8 @@ describe('SequenceEditor backend', () => {
       const call = mockBackend.delete.mock.calls[0][0]
       expect(call.start).toBe(2)
       expect(call.end).toBe(5)
-      expect(call.id).toBeDefined()
-      expect(typeof call.id).toBe('string')
+      expect(call.editId).toBeDefined()
+      expect(typeof call.editId).toBe('string')
     })
 
     it('calls backend.delete when user deletes selection via Delete key', async () => {
@@ -350,8 +350,8 @@ describe('SequenceEditor backend', () => {
       await confirmDelete(wrapper)
 
       expect(mockBackend.delete).toHaveBeenCalledTimes(2)
-      const id1 = mockBackend.delete.mock.calls[0][0].id
-      const id2 = mockBackend.delete.mock.calls[1][0].id
+      const id1 = mockBackend.delete.mock.calls[0][0].editId
+      const id2 = mockBackend.delete.mock.calls[1][0].editId
       expect(id1).not.toBe(id2)
     })
 
@@ -568,7 +568,7 @@ describe('SequenceEditor backend', () => {
 
       // Access internal pending edits via component internals
       // The edit should be tracked as pending
-      const editId = mockBackend.insert.mock.calls[0][0].id
+      const editId = mockBackend.insert.mock.calls[0][0].editId
       expect(editId).toBeDefined()
     })
   })
@@ -702,7 +702,7 @@ describe('SequenceEditor backend', () => {
       expect(mockBackend.insert).toHaveBeenCalledTimes(3)
 
       // All IDs should be unique
-      const ids = mockBackend.insert.mock.calls.map(c => c[0].id)
+      const ids = mockBackend.insert.mock.calls.map(c => c[0].editId)
       const uniqueIds = new Set(ids)
       expect(uniqueIds.size).toBe(3)
     })
@@ -1038,7 +1038,7 @@ describe('SequenceEditor backend', () => {
       const call = mockBackend.insert.mock.calls[0][0]
       expect(call.position).toBe(10)
       expect(call.text).toBe('GGG')
-      expect(call.id).toBeDefined()
+      expect(call.editId).toBeDefined()
     })
 
     it('should not extend annotation starting at insert position by default', async () => {

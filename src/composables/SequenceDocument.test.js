@@ -341,7 +341,7 @@ describe('SequenceDocument', () => {
       expect(calls[0].type).toBe('insert')
       expect(calls[0].position).toBe(2)
       expect(calls[0].text).toBe('GGG')
-      expect(calls[0].id).toBeDefined()
+      expect(calls[0].editId).toBeDefined()
     })
 
     it('calls backend.delete on delete', () => {
@@ -356,6 +356,7 @@ describe('SequenceDocument', () => {
       expect(calls[0].type).toBe('delete')
       expect(calls[0].start).toBe(2)
       expect(calls[0].end).toBe(5)
+      expect(calls[0].editId).toBeDefined()
     })
 
     it('calls backend.delete and backend.insert on replace', () => {
@@ -388,6 +389,9 @@ describe('SequenceDocument', () => {
       expect(calls[0].caption).toBe('Test')
       expect(calls[0].type).toBe('gene')
       expect(calls[0].id).toBeDefined()
+      // Verify edit id is included for acknowledgment round-trip
+      expect(calls[0].editId).toBeDefined()
+      expect(calls[0].editId.startsWith('create-')).toBe(true)
     })
 
     it('calls backend.annotationUpdate on updateAnnotation', () => {
@@ -404,7 +408,8 @@ describe('SequenceDocument', () => {
 
       expect(calls.length).toBe(1)
       expect(calls[0].id).toBe('ann1')
-      expect(calls[0].annotationId).toBe('ann1')
+      expect(calls[0].editId).toBeDefined()
+      expect(calls[0].editId.startsWith('update-')).toBe(true)
       expect(calls[0].caption).toBe('Updated')
       expect(calls[0].type).toBe('gene')  // type unchanged
     })
@@ -423,10 +428,10 @@ describe('SequenceDocument', () => {
 
       expect(calls.length).toBe(1)
       expect(calls[0].type).toBe('deleted')
-      expect(calls[0].annotationId).toBe('ann1')
+      expect(calls[0].id).toBe('ann1')
       // Verify edit id is included for acknowledgment round-trip
-      expect(calls[0].id).toBeDefined()
-      expect(calls[0].id.startsWith('del-')).toBe(true)
+      expect(calls[0].editId).toBeDefined()
+      expect(calls[0].editId.startsWith('del-')).toBe(true)
     })
   })
 

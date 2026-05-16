@@ -158,7 +158,7 @@ export class SequenceDocument {
     this._adjustAnnotationsForInsert(position, text.length, extendStartIds, extendEndIds)
 
     // 3. Notify backend
-    this._backend?.insert?.({ id: crypto.randomUUID(), position, text })
+    this._backend?.insert?.({ editId: crypto.randomUUID(), position, text })
 
     return text
   }
@@ -188,7 +188,7 @@ export class SequenceDocument {
         this._adjustAnnotationsForReplace(start, end, 0)
 
         // Notify backend
-        this._backend?.delete?.({ id: crypto.randomUUID(), start, end })
+        this._backend?.delete?.({ editId: crypto.randomUUID(), start, end })
       }
     }
 
@@ -272,8 +272,9 @@ export class SequenceDocument {
     const normalized = this._normalizeAnnotations([annotation])[0]
     this._annotations.value = [...this._annotations.value, normalized]
 
-    // Notify backend
-    this._backend?.annotationCreated?.(normalized)
+    // Notify backend (include edit id for acknowledgment round-trip)
+    const editId = `create-${globalThis.crypto?.randomUUID?.() || Date.now()}`
+    this._backend?.annotationCreated?.({ ...normalized, editId })
 
     return normalized.id
   }
@@ -297,8 +298,9 @@ export class SequenceDocument {
     newAnnotations[index] = updated
     this._annotations.value = newAnnotations
 
-    // Notify backend (include annotationId for backend protocol)
-    this._backend?.annotationUpdate?.({ ...updated, annotationId: updated.id })
+    // Notify backend (include edit id for acknowledgment round-trip)
+    const editId = `update-${globalThis.crypto?.randomUUID?.() || Date.now()}`
+    this._backend?.annotationUpdate?.({ ...updated, editId })
 
     return true
   }
@@ -316,7 +318,7 @@ export class SequenceDocument {
 
     // Notify backend (include edit id for acknowledgment round-trip)
     const editId = `del-${globalThis.crypto?.randomUUID?.() || Date.now()}`
-    this._backend?.annotationDeleted?.({ id: editId, annotationId: id })
+    this._backend?.annotationDeleted?.({ editId, id })
 
     return true
   }

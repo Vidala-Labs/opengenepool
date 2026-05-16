@@ -128,19 +128,25 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
             sequence.content.slice(data.end)
           break
 
-        case 'annotationCreated':
-          sequence.annotations = [...sequence.annotations, data.annotation]
+        case 'annotationCreated': {
+          // Extract annotation fields (everything except editId)
+          const { editId: _editId1, ...annotation1 } = data
+          sequence.annotations = [...sequence.annotations, annotation1]
           break
+        }
 
-        case 'annotationUpdate':
+        case 'annotationUpdate': {
+          // Extract annotation fields (everything except editId)
+          const { editId: _editId2, ...annotation2 } = data
           sequence.annotations = sequence.annotations.map((ann) =>
-            ann.id === data.annotation.id ? data.annotation : ann
+            ann.id === annotation2.id ? annotation2 : ann
           )
           break
+        }
 
         case 'annotationDeleted':
           sequence.annotations = sequence.annotations.filter(
-            (ann) => ann.id !== data.annotationId
+            (ann) => ann.id !== data.id
           )
           break
 
