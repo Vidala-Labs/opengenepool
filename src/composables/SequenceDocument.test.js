@@ -424,6 +424,9 @@ describe('SequenceDocument', () => {
       expect(calls.length).toBe(1)
       expect(calls[0].type).toBe('deleted')
       expect(calls[0].annotationId).toBe('ann1')
+      // Verify edit id is included for acknowledgment round-trip
+      expect(calls[0].id).toBeDefined()
+      expect(calls[0].id.startsWith('del-')).toBe(true)
     })
   })
 

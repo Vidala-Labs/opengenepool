@@ -314,8 +314,9 @@ export class SequenceDocument {
 
     this._annotations.value = this._annotations.value.filter(a => a.id !== id)
 
-    // Notify backend
-    this._backend?.annotationDeleted?.({ annotationId: id })
+    // Notify backend (include edit id for acknowledgment round-trip)
+    const editId = `del-${globalThis.crypto?.randomUUID?.() || Date.now()}`
+    this._backend?.annotationDeleted?.({ id: editId, annotationId: id })
 
     return true
   }
