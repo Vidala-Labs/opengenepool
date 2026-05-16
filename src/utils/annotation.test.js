@@ -1,7 +1,6 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect } from 'bun:test'
 import { Annotation, AnnotationFragment, ANNOTATION_COLORS, getAnnotationColor } from './annotation.js'
-import { Span, Range, Orientation } from './dna.js'
 
 /**
  * Annotation tests use FENCED coordinates (0-based, half-open).
@@ -38,7 +37,7 @@ describe('Annotation', () => {
     it('accepts Span objects', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..50')  // Fenced: positions 10-49
+        span: ezSpan(10, 50)  // Fenced: positions 10-49
       })
 
       expect(ann.span.ranges).toHaveLength(1)
@@ -78,7 +77,7 @@ describe('Annotation', () => {
     it('returns plus for forward annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       })
       expect(ann.orientation).toBe(Orientation.PLUS)
     })
@@ -86,7 +85,7 @@ describe('Annotation', () => {
     it('returns minus for complement annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('(10..50)') // parentheses indicate minus strand
+        span: ezSpan(10, 50, Orientation.MINUS) // minus strand
       })
       expect(ann.orientation).toBe(Orientation.MINUS)
     })
@@ -96,7 +95,7 @@ describe('Annotation', () => {
     it('returns total length of annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..50')  // Fenced: 40 bases (positions 10-49)
+        span: ezSpan(10, 50)  // Fenced: 40 bases (positions 10-49)
       })
       expect(ann.length).toBe(40)
     })
@@ -104,7 +103,7 @@ describe('Annotation', () => {
     it('returns combined length for multi-range annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..30 + 40..60')  // Fenced: 20 + 20 = 40 bases
+        span: new Span([new Range(10, 30), new Range(40, 60)])  // Fenced: 20 + 20 = 40 bases
       })
       expect(ann.length).toBe(40)
     })
@@ -124,7 +123,7 @@ describe('Annotation', () => {
     it('returns bounding range', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..30 + 50..70')  // Fenced coordinates
+        span: new Span([new Range(10, 30), new Range(50, 70)])  // Fenced coordinates
       })
       const bounds = ann.bounds
       expect(bounds.start).toBe(10)
@@ -136,7 +135,7 @@ describe('Annotation', () => {
     it('returns true when annotation overlaps range', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('20..40')
+        span: ezSpan(20, 40)
       })
       expect(ann.overlaps(10, 30)).toBe(true)
       expect(ann.overlaps(30, 50)).toBe(true)
@@ -145,7 +144,7 @@ describe('Annotation', () => {
     it('returns false when annotation does not overlap', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('20..40')
+        span: ezSpan(20, 40)
       })
       expect(ann.overlaps(0, 10)).toBe(false)
       expect(ann.overlaps(50, 60)).toBe(false)
@@ -161,7 +160,7 @@ describe('Annotation', () => {
     it('creates single fragment for annotation within one line', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..40')  // Fenced: positions 10-39 on line 0
+        span: ezSpan(10, 40)  // Fenced: positions 10-39 on line 0
       })
       const fragments = ann.toFragments(100)
 
@@ -176,7 +175,7 @@ describe('Annotation', () => {
     it('creates multiple fragments for multi-line annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('80..170')  // Fenced: spans lines 0, 1 at zoom 100
+        span: ezSpan(80, 170)  // Fenced: spans lines 0, 1 at zoom 100
       })
       const fragments = ann.toFragments(100)
 
@@ -200,7 +199,7 @@ describe('Annotation', () => {
     it('creates fragment for each line in long annotation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('50..350')  // Fenced: spans 4 lines at zoom 100
+        span: ezSpan(50, 350)  // Fenced: spans 4 lines at zoom 100
       })
       const fragments = ann.toFragments(100)
 
@@ -220,7 +219,7 @@ describe('Annotation', () => {
     it('handles multi-range annotations', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('10..30 + 60..80')  // Fenced: two separate regions
+        span: new Span([new Range(10, 30), new Range(60, 80)])  // Fenced: two separate regions
       })
       const fragments = ann.toFragments(100)
 
@@ -238,7 +237,7 @@ describe('Annotation', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('100..500')  // Fenced coordinates
+        span: ezSpan(100, 500)  // Fenced coordinates
       })
 
       expect(ann.toString()).toBe('GFP (gene): 100..500')
@@ -251,7 +250,7 @@ describe('AnnotationFragment', () => {
     id: 'ann1',
     caption: 'Test',
     type: 'gene',
-    span: parseSpan('10..50')
+    span: ezSpan(10, 50)
   })
 
   describe('width', () => {
@@ -301,7 +300,7 @@ describe('AnnotationFragment', () => {
     it('shows arrow at start for minus orientation', () => {
       const ann = new Annotation({
         id: 'ann1',
-        span: parseSpan('(10..100)') // parentheses indicate minus strand
+        span: ezSpan(10, 100, Orientation.MINUS) // minus strand
       })
 
       const startFrag = new AnnotationFragment({
@@ -349,7 +348,7 @@ describe('AnnotationFragment', () => {
         id: 'gfp1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       })
 
       const frag = new AnnotationFragment({

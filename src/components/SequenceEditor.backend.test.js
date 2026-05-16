@@ -1,18 +1,13 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Span, Range, Orientation } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  const normalizedAnnotations = annotations.map(annotation => ({
-    ...annotation,
-    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
-  }))
-  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+  return new SequenceDocument({ sequence, annotations, circular, backend })
 }
 
 describe('SequenceEditor backend', () => {
@@ -48,7 +43,7 @@ describe('SequenceEditor backend', () => {
   async function setupInsertAtPosition(wrapper, position) {
     const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
     const selection = selectionLayer.vm.selection
-    selection.select(parseSpan(`${position}..${position}`))
+    selection.select(ezSpan(position, position))
     await wrapper.vm.$nextTick()
 
     const svg = wrapper.find('svg.editor-svg')
@@ -620,7 +615,7 @@ describe('SequenceEditor backend', () => {
     it('calls backend.insert and emits annotations-update', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..50' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 50) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -652,7 +647,7 @@ describe('SequenceEditor backend', () => {
     it('calls backend.insert before annotation shifts it', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '20..40' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(20, 40) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -871,7 +866,7 @@ describe('SequenceEditor backend', () => {
     it('should not alter annotations when annotationMode is preserve', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -909,7 +904,7 @@ describe('SequenceEditor backend', () => {
     it('should alter annotations normally when annotationMode is default', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -948,7 +943,7 @@ describe('SequenceEditor backend', () => {
     it('should collapse annotation when selection contains it and annotationMode is default', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '15..25' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(15, 25) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -983,7 +978,7 @@ describe('SequenceEditor backend', () => {
     it('should keep annotation when selection contains it and annotationMode is preserve', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '15..25' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(15, 25) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1017,7 +1012,7 @@ describe('SequenceEditor backend', () => {
     it('should call backend.insert when inserting at annotation boundary', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1044,7 +1039,7 @@ describe('SequenceEditor backend', () => {
     it('should not extend annotation starting at insert position by default', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1073,7 +1068,7 @@ describe('SequenceEditor backend', () => {
     it('should extend annotation starting at insert position when checked', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1102,7 +1097,7 @@ describe('SequenceEditor backend', () => {
     it('should not extend annotation ending at insert position by default', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1135,7 +1130,7 @@ describe('SequenceEditor backend', () => {
     it('should extend annotation ending at insert position when checked', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1164,8 +1159,8 @@ describe('SequenceEditor backend', () => {
     it('should handle multiple annotations touching same insert position', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..30' },
-        { id: 'ann2', caption: 'Gene2', type: 'gene', span: '30..50' }
+        { id: 'ann1', caption: 'Gene1', type: 'gene', span: ezSpan(10, 30) },
+        { id: 'ann2', caption: 'Gene2', type: 'gene', span: ezSpan(30, 50) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1199,8 +1194,8 @@ describe('SequenceEditor backend', () => {
     it('should handle extending both annotations at same position', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene1', type: 'gene', span: '10..30' },
-        { id: 'ann2', caption: 'Gene2', type: 'gene', span: '30..50' }
+        { id: 'ann1', caption: 'Gene1', type: 'gene', span: ezSpan(10, 30) },
+        { id: 'ann2', caption: 'Gene2', type: 'gene', span: ezSpan(30, 50) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1234,7 +1229,7 @@ describe('SequenceEditor backend', () => {
     it('should not show extend options for replacements', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1268,7 +1263,7 @@ describe('SequenceEditor backend', () => {
     it('should handle multi-range annotations with one range touching', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..20 + 30..40' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(30, 40)]) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1298,7 +1293,7 @@ describe('SequenceEditor backend', () => {
     it('should still emit edit event with insert type', async () => {
       const mockBackend = createMockBackend()
       const annotations = [
-        { id: 'ann1', caption: 'Gene', type: 'gene', span: '10..30' }
+        { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {

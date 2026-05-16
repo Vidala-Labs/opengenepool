@@ -1,19 +1,14 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import AlignmentEditor from './AlignmentEditor.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Span } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  const normalizedAnnotations = annotations.map(annotation => ({
-    ...annotation,
-    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
-  }))
-  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+  return new SequenceDocument({ sequence, annotations, circular, backend })
 }
 
 describe('Alignment Document Editing', () => {

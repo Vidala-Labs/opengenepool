@@ -1,11 +1,10 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import CircularEditor from './CircularEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span, Range } from '../utils/dna.js'
 
 describe('CircularEditor', () => {
   function createDocument(options = {}) {
@@ -122,7 +121,7 @@ describe('CircularEditor', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: parseSpan('100..500')
+          span: ezSpan(100, 500)
         })
       ]
       const doc = createDocument({ annotations })

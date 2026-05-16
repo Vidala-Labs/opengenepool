@@ -1,4 +1,4 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed } from 'vue'
@@ -8,7 +8,6 @@ import { useGraphics } from '../composables/useGraphics.js'
 import { useSelection } from '../composables/useSelection.js'
 import { createEventBus } from '../composables/useEventBus.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span, Range } from '../utils/dna.js'
 
 describe('CircularView', () => {
   function createWrapper(props = {}, options = {}) {
@@ -136,7 +135,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: parseSpan('100..500')
+          span: ezSpan(100, 500)
         })
       ]
 
@@ -571,7 +570,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'GFP',
           type: 'gene',
-          span: parseSpan('100..500')
+          span: ezSpan(100, 500)
         })
       ]
 
@@ -590,7 +589,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'Test',
           type: 'CDS',
-          span: parseSpan('200..600')
+          span: ezSpan(200, 600)
         })
       ]
 
@@ -609,7 +608,7 @@ describe('CircularView', () => {
           id: 'ann1',
           caption: 'Hover Test',
           type: 'promoter',
-          span: parseSpan('300..700')
+          span: ezSpan(300, 700)
         })
       ]
 

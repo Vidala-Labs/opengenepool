@@ -1,11 +1,7 @@
-import { parseSpan } from '../test/parse-utils.js'
 import { describe, it, expect } from 'bun:test'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
-
-function span(spec) {
-  return parseSpan(spec)
-}
+import { ezSpan, Span, Range, Orientation } from '../test/span-helpers.js'
 
 describe('GenBank parser', () => {
   describe('location parsing', () => {
@@ -115,7 +111,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT',
-        annotations: [{ type: 'gene', span: span('0..10'), caption: 'TestGene' }]
+        annotations: [{ type: 'gene', span: ezSpan(0, 10), caption: 'TestGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('gene            1..10')
@@ -125,7 +121,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT',
-        annotations: [{ type: 'gene', span: span('(0..10)'), caption: 'TestGene' }]
+        annotations: [{ type: 'gene', span: ezSpan(0, 10, Orientation.MINUS), caption: 'TestGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('gene            complement(1..10)')
@@ -135,7 +131,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT'.repeat(10),
-        annotations: [{ type: 'CDS', span: span('0..10 + 20..30'), caption: 'SplicedGene' }]
+        annotations: [{ type: 'CDS', span: new Span([new Range(0, 10), new Range(20, 30)]), caption: 'SplicedGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('CDS             join(1..10,21..30)')
@@ -145,7 +141,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT'.repeat(10),
-        annotations: [{ type: 'CDS', span: span('(0..10) + (20..30)'), caption: 'SplicedGene' }]
+        annotations: [{ type: 'CDS', span: new Span([new Range(0, 10, Orientation.MINUS), new Range(20, 30, Orientation.MINUS)]), caption: 'SplicedGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('CDS             complement(join(1..10,21..30))')
@@ -155,7 +151,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT',
-        annotations: [{ type: 'gene', span: span('<0..10'), caption: 'TestGene' }]
+        annotations: [{ type: 'gene', span: ezSpan(0, 10, Orientation.PLUS, true, false), caption: 'TestGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('gene            <1..10')
@@ -165,7 +161,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT',
-        annotations: [{ type: 'gene', span: span('0..>10'), caption: 'TestGene' }]
+        annotations: [{ type: 'gene', span: ezSpan(0, 10, Orientation.PLUS, false, true), caption: 'TestGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('gene            1..>10')
@@ -175,7 +171,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT',
-        annotations: [{ type: 'gene', span: span('<0..>10'), caption: 'TestGene' }]
+        annotations: [{ type: 'gene', span: ezSpan(0, 10, Orientation.PLUS, true, true), caption: 'TestGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('gene            <1..>10')
@@ -185,7 +181,7 @@ describe('GenBank writer', () => {
       const data = {
         name: 'Test',
         sequence: 'ATCGATCGAT',
-        annotations: [{ type: 'gene', span: span('(<0..>10)'), caption: 'TestGene' }]
+        annotations: [{ type: 'gene', span: ezSpan(0, 10, Orientation.MINUS, true, true), caption: 'TestGene' }]
       }
       const gb = toGenBank(data)
       expect(gb).toContain('gene            complement(<1..>10)')
@@ -198,7 +194,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGATCGATCGATCG',
-      annotations: [{ type: 'gene', span: span('5..15'), caption: 'MyGene', attributes: {} }],
+      annotations: [{ type: 'gene', span: ezSpan(5, 15), caption: 'MyGene', attributes: {} }],
       metadata: { molecule_type: 'DNA', circular: false }
     }
 
@@ -216,7 +212,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGATCGATCGATCG',
-      annotations: [{ type: 'promoter', span: span('(5..15)'), caption: 'MyPromoter', attributes: {} }],
+      annotations: [{ type: 'promoter', span: ezSpan(5, 15, Orientation.MINUS), caption: 'MyPromoter', attributes: {} }],
       metadata: {}
     }
 
@@ -230,7 +226,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGAT'.repeat(10),
-      annotations: [{ type: 'CDS', span: span('0..10 + 50..60'), caption: 'SplicedCDS', attributes: {} }],
+      annotations: [{ type: 'CDS', span: new Span([new Range(0, 10), new Range(50, 60)]), caption: 'SplicedCDS', attributes: {} }],
       metadata: {}
     }
 
@@ -244,7 +240,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGAT'.repeat(10),
-      annotations: [{ type: 'CDS', span: span('(0..10) + (50..60)'), caption: 'SplicedCDS', attributes: {} }],
+      annotations: [{ type: 'CDS', span: new Span([new Range(0, 10, Orientation.MINUS), new Range(50, 60, Orientation.MINUS)]), caption: 'SplicedCDS', attributes: {} }],
       metadata: {}
     }
 
@@ -258,7 +254,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGATCGATCGATCG',
-      annotations: [{ type: 'gene', span: span('<5..15'), caption: 'PartialGene', attributes: {} }],
+      annotations: [{ type: 'gene', span: ezSpan(5, 15, Orientation.PLUS, true, false), caption: 'PartialGene', attributes: {} }],
       metadata: {}
     }
 
@@ -272,7 +268,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGATCGATCGATCG',
-      annotations: [{ type: 'gene', span: span('5..>15'), caption: 'PartialGene', attributes: {} }],
+      annotations: [{ type: 'gene', span: ezSpan(5, 15, Orientation.PLUS, false, true), caption: 'PartialGene', attributes: {} }],
       metadata: {}
     }
 
@@ -286,7 +282,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGATCGATCGATCG',
-      annotations: [{ type: 'gene', span: span('<5..>15'), caption: 'PartialGene', attributes: {} }],
+      annotations: [{ type: 'gene', span: ezSpan(5, 15, Orientation.PLUS, true, true), caption: 'PartialGene', attributes: {} }],
       metadata: {}
     }
 
@@ -300,7 +296,7 @@ describe('GenBank round-trip', () => {
     const original = {
       name: 'TestSeq',
       sequence: 'ATCGATCGATCGATCGATCG',
-      annotations: [{ type: 'gene', span: span('(<5..>15)'), caption: 'PartialGene', attributes: {} }],
+      annotations: [{ type: 'gene', span: ezSpan(5, 15, Orientation.MINUS, true, true), caption: 'PartialGene', attributes: {} }],
       metadata: {}
     }
 
@@ -315,10 +311,10 @@ describe('GenBank round-trip', () => {
       name: 'TestSeq',
       sequence: 'ATCGATCGAT'.repeat(20),
       annotations: [
-        { type: 'promoter', span: span('0..20'), caption: 'Promoter1', attributes: {} },
-        { type: 'gene', span: span('25..100'), caption: 'Gene1', attributes: {} },
-        { type: 'CDS', span: span('(110..150) + (160..180)'), caption: 'CDS1', attributes: {} },
-        { type: 'terminator', span: span('<185..>195'), caption: 'Term1', attributes: {} }
+        { type: 'promoter', span: ezSpan(0, 20), caption: 'Promoter1', attributes: {} },
+        { type: 'gene', span: ezSpan(25, 100), caption: 'Gene1', attributes: {} },
+        { type: 'CDS', span: new Span([new Range(110, 150, Orientation.MINUS), new Range(160, 180, Orientation.MINUS)]), caption: 'CDS1', attributes: {} },
+        { type: 'terminator', span: ezSpan(185, 195, Orientation.PLUS, true, true), caption: 'Term1', attributes: {} }
       ],
       metadata: { circular: true }
     }

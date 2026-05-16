@@ -1,19 +1,14 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { Annotation } from '../utils/annotation.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Span, Range } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  const normalizedAnnotations = annotations.map(annotation => ({
-    ...annotation,
-    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
-  }))
-  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+  return new SequenceDocument({ sequence, annotations, circular, backend })
 }
 
 describe('SequenceEditor extension context menu API', () => {
@@ -98,7 +93,7 @@ describe('SequenceEditor extension context menu API', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -135,7 +130,7 @@ describe('SequenceEditor extension context menu API', () => {
         id: 'cds1',
         caption: 'Test CDS',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mount(SequenceEditor, {

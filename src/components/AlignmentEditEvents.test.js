@@ -1,4 +1,4 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
@@ -7,15 +7,10 @@ import ConfirmDialog from './ConfirmDialog.vue'
 import InsertModal from './InsertModal.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Span } from '../utils/dna.js'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  const normalizedAnnotations = annotations.map(annotation => ({
-    ...annotation,
-    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
-  }))
-  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+  return new SequenceDocument({ sequence, annotations, circular, backend })
 }
 
 describe('SequenceEditor Edit Events', () => {
@@ -34,7 +29,7 @@ describe('SequenceEditor Edit Events', () => {
       await wrapper.vm.$nextTick()
 
       // Select range and trigger delete via Delete key
-      wrapper.vm.setSelection(parseSpan('5..10'))
+      wrapper.vm.setSelection(ezSpan(5, 10))
       await wrapper.vm.$nextTick()
 
       const svg = wrapper.find('.editor-svg')
@@ -67,7 +62,7 @@ describe('SequenceEditor Edit Events', () => {
       await wrapper.vm.$nextTick()
 
       // Select range 3..8
-      wrapper.vm.setSelection(parseSpan('3..8'))
+      wrapper.vm.setSelection(ezSpan(3, 8))
       await wrapper.vm.$nextTick()
 
       const svg = wrapper.find('.editor-svg')
@@ -97,7 +92,7 @@ describe('SequenceEditor Edit Events', () => {
       await wrapper.vm.$nextTick()
 
       // Set cursor position (zero-width selection)
-      wrapper.vm.setSelection(parseSpan('5..5'))
+      wrapper.vm.setSelection(ezSpan(5, 5))
       await wrapper.vm.$nextTick()
 
       // Type a base to open insert modal
@@ -133,7 +128,7 @@ describe('SequenceEditor Edit Events', () => {
       await wrapper.vm.$nextTick()
 
       // Select a range (not cursor) to trigger replace mode
-      wrapper.vm.setSelection(parseSpan('5..10'))
+      wrapper.vm.setSelection(ezSpan(5, 10))
       await wrapper.vm.$nextTick()
 
       // Type a base to open replace modal
@@ -173,7 +168,7 @@ describe('SequenceEditor Edit Events', () => {
       await wrapper.vm.$nextTick()
 
       // Select a range
-      wrapper.vm.setSelection(parseSpan('5..10'))
+      wrapper.vm.setSelection(ezSpan(5, 10))
       await wrapper.vm.$nextTick()
 
       // Try Ctrl+X

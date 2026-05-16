@@ -1,22 +1,18 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { markRaw } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span, Range } from '../utils/dna.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
+import { ezSpan } from '../../test/span-helpers.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { __resetModuleState as resetAnnotationLayerState, hiddenTypes as annotationHiddenTypes } from './AnnotationLayer.vue'
 import { __resetModuleState as resetTranslationLayerState } from './TranslationLayer.vue'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  const normalizedAnnotations = annotations.map(annotation => ({
-    ...annotation,
-    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
-  }))
-  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+  return new SequenceDocument({ sequence, annotations, circular, backend })
 }
 
 // Helper to create an empty document
@@ -475,8 +471,8 @@ describe('SequenceEditor', () => {
 
     it('shows annotation types when annotations exist', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: parseSpan('60..80') })
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50) }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: ezSpan(60, 80) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -504,8 +500,8 @@ describe('SequenceEditor', () => {
 
     it('hides annotations when type is unchecked', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: parseSpan('60..80') })
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50) }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: ezSpan(60, 80) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -541,8 +537,8 @@ describe('SequenceEditor', () => {
       // The default hidden types behavior was removed from module-level state
       // If this behavior is needed, it should be configured via the parent
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'source', span: parseSpan('1..500') }),
-        new Annotation({ id: 'ann2', type: 'gene', span: parseSpan('10..50') })
+        new Annotation({ id: 'ann1', type: 'source', span: ezSpan(1, 500) }),
+        new Annotation({ id: 'ann2', type: 'gene', span: ezSpan(10, 50) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -563,8 +559,8 @@ describe('SequenceEditor', () => {
 
     it('persists hidden types to localStorage', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: parseSpan('60..80') })
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50) }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: ezSpan(60, 80) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -588,8 +584,8 @@ describe('SequenceEditor', () => {
       annotationHiddenTypes.value = new Set(['gene'])
 
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') }),
-        new Annotation({ id: 'ann2', type: 'promoter', span: parseSpan('60..80') })
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50) }),
+        new Annotation({ id: 'ann2', type: 'promoter', span: ezSpan(60, 80) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -612,7 +608,7 @@ describe('SequenceEditor', () => {
 
     it('renders color swatch for each annotation type', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'promoter', span: parseSpan('10..50') })
+        new Annotation({ id: 'ann1', type: 'promoter', span: ezSpan(10, 50) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -643,7 +639,7 @@ describe('SequenceEditor', () => {
 
     it('saves default colors to localStorage on first load', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') })
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50) })
       ]
 
       // No colors in localStorage yet
@@ -672,7 +668,7 @@ describe('SequenceEditor', () => {
       localStorage.setItem(COLORS_KEY, JSON.stringify(customColors))
 
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'gene', span: parseSpan('10..50') })
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -695,7 +691,7 @@ describe('SequenceEditor', () => {
       localStorage.setItem(COLORS_KEY, JSON.stringify(partialColors))
 
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'promoter', span: parseSpan('10..50') })
+        new Annotation({ id: 'ann1', type: 'promoter', span: ezSpan(10, 50) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -711,7 +707,7 @@ describe('SequenceEditor', () => {
 
     it('annotation layer uses default colors for unknown types', async () => {
       const annotations = [
-        new Annotation({ id: 'ann1', type: 'unknown_custom_type', span: parseSpan('10..50') })
+        new Annotation({ id: 'ann1', type: 'unknown_custom_type', span: ezSpan(10, 50) })
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -795,7 +791,7 @@ describe('SequenceEditor', () => {
       })
       await wrapper.vm.$nextTick()
 
-      wrapper.vm.setSelection(parseSpan('4..8'))
+      wrapper.vm.setSelection(ezSpan(4, 8))
       await wrapper.vm.$nextTick()
 
       const sel = wrapper.vm.getSelection()
@@ -809,7 +805,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Multiple ranges use + separator
-      wrapper.vm.setSelection(parseSpan('2..4 + 8..12'))
+      wrapper.vm.setSelection(new Span([new Range(2, 4), new Range(8, 12)]))
       await wrapper.vm.$nextTick()
 
       // getSelection returns first range only
@@ -833,7 +829,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Set a selection first
-      wrapper.vm.setSelection(parseSpan('4..8'))
+      wrapper.vm.setSelection(ezSpan(4, 8))
       await wrapper.vm.$nextTick()
       expect(wrapper.vm.getSelection()).not.toBeNull()
 
@@ -851,12 +847,12 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Set initial selection
-      wrapper.vm.setSelection(parseSpan('0..4'))
+      wrapper.vm.setSelection(ezSpan(0, 4))
       await wrapper.vm.$nextTick()
       expect(wrapper.vm.getSelection()).toEqual({ start: 0, end: 4 })
 
       // Replace with new selection
-      wrapper.vm.setSelection(parseSpan('8..12'))
+      wrapper.vm.setSelection(ezSpan(8, 12))
       await wrapper.vm.$nextTick()
       expect(wrapper.vm.getSelection()).toEqual({ start: 8, end: 12 })
     })
@@ -867,7 +863,7 @@ describe('SequenceEditor', () => {
       })
       await wrapper.vm.$nextTick()
 
-      wrapper.vm.setSelection(parseSpan('4..8'))
+      wrapper.vm.setSelection(ezSpan(4, 8))
       await wrapper.vm.$nextTick()
 
       // Check that selection layer has the selection
@@ -880,7 +876,7 @@ describe('SequenceEditor', () => {
     it('selectAnnotation selects annotation span', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: parseSpan('5..15'), caption: 'Test Gene', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: ezSpan(5, 15), caption: 'Test Gene', type: 'gene' }]),
           initialZoom: 100,
         }
       })
@@ -898,7 +894,7 @@ describe('SequenceEditor', () => {
     it('selectAnnotation does nothing for unknown annotation', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: parseSpan('5..15'), caption: 'Test Gene', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-123', span: ezSpan(5, 15), caption: 'Test Gene', type: 'gene' }]),
           initialZoom: 100,
         }
       })
@@ -918,7 +914,7 @@ describe('SequenceEditor', () => {
       // Bug: annotation.span is a Span object, but code called .match() on it (string method)
       // Must use Annotation class to reproduce the bug (constructor converts span to Span object)
       const annotations = [
-        new Annotation({ id: 'ann-far', span: parseSpan('350..400'), caption: 'Far Gene', type: 'gene' })
+        new Annotation({ id: 'ann-far', span: ezSpan(350, 400), caption: 'Far Gene', type: 'gene' })
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -978,7 +974,7 @@ describe('SequenceEditor', () => {
 
     it('saves overlay to localStorage when copying sequence with annotations', async () => {
       const annotations = [
-        { id: 'ann-1', span: parseSpan('5..15'), caption: 'Test Gene', type: 'gene' }
+        { id: 'ann-1', span: ezSpan(5, 15), caption: 'Test Gene', type: 'gene' }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -989,7 +985,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select range that includes the annotation
-      wrapper.vm.setSelection(parseSpan('3..18'))
+      wrapper.vm.setSelection(ezSpan(3, 18))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1030,7 +1026,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select range
-      wrapper.vm.setSelection(parseSpan('0..5'))
+      wrapper.vm.setSelection(ezSpan(0, 5))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1054,7 +1050,7 @@ describe('SequenceEditor', () => {
 
     it('handles partial annotation overlap correctly', async () => {
       const annotations = [
-        { id: 'ann-1', span: parseSpan('0..20'), caption: 'Long Gene', type: 'gene' }
+        { id: 'ann-1', span: ezSpan(0, 20), caption: 'Long Gene', type: 'gene' }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1065,7 +1061,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select only part of the annotation (5..10)
-      wrapper.vm.setSelection(parseSpan('5..10'))
+      wrapper.vm.setSelection(ezSpan(5, 10))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1092,14 +1088,14 @@ describe('SequenceEditor', () => {
     it('handles multi-range selection with annotations', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: parseSpan('2..8'), caption: 'Gene1', type: 'gene' },{ id: 'ann-2', span: parseSpan('12..18'), caption: 'Gene2', type: 'CDS' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: ezSpan(2, 8), caption: 'Gene1', type: 'gene' },{ id: 'ann-2', span: ezSpan(12, 18), caption: 'Gene2', type: 'CDS' }]),
           initialZoom: 100,
         }
       })
       await wrapper.vm.$nextTick()
 
       // Create multi-range selection: 0..10 + 10..20
-      wrapper.vm.setSelection(parseSpan('0..10 + 10..20'))
+      wrapper.vm.setSelection(new Span([new Range(0, 10), new Range(10, 20)]))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1133,14 +1129,14 @@ describe('SequenceEditor', () => {
     it('does not include annotations outside selection', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: parseSpan('0..5'), caption: 'Before', type: 'gene' },{ id: 'ann-2', span: parseSpan('15..20'), caption: 'After', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: ezSpan(0, 5), caption: 'Before', type: 'gene' },{ id: 'ann-2', span: ezSpan(15, 20), caption: 'After', type: 'gene' }]),
           initialZoom: 100,
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select range that excludes both annotations
-      wrapper.vm.setSelection(parseSpan('6..14'))
+      wrapper.vm.setSelection(ezSpan(6, 14))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1163,14 +1159,14 @@ describe('SequenceEditor', () => {
     it('preserves annotation orientation in overlay', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
-          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: parseSpan('(5..15)'), caption: 'Minus Gene', type: 'gene' }]),
+          sequence: createDoc('ATCGATCGATCGATCGATCGATCGATCG', [{ id: 'ann-1', span: ezSpan(5, 15, Orientation.MINUS), caption: 'Minus Gene', type: 'gene' }]),
           initialZoom: 100,
         }
       })
       await wrapper.vm.$nextTick()
 
       // Select range that includes the annotation
-      wrapper.vm.setSelection(parseSpan('0..20'))
+      wrapper.vm.setSelection(ezSpan(0, 20))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1194,7 +1190,7 @@ describe('SequenceEditor', () => {
       // When copying a minus strand selection, the sequence is reverse-complemented.
       // Annotations within that selection need their positions reversed accordingly.
       const annotations = [
-        { id: 'ann-1', span: parseSpan('5..10'), caption: 'Test Gene', type: 'gene' }
+        { id: 'ann-1', span: ezSpan(5, 10), caption: 'Test Gene', type: 'gene' }
       ]
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -1205,7 +1201,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select the entire sequence as MINUS strand
-      wrapper.vm.setSelection(parseSpan('(0..20)'))
+      wrapper.vm.setSelection(ezSpan(0, 20, Orientation.MINUS))
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
@@ -1342,7 +1338,7 @@ describe('SequenceEditor', () => {
       })
 
       // Use the exposed setSelection method (bypasses eventBus)
-      wrapper.vm.setSelection(parseSpan('3..7'))
+      wrapper.vm.setSelection(ezSpan(3, 7))
       await wrapper.vm.$nextTick()
 
       // Callback should still be called because we watch selection.domain
@@ -1425,7 +1421,7 @@ describe('SequenceEditor', () => {
       expect(capturedAPI.getSelectedSequence()).toBe('')
 
       // Select a range (positions 2..6 = 'CGAT')
-      wrapper.vm.setSelection(parseSpan('2..6'))
+      wrapper.vm.setSelection(ezSpan(2, 6))
       await wrapper.vm.$nextTick()
 
       expect(capturedAPI.getSelectedSequence()).toBe('CGAT')
@@ -1462,7 +1458,7 @@ describe('SequenceEditor', () => {
       expect(capturedAPI).not.toBeNull()
 
       // Create initial selection
-      wrapper.vm.setSelection(parseSpan('10..15'))
+      wrapper.vm.setSelection(ezSpan(10, 15))
       await wrapper.vm.$nextTick()
 
       let callbackCount = 0
@@ -1519,7 +1515,7 @@ describe('SequenceEditor', () => {
 
       // Call addAnnotation via the extensionAPI
       capturedAPI.addAnnotation({
-        span: parseSpan('0..30'),
+        span: ezSpan(0, 30),
         type: 'CDS',
         caption: 'Test CDS'
       })
@@ -1564,7 +1560,7 @@ describe('SequenceEditor', () => {
 
       // Call addAnnotation via the extensionAPI
       capturedAPI.addAnnotation({
-        span: parseSpan('0..30'),
+        span: ezSpan(0, 30),
         type: 'CDS',
         caption: 'Test CDS'
       })
@@ -1620,7 +1616,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select 10bp (positions 0-10)
-      wrapper.vm.setSelection(parseSpan('0..10'))
+      wrapper.vm.setSelection(ezSpan(0, 10))
       await wrapper.vm.$nextTick()
 
       // Find selection status element
@@ -1638,7 +1634,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select all 100bp
-      wrapper.vm.setSelection(parseSpan('0..100'))
+      wrapper.vm.setSelection(ezSpan(0, 100))
       await wrapper.vm.$nextTick()
 
       // Find selection status element
@@ -1656,7 +1652,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select exactly 80bp
-      wrapper.vm.setSelection(parseSpan('0..80'))
+      wrapper.vm.setSelection(ezSpan(0, 80))
       await wrapper.vm.$nextTick()
 
       // Should show Tm (80bp is the max)
@@ -1673,7 +1669,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select 81bp
-      wrapper.vm.setSelection(parseSpan('0..81'))
+      wrapper.vm.setSelection(ezSpan(0, 81))
       await wrapper.vm.$nextTick()
 
       // Should NOT show Tm (81bp exceeds limit)
@@ -1693,7 +1689,7 @@ describe('SequenceEditor', () => {
       })
       await wrapper.vm.$nextTick()
 
-      wrapper.vm.setSelection(parseSpan('0..10'))
+      wrapper.vm.setSelection(ezSpan(0, 10))
       await wrapper.vm.$nextTick()
 
       const statusBox = wrapper.find('.selection-status')
@@ -1713,7 +1709,7 @@ describe('SequenceEditor', () => {
       })
       await wrapper.vm.$nextTick()
 
-      wrapper.vm.setSelection(parseSpan('0..10'))
+      wrapper.vm.setSelection(ezSpan(0, 10))
       await wrapper.vm.$nextTick()
 
       const statusBox = wrapper.find('.selection-status')
@@ -1739,7 +1735,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Select 90bp - would be hidden by default, but custom allows it
-      wrapper.vm.setSelection(parseSpan('0..90'))
+      wrapper.vm.setSelection(ezSpan(0, 90))
       await wrapper.vm.$nextTick()
 
       const statusBox = wrapper.find('.selection-status')
@@ -1805,7 +1801,7 @@ describe('SequenceEditor', () => {
       })
       await wrapper.vm.$nextTick()
 
-      wrapper.vm.setSelection(parseSpan('0..10'))
+      wrapper.vm.setSelection(ezSpan(0, 10))
       await wrapper.vm.$nextTick()
 
       const statusText = wrapper.vm.selectionStatusText

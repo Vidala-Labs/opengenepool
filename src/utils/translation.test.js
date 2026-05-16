@@ -1,4 +1,4 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
+import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect } from 'bun:test'
 import {
   CODON_TABLE,
@@ -8,7 +8,7 @@ import {
   iterateCodons,
   iterateCodonFragments
 } from './translation.js'
-import { Span, iterateSequence } from './dna.js'
+import { iterateSequence } from './dna.js'
 
 describe('CODON_TABLE', () => {
   it('has all 64 codons', () => {
@@ -165,7 +165,7 @@ describe('translate', () => {
 describe('iterateCodons', () => {
   describe('plus strand', () => {
     it('groups bases into codons and translates', () => {
-      const span = parseSpan('0..6')
+      const span = ezSpan(0, 6)
       const sequence = 'ATGAAA'
 
       const bases = iterateSequence(span, sequence)
@@ -180,7 +180,7 @@ describe('iterateCodons', () => {
     })
 
     it('handles incomplete final codon', () => {
-      const span = parseSpan('0..5')  // Only 5 bases = 1 full codon + 2 leftover
+      const span = ezSpan(0, 5)  // Only 5 bases = 1 full codon + 2 leftover
       const sequence = 'ATGAA'
 
       const bases = iterateSequence(span, sequence)
@@ -193,7 +193,7 @@ describe('iterateCodons', () => {
 
   describe('minus strand', () => {
     it('uses complemented bases from sequence iterator', () => {
-      const span = parseSpan('(0..6)')
+      const span = ezSpan(0, 6, Orientation.MINUS)
       const sequence = 'ATGAAA'
 
       // Walking high to low: positions [5,4,3,2,1,0]
@@ -211,7 +211,7 @@ describe('iterateCodons', () => {
     })
 
     it('preserves base positions through translation', () => {
-      const span = parseSpan('(0..6)')
+      const span = ezSpan(0, 6, Orientation.MINUS)
       const sequence = 'ATGAAA'
 
       const bases = iterateSequence(span, sequence)
@@ -226,7 +226,7 @@ describe('iterateCodons', () => {
 
   describe('translation cache', () => {
     it('accumulates amino acids in order', () => {
-      const span = parseSpan('0..9')
+      const span = ezSpan(0, 9)
       const sequence = 'ATGAAATTT'
 
       const bases = iterateSequence(span, sequence)
@@ -238,7 +238,7 @@ describe('iterateCodons', () => {
     })
 
     it('accumulates in coding order for minus strand', () => {
-      const span = parseSpan('(0..6)')
+      const span = ezSpan(0, 6, Orientation.MINUS)
       const sequence = 'ATGAAA'
 
       const bases = iterateSequence(span, sequence)

@@ -1,11 +1,11 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
 import TranslationLayer, { __resetModuleState } from './TranslationLayer.vue'
 import { __resetModuleState as resetAnnotationState } from './AnnotationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
-import { Span } from '../utils/dna.js'
+import { Span, Range, Orientation } from '../utils/dna.js'
+import { ezSpan } from '../../test/span-helpers.js'
 
 const STORAGE_KEY = 'ogp-hidden-annotation-types'
 
@@ -68,7 +68,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders(
@@ -85,7 +85,7 @@ describe('TranslationLayer', () => {
         id: 'gene1',
         caption: 'Test',
         type: 'gene',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
@@ -98,7 +98,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders(
@@ -124,7 +124,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders(
@@ -143,7 +143,7 @@ describe('TranslationLayer', () => {
       const annotation = new Annotation({
         id: 'cds1',
         type: 'CDS',
-        span: parseSpan('0..9') // 3 codons
+        span: ezSpan(0, 9) // 3 codons
       })
 
       const wrapper = mountWithProviders(
@@ -163,7 +163,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders(
@@ -184,7 +184,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: parseSpan('0..6')
+        span: ezSpan(0, 6)
       })
 
       const wrapper = mountWithProviders(
@@ -210,7 +210,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: parseSpan('(0..6)')  // Minus strand
+        span: ezSpan(0, 6, Orientation.MINUS)  // Minus strand
       })
 
       const wrapper = mountWithProviders(
@@ -240,7 +240,7 @@ describe('TranslationLayer', () => {
         id: 'cds1',
         caption: 'Test',
         type: 'CDS',
-        span: parseSpan('0..6 + (10..16)')
+        span: new Span([new Range(0, 6), new Range(10, 16, Orientation.MINUS)])
       })
 
       const wrapper = mountWithProviders(
@@ -262,7 +262,7 @@ describe('TranslationLayer', () => {
   describe('coordination with AnnotationLayer', () => {
     it('hides when AnnotationLayer showAnnotations is off', async () => {
       const annotation = new Annotation({
-        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
+        id: 'cds1', type: 'CDS', span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders(
@@ -281,7 +281,7 @@ describe('TranslationLayer', () => {
 
     it('hides when CDS type is hidden in AnnotationLayer', async () => {
       const annotation = new Annotation({
-        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
+        id: 'cds1', type: 'CDS', span: ezSpan(0, 30)
       })
 
       const wrapper = mountWithProviders(
@@ -300,7 +300,7 @@ describe('TranslationLayer', () => {
 
     it('shows when CDS type is unhidden', async () => {
       const annotation = new Annotation({
-        id: 'cds1', type: 'CDS', span: parseSpan('0..30')
+        id: 'cds1', type: 'CDS', span: ezSpan(0, 30)
       })
 
       const { hiddenTypes } = await import('./AnnotationLayer.vue')

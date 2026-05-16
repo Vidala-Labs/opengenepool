@@ -1,10 +1,10 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { useSelection, SelectionDomain } from './useSelection.js'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics } from './useGraphics.js'
 import { createEventBus } from './useEventBus.js'
 import { Range, Span, Orientation } from '../utils/dna.js'
+import { ezSpan } from '../../test/span-helpers.js'
 
 describe('SelectionDomain', () => {
   describe('constructor', () => {
@@ -804,7 +804,7 @@ describe('useSelection', () => {
     it('does nothing when annotation does not overlap selection', () => {
       const sel = createSelection()
       sel.select([new Range(10, 20)])
-      const span = parseSpan('30..40')
+      const span = ezSpan(30, 40)
 
       sel.subtractSpan(span)
 
@@ -816,7 +816,7 @@ describe('useSelection', () => {
     it('removes range when annotation fully contains it', () => {
       const sel = createSelection()
       sel.select([new Range(15, 25)])
-      const span = parseSpan('10..30')
+      const span = ezSpan(10, 30)
 
       sel.subtractSpan(span)
 
@@ -827,7 +827,7 @@ describe('useSelection', () => {
     it('splits range when selection contains annotation', () => {
       const sel = createSelection()
       sel.select([new Range(10, 50)])
-      const span = parseSpan('20..30')
+      const span = ezSpan(20, 30)
 
       sel.subtractSpan(span)
 
@@ -841,7 +841,7 @@ describe('useSelection', () => {
     it('trims range when annotation overlaps start', () => {
       const sel = createSelection()
       sel.select([new Range(20, 40)])
-      const span = parseSpan('10..30')
+      const span = ezSpan(10, 30)
 
       sel.subtractSpan(span)
 
@@ -853,7 +853,7 @@ describe('useSelection', () => {
     it('trims range when annotation overlaps end', () => {
       const sel = createSelection()
       sel.select([new Range(20, 40)])
-      const span = parseSpan('30..50')
+      const span = ezSpan(30, 50)
 
       sel.subtractSpan(span)
 
@@ -865,7 +865,7 @@ describe('useSelection', () => {
     it('handles annotation end matching selection end', () => {
       const sel = createSelection()
       sel.select([new Range(10, 30)])
-      const span = parseSpan('20..30')
+      const span = ezSpan(20, 30)
 
       sel.subtractSpan(span)
 
@@ -877,7 +877,7 @@ describe('useSelection', () => {
     it('handles annotation start matching selection start', () => {
       const sel = createSelection()
       sel.select([new Range(10, 30)])
-      const span = parseSpan('10..20')
+      const span = ezSpan(10, 20)
 
       sel.subtractSpan(span)
 
@@ -889,7 +889,7 @@ describe('useSelection', () => {
     it('removes range when annotation exactly matches', () => {
       const sel = createSelection()
       sel.select([new Range(10, 30)])
-      const span = parseSpan('10..30')
+      const span = ezSpan(10, 30)
 
       sel.subtractSpan(span)
 
@@ -900,7 +900,7 @@ describe('useSelection', () => {
     it('handles multiple selection ranges with partial overlap', () => {
       const sel = createSelection()
       sel.select([new Range(10, 20), new Range(30, 40), new Range(50, 60)])
-      const span = parseSpan('15..35')
+      const span = ezSpan(15, 35)
 
       sel.subtractSpan(span)
 
@@ -916,7 +916,7 @@ describe('useSelection', () => {
     it('handles multi-range annotation span', () => {
       const sel = createSelection()
       sel.select([new Range(10, 100)])
-      const span = parseSpan('20..30 + 50..60')
+      const span = new Span([new Range(20, 30), new Range(50, 60)])
 
       sel.subtractSpan(span)
 
@@ -932,7 +932,7 @@ describe('useSelection', () => {
     it('removes selection when annotation is strictly bigger', () => {
       const sel = createSelection()
       sel.select([new Range(20, 30)])
-      const span = parseSpan('10..50')
+      const span = ezSpan(10, 50)
 
       sel.subtractSpan(span)
 
@@ -943,7 +943,7 @@ describe('useSelection', () => {
     it('preserves orientation when splitting range', () => {
       const sel = createSelection()
       sel.select([new Range(10, 50, Orientation.MINUS)])  // minus strand
-      const span = parseSpan('20..30')
+      const span = ezSpan(20, 30)
 
       sel.subtractSpan(span)
 
@@ -954,7 +954,7 @@ describe('useSelection', () => {
 
     it('does nothing when no selection exists', () => {
       const sel = createSelection()
-      const span = parseSpan('10..20')
+      const span = ezSpan(10, 20)
 
       sel.subtractSpan(span)
 

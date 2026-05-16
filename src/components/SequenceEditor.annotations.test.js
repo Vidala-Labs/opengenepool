@@ -1,4 +1,3 @@
-import { parseSpan, parseRange } from '../../test/parse-utils.js'
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { readFileSync } from 'fs'
@@ -7,17 +6,14 @@ import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation } from '../utils/dna.js'
+import { ezSpan } from '../../test/span-helpers.js'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { __resetModuleState as resetAnnotationLayerState } from './AnnotationLayer.vue'
 import { __resetModuleState as resetTranslationLayerState } from './TranslationLayer.vue'
 
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
-  const normalizedAnnotations = annotations.map(annotation => ({
-    ...annotation,
-    span: typeof annotation.span === 'string' ? parseSpan(annotation.span) : annotation.span
-  }))
-  return new SequenceDocument({ sequence, annotations: normalizedAnnotations, circular, backend })
+  return new SequenceDocument({ sequence, annotations, circular, backend })
 }
 
 describe('SequenceEditor annotations', () => {
@@ -44,7 +40,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       }
 
       const wrapper = mount(SequenceEditor, {
@@ -80,7 +76,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..60')
+        span: ezSpan(10, 60)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -101,7 +97,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -123,7 +119,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -148,12 +144,12 @@ describe('SequenceEditor annotations', () => {
 
     describe('shift-click extends selection to annotation', () => {
       // Helper to set up editor with annotation and selection
-      async function setupShiftClickTest(annotationSpan, selectionRange) {
+      async function setupShiftClickTest(span, selectionRange) {
         const annotation = new Annotation({
           id: 'ann1',
           caption: 'TestGene',
           type: 'gene',
-          span: parseSpan(annotationSpan)
+          span
         })
 
         const wrapper = mount(SequenceEditor, {
@@ -184,7 +180,7 @@ describe('SequenceEditor annotations', () => {
       describe('forward (PLUS) annotation', () => {
         it('extends selection on left to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // fwd annotation
+            ezSpan(100, 150),  // fwd annotation
             new Range(10, 50, Orientation.PLUS)  // selection on left
           )
 
@@ -197,7 +193,7 @@ describe('SequenceEditor annotations', () => {
 
         it('extends selection on right to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // fwd annotation
+            ezSpan(100, 150),  // fwd annotation
             new Range(200, 250, Orientation.PLUS)  // selection on right
           )
 
@@ -210,7 +206,7 @@ describe('SequenceEditor annotations', () => {
 
         it('extends spanning selection to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // fwd annotation
+            ezSpan(100, 150),  // fwd annotation
             new Range(80, 200, Orientation.PLUS)  // selection spanning annotation
           )
 
@@ -226,7 +222,7 @@ describe('SequenceEditor annotations', () => {
       describe('reverse (MINUS) annotation', () => {
         it('extends selection on left to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '(100..150)',  // rev annotation
+            ezSpan(100, 150, Orientation.MINUS),  // rev annotation
             new Range(10, 50, Orientation.MINUS)  // selection on left
           )
 
@@ -239,7 +235,7 @@ describe('SequenceEditor annotations', () => {
 
         it('extends selection on right to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '(100..150)',  // rev annotation
+            ezSpan(100, 150, Orientation.MINUS),  // rev annotation
             new Range(200, 250, Orientation.MINUS)  // selection on right
           )
 
@@ -252,7 +248,7 @@ describe('SequenceEditor annotations', () => {
 
         it('extends spanning selection to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '(100..150)',  // rev annotation
+            ezSpan(100, 150, Orientation.MINUS),  // rev annotation
             new Range(80, 200, Orientation.MINUS)  // selection spanning annotation
           )
 
@@ -267,7 +263,7 @@ describe('SequenceEditor annotations', () => {
       describe('undirected (NONE) annotation', () => {
         it('extends selection on left to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // undirected annotation (PLUS by default, but we test with NONE selection)
+            ezSpan(100, 150),  // undirected annotation (PLUS by default, but we test with NONE selection)
             new Range(10, 50, Orientation.NONE)  // undirected selection on left
           )
 
@@ -280,7 +276,7 @@ describe('SequenceEditor annotations', () => {
 
         it('extends selection on right to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',
+            ezSpan(100, 150),
             new Range(200, 250, Orientation.NONE)  // undirected selection on right
           )
 
@@ -293,7 +289,7 @@ describe('SequenceEditor annotations', () => {
 
         it('extends spanning selection to include annotation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',
+            ezSpan(100, 150),
             new Range(80, 200, Orientation.NONE)  // undirected selection spanning
           )
 
@@ -308,7 +304,7 @@ describe('SequenceEditor annotations', () => {
       describe('cursor extends to annotation', () => {
         it('cursor on left of fwd annotation takes PLUS orientation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // fwd annotation
+            ezSpan(100, 150),  // fwd annotation
             new Range(50, 50, Orientation.NONE)  // cursor on left
           )
 
@@ -321,7 +317,7 @@ describe('SequenceEditor annotations', () => {
 
         it('cursor on right of fwd annotation takes PLUS orientation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // fwd annotation
+            ezSpan(100, 150),  // fwd annotation
             new Range(200, 200, Orientation.NONE)  // cursor on right
           )
 
@@ -334,7 +330,7 @@ describe('SequenceEditor annotations', () => {
 
         it('cursor inside fwd annotation takes PLUS orientation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '100..150',  // fwd annotation
+            ezSpan(100, 150),  // fwd annotation
             new Range(125, 125, Orientation.NONE)  // cursor inside
           )
 
@@ -347,7 +343,7 @@ describe('SequenceEditor annotations', () => {
 
         it('cursor on left of rev annotation takes MINUS orientation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '(100..150)',  // rev annotation
+            ezSpan(100, 150, Orientation.MINUS),  // rev annotation
             new Range(50, 50, Orientation.NONE)  // cursor on left
           )
 
@@ -360,7 +356,7 @@ describe('SequenceEditor annotations', () => {
 
         it('cursor on right of rev annotation takes MINUS orientation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '(100..150)',  // rev annotation
+            ezSpan(100, 150, Orientation.MINUS),  // rev annotation
             new Range(200, 200, Orientation.NONE)  // cursor on right
           )
 
@@ -373,7 +369,7 @@ describe('SequenceEditor annotations', () => {
 
         it('cursor inside rev annotation takes MINUS orientation', async () => {
           const { wrapper, selection, annotation } = await setupShiftClickTest(
-            '(100..150)',  // rev annotation
+            ezSpan(100, 150, Orientation.MINUS),  // rev annotation
             new Range(125, 125, Orientation.NONE)  // cursor inside
           )
 
@@ -391,7 +387,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('10..50')
+        span: ezSpan(10, 50)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -426,7 +422,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'GFP',
         type: 'gene',
-        span: parseSpan('100..150')
+        span: ezSpan(100, 150)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -464,7 +460,7 @@ describe('SequenceEditor annotations', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -498,7 +494,7 @@ describe('SequenceEditor annotations', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -536,7 +532,7 @@ describe('SequenceEditor annotations', () => {
         id: 'cds1',
         caption: 'GFP',
         type: 'CDS',
-        span: parseSpan('0..30')
+        span: ezSpan(0, 30)
       })
 
       const wrapper = mount(SequenceEditor, {
@@ -579,7 +575,7 @@ describe('SequenceEditor annotations', () => {
       // Create a zero-width selection (cursor) at the desired position
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
       const selection = selectionLayer.vm.selection
-      selection.select(parseSpan(`${position}..${position}`))
+      selection.select(ezSpan(position, position))
       await wrapper.vm.$nextTick()
 
       // Open the insert modal via keypress (DNA base triggers modal)
@@ -590,7 +586,7 @@ describe('SequenceEditor annotations', () => {
 
     it('emits annotations-update when inserting text inside an annotation', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: parseSpan('10..50') }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(10, 50) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -618,7 +614,7 @@ describe('SequenceEditor annotations', () => {
 
     it('shifts annotation right when inserting before it', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: parseSpan('20..40') }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(20, 40) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -643,7 +639,7 @@ describe('SequenceEditor annotations', () => {
 
     it('does not modify annotation when inserting after it', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: parseSpan('10..20') }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(10, 20) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -668,9 +664,9 @@ describe('SequenceEditor annotations', () => {
 
     it('handles multiple annotations correctly', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Before', type: 'gene', span: parseSpan('5..15') },
-        { id: 'ann2', caption: 'Contains', type: 'promoter', span: parseSpan('20..40') },
-        { id: 'ann3', caption: 'After', type: 'terminator', span: parseSpan('50..60') }
+        { id: 'ann1', caption: 'Before', type: 'gene', span: ezSpan(5, 15) },
+        { id: 'ann2', caption: 'Contains', type: 'promoter', span: ezSpan(20, 40) },
+        { id: 'ann3', caption: 'After', type: 'terminator', span: ezSpan(50, 60) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -702,7 +698,7 @@ describe('SequenceEditor annotations', () => {
 
     it('shifts annotation when inserting at its start position by default (disciplined inserts)', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: parseSpan('10..30') }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(10, 30) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -730,7 +726,7 @@ describe('SequenceEditor annotations', () => {
 
     it('does not expand annotation when inserting at its end position', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Test', type: 'gene', span: parseSpan('10..30') }
+        { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(10, 30) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -756,7 +752,7 @@ describe('SequenceEditor annotations', () => {
 
     it('handles join spans with multiple ranges', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Joined', type: 'CDS', span: parseSpan('10..20 + 40..60') }
+        { id: 'ann1', caption: 'Joined', type: 'CDS', span: new Span([new Range(10, 20), new Range(40, 60)]) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -782,7 +778,7 @@ describe('SequenceEditor annotations', () => {
 
     it('INTEGRATION: inserting inside annotation preserves start position and expands end', async () => {
       const annotations = [
-        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: parseSpan('230..247') }
+        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: ezSpan(230, 247) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -829,7 +825,7 @@ describe('SequenceEditor annotations', () => {
 
     it('INTEGRATION: inserting at exact start position shifts annotation (disciplined inserts)', async () => {
       const annotations = [
-        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: parseSpan('100..150') }
+        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: ezSpan(100, 150) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -855,7 +851,7 @@ describe('SequenceEditor annotations', () => {
 
     it('INTEGRATION: inserting 1 base before start shifts entire annotation', async () => {
       const annotations = [
-        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: parseSpan('100..150') }
+        { id: 'ann_test', caption: 'TestAnnotation', type: 'gene', span: ezSpan(100, 150) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -884,7 +880,7 @@ describe('SequenceEditor annotations', () => {
       // Create selection
       const selectionLayer = wrapper.findComponent({ name: 'SelectionLayer' })
       const selection = selectionLayer.vm.selection
-      selection.select(parseSpan(`${start}..${end}`))
+      selection.select(ezSpan(start, end))
       await wrapper.vm.$nextTick()
 
       // Simulate opening replace modal by typing a DNA base (which triggers showInsertModal)
@@ -917,7 +913,7 @@ describe('SequenceEditor annotations', () => {
 
     it('shifts annotation after selection by net change', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'After', type: 'gene', span: parseSpan('50..70') }
+        { id: 'ann1', caption: 'After', type: 'gene', span: ezSpan(50, 70) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -942,7 +938,7 @@ describe('SequenceEditor annotations', () => {
 
     it('does not modify annotation before selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Before', type: 'gene', span: parseSpan('5..15') }
+        { id: 'ann1', caption: 'Before', type: 'gene', span: ezSpan(5, 15) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -967,7 +963,7 @@ describe('SequenceEditor annotations', () => {
 
     it('shrinks annotation that spans across selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Spanning', type: 'gene', span: parseSpan('10..50') }
+        { id: 'ann1', caption: 'Spanning', type: 'gene', span: ezSpan(10, 50) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -992,7 +988,7 @@ describe('SequenceEditor annotations', () => {
 
     it('expands annotation that spans across selection when replacement is longer', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Spanning', type: 'gene', span: parseSpan('10..50') }
+        { id: 'ann1', caption: 'Spanning', type: 'gene', span: ezSpan(10, 50) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -1017,7 +1013,7 @@ describe('SequenceEditor annotations', () => {
 
     it('collapses annotation contained within selection to zero length', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Inside', type: 'gene', span: parseSpan('25..35') }
+        { id: 'ann1', caption: 'Inside', type: 'gene', span: ezSpan(25, 35) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -1042,7 +1038,7 @@ describe('SequenceEditor annotations', () => {
 
     it('truncates annotation that overlaps left side of selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'OverlapLeft', type: 'gene', span: parseSpan('15..35') }
+        { id: 'ann1', caption: 'OverlapLeft', type: 'gene', span: ezSpan(15, 35) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -1067,7 +1063,7 @@ describe('SequenceEditor annotations', () => {
 
     it('moves annotation that overlaps right side of selection', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'OverlapRight', type: 'gene', span: parseSpan('25..45') }
+        { id: 'ann1', caption: 'OverlapRight', type: 'gene', span: ezSpan(25, 45) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -1094,10 +1090,10 @@ describe('SequenceEditor annotations', () => {
 
     it('handles multiple annotations with different overlap scenarios', async () => {
       const annotations = [
-        { id: 'ann1', caption: 'Before', type: 'gene', span: parseSpan('5..15') },
-        { id: 'ann2', caption: 'Spanning', type: 'promoter', span: parseSpan('25..55') },
-        { id: 'ann3', caption: 'Inside', type: 'terminator', span: parseSpan('35..45') },
-        { id: 'ann4', caption: 'After', type: 'CDS', span: parseSpan('70..90') }
+        { id: 'ann1', caption: 'Before', type: 'gene', span: ezSpan(5, 15) },
+        { id: 'ann2', caption: 'Spanning', type: 'promoter', span: ezSpan(25, 55) },
+        { id: 'ann3', caption: 'Inside', type: 'terminator', span: ezSpan(35, 45) },
+        { id: 'ann4', caption: 'After', type: 'CDS', span: ezSpan(70, 90) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -1137,7 +1133,7 @@ describe('SequenceEditor annotations', () => {
       // Selection: 2..7 and 15..24 (overlaps both segments)
       // After delete: should have two segments with adjusted positions
       const annotations = [
-        { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('1..5 + 10..20') }
+        { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(1, 5), new Range(10, 20)]) }
       ]
 
       const wrapper = mount(SequenceEditor, {
@@ -1256,7 +1252,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test Gene',
           type: 'gene',
-          span: parseSpan('10..50'),
+          span: ezSpan(10, 50),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1281,7 +1277,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test',
           type: 'gene',
-          span: parseSpan('10..20'),
+          span: ezSpan(10, 20),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1302,7 +1298,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test CDS',
           type: 'CDS',
-          span: parseSpan('0..9'),
+          span: ezSpan(0, 9),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1324,7 +1320,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('create', {
           caption: 'Test',
           type: 'gene',
-          span: parseSpan('10..20'),
+          span: ezSpan(10, 20),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1339,7 +1335,7 @@ describe('SequenceEditor annotations', () => {
     describe('update annotation', () => {
       it('updates annotation in local state when edited via modal', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Original', type: 'gene', span: parseSpan('10..50') }
+          { id: 'ann1', caption: 'Original', type: 'gene', span: ezSpan(10, 50) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1367,7 +1363,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('update', {
           caption: 'Updated',
           type: 'CDS',
-          span: parseSpan('10..60'),
+          span: ezSpan(10, 60),
           attributes: { gene: 'testGene' }
         })
         await wrapper.vm.$nextTick()
@@ -1387,7 +1383,7 @@ describe('SequenceEditor annotations', () => {
           annotationUpdate: mock(() => {})
         }
         const annotations = [
-          { id: 'ann1', caption: 'Original', type: 'gene', span: parseSpan('10..50') }
+          { id: 'ann1', caption: 'Original', type: 'gene', span: ezSpan(10, 50) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations, false, mockBackend), initialZoom: 100 }
@@ -1412,7 +1408,7 @@ describe('SequenceEditor annotations', () => {
         annotationModal.vm.$emit('update', {
           caption: 'Updated',
           type: 'CDS',
-          span: parseSpan('10..60'),
+          span: ezSpan(10, 60),
           attributes: {}
         })
         await wrapper.vm.$nextTick()
@@ -1429,8 +1425,8 @@ describe('SequenceEditor annotations', () => {
     describe('delete annotation', () => {
       it('removes annotation from local state when deleted via context menu', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: parseSpan('10..50') },
-          { id: 'ann2', caption: 'Gene2', type: 'gene', span: parseSpan('60..90') }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: ezSpan(10, 50) },
+          { id: 'ann2', caption: 'Gene2', type: 'gene', span: ezSpan(60, 90) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1463,7 +1459,7 @@ describe('SequenceEditor annotations', () => {
           annotationDeleted: mock(() => {})
         }
         const annotations = [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: parseSpan('10..50') }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: ezSpan(10, 50) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations, false, mockBackend), initialZoom: 100 }
@@ -1493,7 +1489,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show delete option in readonly mode', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene1', type: 'gene', span: parseSpan('10..50') }
+          { id: 'ann1', caption: 'Gene1', type: 'gene', span: ezSpan(10, 50) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100, readonly: true }
@@ -1519,7 +1515,7 @@ describe('SequenceEditor annotations', () => {
       it('shows merge options for adjacent segments with same orientation', async () => {
         // Create an annotation with two adjacent ranges (10..20 + 20..30)
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('10..20 + 20..30') }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(20, 30)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1549,7 +1545,7 @@ describe('SequenceEditor annotations', () => {
 
       it('shows merge with left option when right-clicking on second segment', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('10..20 + 20..30') }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(20, 30)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1576,7 +1572,7 @@ describe('SequenceEditor annotations', () => {
       it('shows both merge options for middle segment', async () => {
         // Three adjacent segments
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('10..20 + 20..30 + 30..40') }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(20, 30), new Range(30, 40)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1605,7 +1601,7 @@ describe('SequenceEditor annotations', () => {
       it('does not show merge options for non-adjacent segments', async () => {
         // Non-adjacent ranges (gap between 20 and 30)
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('10..20 + 30..40') }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(30, 40)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1630,7 +1626,7 @@ describe('SequenceEditor annotations', () => {
       it('does not show merge options for segments with different orientations', async () => {
         // Adjacent but different orientations
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('10..20 + (20..30)') }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(20, 30, Orientation.MINUS)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1654,7 +1650,7 @@ describe('SequenceEditor annotations', () => {
 
       it('merges segments when clicking merge option', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: parseSpan('10..20 + 20..30') }
+          { id: 'ann1', caption: 'Split Gene', type: 'gene', span: new Span([new Range(10, 20), new Range(20, 30)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1690,7 +1686,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show merge options for single-range annotations', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Single Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Single Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1715,7 +1711,7 @@ describe('SequenceEditor annotations', () => {
     describe('split annotation', () => {
       it('shows split option when cursor is inside annotation range', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1742,7 +1738,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option when cursor is at annotation start', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1768,7 +1764,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option when cursor is at annotation end', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1794,7 +1790,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option when no cursor exists', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1820,7 +1816,7 @@ describe('SequenceEditor annotations', () => {
 
       it('splits annotation into two ranges when clicking split option', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1859,7 +1855,7 @@ describe('SequenceEditor annotations', () => {
         // annotation: (10..30) minus strand, cursor at 20
         // after split: (10..20) + (20..30) both minus strand
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('(10..30)') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30, Orientation.MINUS) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1895,7 +1891,7 @@ describe('SequenceEditor annotations', () => {
         // annotation: <10..>30, cursor at 20
         // after split: <10..20 + 20..>30
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('<10..>30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30, Orientation.PLUS, true, true) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -1932,7 +1928,7 @@ describe('SequenceEditor annotations', () => {
           annotationUpdate: mock(() => {})
         }
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations, false, mockBackend), initialZoom: 100 }
@@ -1967,7 +1963,7 @@ describe('SequenceEditor annotations', () => {
 
       it('does not show split option in readonly mode', async () => {
         const annotations = [
-          { id: 'ann1', caption: 'Gene', type: 'gene', span: parseSpan('10..30') }
+          { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100, readonly: true }
@@ -1999,7 +1995,7 @@ describe('SequenceEditor annotations', () => {
         // Selection: 2..7 + 15..24
         // After subtraction: 5..7 + 20..24 (the parts not covered by the annotation)
         const annotations = [
-          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: parseSpan('1..5 + 10..20') }
+          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: new Span([new Range(1, 5), new Range(10, 20)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -2042,7 +2038,7 @@ describe('SequenceEditor annotations', () => {
         // Selection: 2..12
         // After subtraction: 5..10 (the gap between annotation ranges)
         const annotations = [
-          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: parseSpan('1..5 + 10..20') }
+          { id: 'ann1', caption: 'MultiRange', type: 'gene', span: new Span([new Range(1, 5), new Range(10, 20)]) }
         ]
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), annotations), initialZoom: 100 }
@@ -2184,7 +2180,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'Test Gene',
         type: 'gene',
-        span: parseSpan('10..50'),
+        span: ezSpan(10, 50),
         attributes: {
           gene: 'testGene',
           product: 'Test Product',
@@ -2234,7 +2230,7 @@ describe('SequenceEditor annotations', () => {
         id: 'ann1',
         caption: 'Hidden Attrs',
         type: 'misc_feature',
-        span: parseSpan('10..30'),
+        span: ezSpan(10, 30),
         attributes: {
           _internal: 'hidden',
           _cache: 'also hidden'
