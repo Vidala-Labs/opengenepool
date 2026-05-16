@@ -31,6 +31,7 @@ export {
 
 export {
   align,
+  loadWasm as preloadAlignmentWasm,
   scoreMatch,
   buildCoordinateMap,
   mapCoordinate,
