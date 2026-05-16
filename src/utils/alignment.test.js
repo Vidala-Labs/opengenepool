@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect, beforeAll } from 'bun:test'
 import {
   align,
   scoreMatch,
@@ -518,5 +518,245 @@ describe('contiguous gap preference', () => {
     // Count gap regions - should be exactly 1
     const gapRegions = result.queryAligned.split(/[^-]+/).filter(s => s.length > 0)
     expect(gapRegions.length).toBe(1)
+  })
+})
+
+describe('large sequence handling', () => {
+  it('handles large sequences without excessive memory (linear-space algorithm)', () => {
+    // 5000 bp sequences - would require 25M cells with O(mn) algorithm
+    // Linear-space algorithm should handle this efficiently
+    const query = 'ATCG'.repeat(1250)  // 5000 bp
+    const target = 'ATCG'.repeat(1250) // 5000 bp
+
+    const result = align(query, target)
+
+    expect(result.identity).toBe(100)
+    expect(result.queryAligned.length).toBe(5000)
+    expect(result.targetAligned.length).toBe(5000)
+    expect(result.score).toBe(10000) // 5000 bases * 2 match score
+  })
+
+  it('correctly aligns large sequences with mismatches', () => {
+    // Create sequences with some mismatches
+    const base = 'ATCG'.repeat(500) // 2000 bp
+    const query = base
+    // Introduce 10 mismatches by changing some bases
+    let target = base.split('')
+    for (let i = 0; i < 10; i++) {
+      const pos = 100 + i * 180
+      target[pos] = target[pos] === 'A' ? 'T' : 'A'
+    }
+    target = target.join('')
+
+    const result = align(query, target)
+
+    // Should find a high-identity alignment
+    expect(result.identity).toBeGreaterThan(99) // 1990/2000 = 99.5%
+    expect(result.queryAligned.length).toBe(2000)
+  })
+
+  it('handles sequences just above the threshold', () => {
+    // Create sequences that are just above the 1M cell threshold (1000x1001)
+    const query = 'ATCGATCGATCG'.repeat(84)  // 1008 bp
+    const target = 'ATCGATCGATCG'.repeat(84) // 1008 bp (1008*1008 > 1M)
+
+    const result = align(query, target)
+
+    expect(result.identity).toBe(100)
+    expect(result.queryEnd - result.queryStart).toBe(1008)
+  })
+})
+
+describe('WASM implementation', () => {
+  let wasmModule = null
+
+  // Helper to call WASM alignment
+  function alignWasm(query, target, options = {}) {
+    const {
+      match = 2,
+      mismatch = -1,
+      gapOpen = -3,
+      gapExtend = -1
+    } = options
+
+    // Reset heap before starting new alignment
+    wasmModule.reset()
+
+    const encoder = new TextEncoder()
+    const queryBytes = encoder.encode(query)
+    const targetBytes = encoder.encode(target)
+
+    const queryLen = queryBytes.length
+    const targetLen = targetBytes.length
+
+    const queryPtr = wasmModule.alloc(queryLen)
+    const targetPtr = wasmModule.alloc(targetLen)
+
+    const memory = new Uint8Array(wasmModule.memory.buffer)
+    memory.set(queryBytes, queryPtr)
+    memory.set(targetBytes, targetPtr)
+
+    const resultPtr = wasmModule.alignSequences(
+      queryPtr, queryLen,
+      targetPtr, targetLen,
+      match, mismatch, gapOpen, gapExtend
+    )
+
+    // Read result (layout matches AlignmentResult struct with padding)
+    const view = new DataView(wasmModule.memory.buffer)
+    let offset = resultPtr
+    const score = view.getInt32(offset, true); offset += 4
+    const queryStart = view.getInt32(offset, true); offset += 4
+    const queryEnd = view.getInt32(offset, true); offset += 4
+    const targetStart = view.getInt32(offset, true); offset += 4
+    const targetEnd = view.getInt32(offset, true); offset += 4
+    const queryAlignedPtr = view.getUint32(offset, true); offset += 4
+    const queryAlignedLen = view.getInt32(offset, true); offset += 4
+    const targetAlignedPtr = view.getUint32(offset, true); offset += 4
+    const targetAlignedLen = view.getInt32(offset, true); offset += 4
+    offset += 4  // skip padding for f64 alignment
+    const identity = view.getFloat64(offset, true)
+
+    const decoder = new TextDecoder()
+    const memoryBytes = new Uint8Array(wasmModule.memory.buffer)
+    const queryAligned = decoder.decode(memoryBytes.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
+    const targetAligned = decoder.decode(memoryBytes.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
+
+    wasmModule.free(queryPtr)
+    wasmModule.free(targetPtr)
+    wasmModule.freeResult(resultPtr)
+
+    return {
+      score,
+      queryStart,
+      queryEnd,
+      targetStart,
+      targetEnd,
+      queryAligned,
+      targetAligned,
+      identity
+    }
+  }
+
+  // Load WASM before tests
+  beforeAll(async () => {
+    const wasmPath = new URL('./alignment.wasm', import.meta.url)
+    const wasmBytes = await Bun.file(wasmPath).arrayBuffer()
+    const { instance } = await WebAssembly.instantiate(wasmBytes, {})
+    wasmModule = instance.exports
+  })
+
+  it('loads WASM module successfully', () => {
+    expect(wasmModule).not.toBeNull()
+    expect(typeof wasmModule.alignSequences).toBe('function')
+    expect(typeof wasmModule.alloc).toBe('function')
+    expect(typeof wasmModule.free).toBe('function')
+    expect(typeof wasmModule.memory).toBe('object')
+  })
+
+  it('aligns identical sequences same as JS', () => {
+    const query = 'ATCGATCG'
+    const target = 'ATCGATCG'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    expect(wasmResult.queryStart).toBe(jsResult.queryStart)
+    expect(wasmResult.queryEnd).toBe(jsResult.queryEnd)
+    expect(wasmResult.targetStart).toBe(jsResult.targetStart)
+    expect(wasmResult.targetEnd).toBe(jsResult.targetEnd)
+    expect(wasmResult.identity).toBe(jsResult.identity)
+  })
+
+  it('aligns sequences with mismatches same as JS', () => {
+    const query = 'ATCGATCG'
+    const target = 'ATCGTTCG'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    expect(wasmResult.identity).toBe(jsResult.identity)
+    expect(wasmResult.queryAligned.length).toBe(jsResult.queryAligned.length)
+  })
+
+  it('handles gaps same as JS', () => {
+    const query = 'ATCGATCG'
+    const target = 'ATCGAAATCG'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    // Both should have gaps
+    expect(wasmResult.queryAligned).toContain('-')
+    expect(jsResult.queryAligned).toContain('-')
+  })
+
+  it('finds local alignment same as JS', () => {
+    const query = 'XXXATCGATCGXXX'
+    const target = 'YYYATCGATCGYYY'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    expect(wasmResult.queryStart).toBe(jsResult.queryStart)
+    expect(wasmResult.queryEnd).toBe(jsResult.queryEnd)
+    expect(wasmResult.targetStart).toBe(jsResult.targetStart)
+    expect(wasmResult.targetEnd).toBe(jsResult.targetEnd)
+  })
+
+  it('handles empty sequences', () => {
+    const wasmResult = alignWasm('', 'ATCG')
+
+    expect(wasmResult.score).toBe(0)
+    expect(wasmResult.queryAligned).toBe('')
+    expect(wasmResult.targetAligned).toBe('')
+  })
+
+  it('handles no match sequences', () => {
+    const query = 'AAAAAAA'
+    const target = 'TTTTTTT'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    expect(wasmResult.score).toBe(0)
+  })
+
+  it('respects custom scoring parameters', () => {
+    const query = 'ATCG'
+    const target = 'ATCG'
+    const options = { match: 5 }
+
+    const jsResult = align(query, target, options)
+    const wasmResult = alignWasm(query, target, options)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    expect(wasmResult.score).toBe(20) // 4 bases * 5 match score
+  })
+
+  it('handles IUPAC ambiguity codes', () => {
+    const query = 'ATCGATCG'
+    const target = 'ATNGANCG' // N matches any base
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.score).toBe(jsResult.score)
+    expect(wasmResult.identity).toBe(jsResult.identity)
+  })
+
+  it('handles larger sequences efficiently', () => {
+    const query = 'ATCG'.repeat(250)  // 1000 bp
+    const target = 'ATCG'.repeat(250) // 1000 bp
+
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult.identity).toBe(100)
+    expect(wasmResult.score).toBe(2000) // 1000 bases * 2 match score
   })
 })

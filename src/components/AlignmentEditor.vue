@@ -10,7 +10,7 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
 import { ANNOTATION_COLORS } from '../utils/annotation.js'
-import { align, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
+import { align, loadWasm, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -1956,6 +1956,9 @@ onMounted(async () => {
   }
 
   document.addEventListener('click', handleClickOutside)
+
+  // Load WASM alignment module (non-blocking, falls back to JS)
+  loadWasm()
 
   emit('ready')
 })

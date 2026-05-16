@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
-    "test:watch": "bun test --watch"
+    "test:watch": "bun test --watch",
+    "build:wasm": "cd src/wasm && zig build -Doptimize=ReleaseSmall"
   },
   "dependencies": {
     "@heroicons/vue": "^2.2.0",

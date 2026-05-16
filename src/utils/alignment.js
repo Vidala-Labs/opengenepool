@@ -1,70 +1,70 @@
 /**
  * Smith-Waterman Local Pairwise Alignment
  *
- * Implements the Smith-Waterman algorithm for local DNA sequence alignment
- * with IUPAC ambiguity code support and affine gap penalties.
+ * This module provides a memory-efficient implementation using:
+ * - WASM (Zig) for large sequences when available
+ * - JavaScript fallback with linear-space algorithm
+ *
+ * The linear-space implementation uses Hirschberg-style divide-and-conquer
+ * to reduce space complexity from O(m×n) to O(n), preventing OOM crashes
+ * on mobile devices.
  */
 
 import { Range, Span } from './dna.js'
 import { Annotation } from './annotation.js'
 
+// Re-export scoreMatch from the JS implementation
+export { scoreMatch } from './alignment-js.js'
+
+// Import the JS fallback implementation
+import { align as alignJS, scoreMatch } from './alignment-js.js'
+
+// WASM module state
+let wasmModule = null
+let wasmLoading = null
+let wasmFailed = false
+
 /**
- * IUPAC ambiguity code definitions.
- * Each code maps to the set of bases it can represent.
+ * Load the WASM module for alignment.
+ * Call this during component initialization for best performance.
+ * Returns a promise that resolves when WASM is ready (or fails gracefully).
  */
-const IUPAC_CODES = {
-  'A': new Set(['A']),
-  'T': new Set(['T']),
-  'G': new Set(['G']),
-  'C': new Set(['C']),
-  'N': new Set(['A', 'T', 'G', 'C']),
-  'R': new Set(['A', 'G']),         // puRine
-  'Y': new Set(['C', 'T']),         // pYrimidine
-  'S': new Set(['G', 'C']),         // Strong
-  'W': new Set(['A', 'T']),         // Weak
-  'K': new Set(['G', 'T']),         // Keto
-  'M': new Set(['A', 'C']),         // aMino
-  'B': new Set(['C', 'G', 'T']),    // not A
-  'D': new Set(['A', 'G', 'T']),    // not C
-  'H': new Set(['A', 'C', 'T']),    // not G
-  'V': new Set(['A', 'C', 'G'])     // not T
+export async function loadWasm() {
+  if (wasmModule) return true
+  if (wasmFailed) return false
+  if (wasmLoading) return wasmLoading
+
+  wasmLoading = (async () => {
+    try {
+      // Dynamic import of the WASM module
+      const wasmUrl = new URL('./alignment.wasm', import.meta.url)
+      const response = await fetch(wasmUrl)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch WASM: ${response.status}`)
+      }
+      const wasmBytes = await response.arrayBuffer()
+      const { instance } = await WebAssembly.instantiate(wasmBytes, {
+        env: {
+          // Any imports the WASM module needs
+        }
+      })
+      wasmModule = instance.exports
+      return true
+    } catch (e) {
+      console.warn('WASM alignment module failed to load, using JS fallback:', e.message)
+      wasmFailed = true
+      return false
+    }
+  })()
+
+  return wasmLoading
 }
 
 /**
- * Score the match between two bases, handling IUPAC ambiguity codes.
- *
- * @param {string} base1 - First base (may be IUPAC code)
- * @param {string} base2 - Second base (may be IUPAC code)
- * @param {number} [matchScore=2] - Score for exact match
- * @param {number} [ambiguousScore=1] - Score for IUPAC ambiguous match
- * @param {number} [mismatchScore=-1] - Score for mismatch
- * @returns {number} The match score
+ * Check if WASM is available and loaded.
  */
-export function scoreMatch(base1, base2, matchScore = 2, ambiguousScore = 1, mismatchScore = -1) {
-  const b1 = base1.toUpperCase()
-  const b2 = base2.toUpperCase()
-
-  const set1 = IUPAC_CODES[b1]
-  const set2 = IUPAC_CODES[b2]
-
-  if (!set1 || !set2) {
-    return mismatchScore
-  }
-
-  // Check for intersection
-  const hasIntersection = [...set1].some(base => set2.has(base))
-
-  if (!hasIntersection) {
-    return mismatchScore
-  }
-
-  // Exact match (both are single standard bases and same)
-  if (set1.size === 1 && set2.size === 1 && b1 === b2) {
-    return matchScore
-  }
-
-  // Ambiguous match (intersection exists but not exact)
-  return ambiguousScore
+export function isWasmReady() {
+  return wasmModule !== null
 }
 
 /**
@@ -81,6 +81,7 @@ export function scoreMatch(base1, base2, matchScore = 2, ambiguousScore = 1, mis
 
 /**
  * Perform Smith-Waterman local alignment.
+ * Uses WASM if available, otherwise falls back to JavaScript.
  *
  * @param {string} query - Query sequence
  * @param {string} target - Target sequence
@@ -92,6 +93,19 @@ export function scoreMatch(base1, base2, matchScore = 2, ambiguousScore = 1, mis
  * @returns {AlignmentResult}
  */
 export function align(query, target, options = {}) {
+  // Use WASM if available
+  if (wasmModule) {
+    return alignWasm(query, target, options)
+  }
+
+  // Fall back to JavaScript implementation
+  return alignJS(query, target, options)
+}
+
+/**
+ * Perform alignment using WASM module.
+ */
+function alignWasm(query, target, options) {
   const {
     match = 2,
     mismatch = -1,
@@ -99,156 +113,87 @@ export function align(query, target, options = {}) {
     gapExtend = -1
   } = options
 
-  const m = query.length
-  const n = target.length
+  // Reset heap before starting new alignment
+  wasmModule.reset()
 
-  // Handle empty sequences
-  if (m === 0 || n === 0) {
-    return {
-      score: 0,
-      queryStart: 0,
-      queryEnd: 0,
-      targetStart: 0,
-      targetEnd: 0,
-      queryAligned: '',
-      targetAligned: '',
-      identity: 0
-    }
-  }
+  // Encode strings to memory
+  const encoder = new TextEncoder()
+  const queryBytes = encoder.encode(query)
+  const targetBytes = encoder.encode(target)
 
-  // Initialize scoring matrices
-  // H[i][j] = best alignment score ending at query[i-1], target[j-1]
-  // E[i][j] = best score ending with gap in query (deletion)
-  // F[i][j] = best score ending with gap in target (insertion)
-  const H = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0))
-  const E = Array(m + 1).fill(null).map(() => Array(n + 1).fill(-Infinity))
-  const F = Array(m + 1).fill(null).map(() => Array(n + 1).fill(-Infinity))
+  const queryLen = queryBytes.length
+  const targetLen = targetBytes.length
 
-  // Track maximum score position
-  let maxScore = 0
-  let maxI = 0
-  let maxJ = 0
+  // Allocate memory in WASM
+  const queryPtr = wasmModule.alloc(queryLen)
+  const targetPtr = wasmModule.alloc(targetLen)
 
-  // Fill matrices
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      // Score for match/mismatch
-      const matchScore = scoreMatch(query[i - 1], target[j - 1], match, 1, mismatch)
+  // Copy strings to WASM memory
+  const memory = new Uint8Array(wasmModule.memory.buffer)
+  memory.set(queryBytes, queryPtr)
+  memory.set(targetBytes, targetPtr)
 
-      // E[i][j] = max(H[i][j-1] + gapOpen, E[i][j-1] + gapExtend)
-      E[i][j] = Math.max(
-        H[i][j - 1] + gapOpen + gapExtend,
-        E[i][j - 1] + gapExtend
-      )
+  // Call WASM alignment function
+  const resultPtr = wasmModule.alignSequences(
+    queryPtr, queryLen,
+    targetPtr, targetLen,
+    match, mismatch, gapOpen, gapExtend
+  )
 
-      // F[i][j] = max(H[i-1][j] + gapOpen, F[i-1][j] + gapExtend)
-      F[i][j] = Math.max(
-        H[i - 1][j] + gapOpen + gapExtend,
-        F[i - 1][j] + gapExtend
-      )
+  // Read result from WASM memory
+  const result = readAlignmentResult(resultPtr)
 
-      // H[i][j] = max(0, H[i-1][j-1] + matchScore, E[i][j], F[i][j])
-      H[i][j] = Math.max(
-        0,
-        H[i - 1][j - 1] + matchScore,
-        E[i][j],
-        F[i][j]
-      )
+  // Free allocated memory
+  wasmModule.free(queryPtr)
+  wasmModule.free(targetPtr)
+  wasmModule.freeResult(resultPtr)
 
-      // Track maximum
-      if (H[i][j] > maxScore) {
-        maxScore = H[i][j]
-        maxI = i
-        maxJ = j
-      }
-    }
-  }
+  return result
+}
 
-  // No alignment found
-  if (maxScore === 0) {
-    return {
-      score: 0,
-      queryStart: 0,
-      queryEnd: 0,
-      targetStart: 0,
-      targetEnd: 0,
-      queryAligned: '',
-      targetAligned: '',
-      identity: 0
-    }
-  }
+/**
+ * Read alignment result from WASM memory.
+ */
+function readAlignmentResult(ptr) {
+  const memory = new Uint8Array(wasmModule.memory.buffer)
+  const view = new DataView(wasmModule.memory.buffer)
 
-  // Traceback from maximum score position
-  let queryAligned = ''
-  let targetAligned = ''
-  let i = maxI
-  let j = maxJ
+  // Result structure layout:
+  // i32 score              (offset 0)
+  // i32 queryStart         (offset 4)
+  // i32 queryEnd           (offset 8)
+  // i32 targetStart        (offset 12)
+  // i32 targetEnd          (offset 16)
+  // u32 queryAlignedPtr    (offset 20)
+  // i32 queryAlignedLen    (offset 24)
+  // u32 targetAlignedPtr   (offset 28)
+  // i32 targetAlignedLen   (offset 32)
+  // u32 _padding           (offset 36) - for f64 alignment
+  // f64 identity           (offset 40)
 
-  while (i > 0 && j > 0 && H[i][j] > 0) {
-    const current = H[i][j]
-    const matchScore = scoreMatch(query[i - 1], target[j - 1], match, 1, mismatch)
-    const diagonal = H[i - 1][j - 1] + matchScore
+  let offset = ptr
+  const score = view.getInt32(offset, true); offset += 4
+  const queryStart = view.getInt32(offset, true); offset += 4
+  const queryEnd = view.getInt32(offset, true); offset += 4
+  const targetStart = view.getInt32(offset, true); offset += 4
+  const targetEnd = view.getInt32(offset, true); offset += 4
+  const queryAlignedPtr = view.getUint32(offset, true); offset += 4
+  const queryAlignedLen = view.getInt32(offset, true); offset += 4
+  const targetAlignedPtr = view.getUint32(offset, true); offset += 4
+  const targetAlignedLen = view.getInt32(offset, true); offset += 4
+  offset += 4  // skip padding
+  const identity = view.getFloat64(offset, true)
 
-    if (current === diagonal) {
-      // Match/mismatch
-      queryAligned = query[i - 1] + queryAligned
-      targetAligned = target[j - 1] + targetAligned
-      i--
-      j--
-    } else if (current === E[i][j]) {
-      // Gap in query (deletion from query perspective)
-      queryAligned = '-' + queryAligned
-      targetAligned = target[j - 1] + targetAligned
-      j--
-      // Continue through gap
-      while (j > 0 && E[i][j] === E[i][j - 1] + gapExtend) {
-        queryAligned = '-' + queryAligned
-        targetAligned = target[j - 1] + targetAligned
-        j--
-      }
-    } else {
-      // Gap in target (insertion from query perspective)
-      queryAligned = query[i - 1] + queryAligned
-      targetAligned = '-' + targetAligned
-      i--
-      // Continue through gap
-      while (i > 0 && F[i][j] === F[i - 1][j] + gapExtend) {
-        queryAligned = query[i - 1] + queryAligned
-        targetAligned = '-' + targetAligned
-        i--
-      }
-    }
-  }
-
-  // Calculate identity
-  let matches = 0
-  let alignedLength = queryAligned.length
-  for (let k = 0; k < alignedLength; k++) {
-    if (queryAligned[k] !== '-' && targetAligned[k] !== '-') {
-      const qBase = queryAligned[k].toUpperCase()
-      const tBase = targetAligned[k].toUpperCase()
-      if (qBase === tBase) {
-        matches++
-      }
-    }
-  }
-
-  // Count non-gap positions for identity calculation
-  let nonGapPositions = 0
-  for (let k = 0; k < alignedLength; k++) {
-    if (queryAligned[k] !== '-' && targetAligned[k] !== '-') {
-      nonGapPositions++
-    }
-  }
-
-  const identity = nonGapPositions > 0 ? Math.round((matches / nonGapPositions) * 1000) / 10 : 0
+  const decoder = new TextDecoder()
+  const queryAligned = decoder.decode(memory.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
+  const targetAligned = decoder.decode(memory.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
 
   return {
-    score: maxScore,
-    queryStart: i,
-    queryEnd: maxI,
-    targetStart: j,
-    targetEnd: maxJ,
+    score,
+    queryStart,
+    queryEnd,
+    targetStart,
+    targetEnd,
     queryAligned,
     targetAligned,
     identity
