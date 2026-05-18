@@ -221,8 +221,8 @@ export class SequenceDocument {
 
     // 3. Notify backend (delete + insert)
     if (this._backend) {
-      this._backend.delete?.({ id: crypto.randomUUID(), start, end })
-      this._backend.insert?.({ id: crypto.randomUUID(), position: start, text })
+      this._backend.delete?.({ editId: crypto.randomUUID(), start, end })
+      this._backend.insert?.({ editId: crypto.randomUUID(), position: start, text })
     }
 
     return deleted
