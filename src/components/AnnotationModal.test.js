@@ -851,7 +851,7 @@ describe('AnnotationModal', () => {
 
   describe('additionalFields prop', () => {
     const MockEditor = {
-      props: ['modelValue', 'annotationLength'],
+      props: ['modelValue', 'annotation'],
       emits: ['update:modelValue'],
       template: '<input class="mock-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
     }
@@ -903,7 +903,7 @@ describe('AnnotationModal', () => {
       expect(wrapper.find('.mock-editor').exists()).toBe(false)
     })
 
-    it('passes annotation length to editor component', async () => {
+    it('passes annotation context to editor component', async () => {
       const wrapper = mount(AnnotationModal, {
         props: {
           open: true,
@@ -918,7 +918,9 @@ describe('AnnotationModal', () => {
       // Find the editor component and check its props
       const editor = wrapper.findComponent(MockEditor)
       expect(editor.exists()).toBe(true)
-      expect(editor.props('annotationLength')).toBe(25)
+      expect(editor.props('annotation')).toBeDefined()
+      expect(editor.props('annotation').length).toBe(25)
+      expect(editor.props('annotation').type).toBe('primer')
     })
 
     it('includes additional field value in emitted attributes', async () => {
@@ -1087,7 +1089,7 @@ describe('AnnotationModal', () => {
 
   describe('additionalFields - no duplicate display', () => {
     const MockEditor = {
-      props: ['modelValue', 'annotationLength'],
+      props: ['modelValue', 'annotation'],
       emits: ['update:modelValue'],
       template: '<input class="mock-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
     }
@@ -1166,7 +1168,7 @@ describe('AnnotationModal', () => {
 
   describe('additionalFields - clear/remove capability', () => {
     const MockEditor = {
-      props: ['modelValue', 'annotationLength'],
+      props: ['modelValue', 'annotation'],
       emits: ['update:modelValue'],
       template: '<input class="mock-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
     }

@@ -82,6 +82,15 @@ const annotationLength = computed(() => {
   }, 0)
 })
 
+// Full annotation context for extension editors
+const annotationContext = computed(() => ({
+  type: annotationType.value,
+  label: caption.value,
+  ranges: ranges.value,
+  length: annotationLength.value,
+  attributes: attributes.value
+}))
+
 // Convert Span object to form-friendly range array
 function spanToFormRanges(span) {
   if (!span || !span.ranges || span.ranges.length === 0) {
@@ -482,7 +491,7 @@ function onOverlayClick() {
               :is="field.editor"
               :id="'annotation-additional-' + field.key"
               v-model="additionalFieldValues[field.key]"
-              :annotation-length="annotationLength"
+              :annotation="annotationContext"
             />
           </div>
 

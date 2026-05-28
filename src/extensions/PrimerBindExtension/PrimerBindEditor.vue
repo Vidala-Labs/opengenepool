@@ -1,16 +1,20 @@
 <script setup>
+import { computed } from 'vue'
+
 const props = defineProps({
   modelValue: {
     type: Number,
     default: null
   },
-  annotationLength: {
-    type: Number,
+  annotation: {
+    type: Object,
     required: true
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const maxLength = computed(() => props.annotation?.length || 0)
 
 function onInput(event) {
   const value = event.target.value
@@ -27,7 +31,7 @@ function onInput(event) {
     type="number"
     :value="modelValue"
     :min="0"
-    :max="annotationLength"
+    :max="maxLength"
     @input="onInput"
     class="primer-bind-editor"
   />

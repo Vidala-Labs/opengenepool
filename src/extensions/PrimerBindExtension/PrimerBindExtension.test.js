@@ -19,7 +19,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
@@ -31,7 +31,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
@@ -43,7 +43,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
@@ -55,7 +55,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 25,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
@@ -67,7 +67,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
@@ -82,7 +82,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
@@ -98,7 +98,7 @@ describe('PrimerBindEditor', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: null,
-        annotationLength: 50
+        annotation: { length: 50 }
       }
     })
 
