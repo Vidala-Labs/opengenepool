@@ -892,17 +892,25 @@ defineExpose({
         </text>
 
         <!-- Primer binding line indicator (vertical dotted line showing where primer binds) -->
-        <line
-          v-if="getPrimerBindLineX(element) !== null"
-          :x1="getPrimerBindLineX(element)"
-          :x2="getPrimerBindLineX(element)"
-          :y1="stackDirection === 'down' ? 0 : -height"
-          :y2="stackDirection === 'down' ? height : 0"
-          class="primer-bind-line"
-          stroke="black"
-          stroke-width="1"
-          stroke-dasharray="2,2"
-        />
+        <template v-if="getPrimerBindLineX(element) !== null">
+          <rect
+            :x="getPrimerBindLineX(element) - 2"
+            :y="stackDirection === 'down' ? -arrowEdge : -arrowEdge"
+            :width="4"
+            :height="arrowEdge"
+            fill="#333"
+          />
+          <line
+            :x1="getPrimerBindLineX(element)"
+            :x2="getPrimerBindLineX(element)"
+            :y1="stackDirection === 'down' ? 0 : -height"
+            :y2="stackDirection === 'down' ? height : 0"
+            class="primer-bind-line"
+            stroke="black"
+            stroke-width="1"
+            stroke-dasharray="2,2"
+          />
+        </template>
       </g>
     </g>
   </g>
