@@ -68,9 +68,13 @@ const additionalFieldValues = ref({})
 // Additional fields filtered by current annotation type
 const activeAdditionalFields = computed(() => {
   if (!annotationType.value) return []
-  return props.additionalFields.filter(field =>
-    field.forTypes.includes(annotationType.value)
-  )
+  return props.additionalFields.filter(field => {
+    // Must match annotation type
+    if (!field.forTypes.includes(annotationType.value)) return false
+    // primer_bind only available for single-range annotations
+    if (field.key === 'primer_bind' && ranges.value.length !== 1) return false
+    return true
+  })
 })
 
 // Annotation length computed from ranges
@@ -298,8 +302,12 @@ function handleSubmit() {
   for (const [key, value] of Object.entries(attributes.value)) {
     // Skip internal attributes (underscore prefix = one-way from backend)
     if (key.startsWith('_')) continue
-    if (value && value.trim()) {
-      finalAttrs[key] = value.trim()
+    if (typeof value === 'string') {
+      if (value.trim()) {
+        finalAttrs[key] = value.trim()
+      }
+    } else if (value !== null && value !== undefined) {
+      finalAttrs[key] = value
     }
   }
 
@@ -308,6 +316,42 @@ function handleSubmit() {
   for (const [key, value] of Object.entries(additionalFieldValues.value)) {
     if (activeKeys.has(key) && value !== null && value !== undefined && value !== '') {
       finalAttrs[key] = value
+    }
+  }
+
+  // Adjust primer_bind when primer annotation ranges change
+  // Keep the binding divider at the same absolute position
+  if (isEditMode.value && annotationType.value === 'primer' && props.annotation?.attributes?.primer_bind !== undefined) {
+    const originalSpan = props.annotation.span
+    const newSpan = computedSpan.value
+    const originalPrimerBind = props.annotation.attributes.primer_bind
+
+    if (originalSpan?.ranges?.length === 1 && newSpan?.ranges?.length === 1) {
+      const originalRange = originalSpan.ranges[0]
+      const newRange = newSpan.ranges[0]
+
+      // Calculate divider position based on orientation
+      // For PLUS (forward): 3' end is at range.end, divider at end - primer_bind
+      // For MINUS (reverse): 3' end is at range.start, divider at start + primer_bind
+      let dividerPos
+      let newPrimerBind
+
+      if (originalRange.orientation === Orientation.PLUS) {
+        dividerPos = originalRange.end - originalPrimerBind
+        newPrimerBind = newRange.end - dividerPos
+      } else if (originalRange.orientation === Orientation.MINUS) {
+        dividerPos = originalRange.start + originalPrimerBind
+        newPrimerBind = dividerPos - newRange.start
+      }
+
+      // Validate new primer_bind: must be >= 1 and < new annotation length
+      const newLength = newRange.end - newRange.start
+      if (newPrimerBind >= 1 && newPrimerBind < newLength) {
+        finalAttrs.primer_bind = newPrimerBind
+      } else {
+        // Invalid - explicitly delete since it may have been copied from additionalFieldValues
+        delete finalAttrs.primer_bind
+      }
     }
   }
 

@@ -30,8 +30,8 @@ function onInput(event) {
   <input
     type="number"
     :value="modelValue"
-    :min="0"
-    :max="maxLength"
+    :min="1"
+    :max="maxLength - 1"
     @input="onInput"
     class="primer-bind-editor"
   />

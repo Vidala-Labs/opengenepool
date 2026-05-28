@@ -27,7 +27,7 @@ describe('PrimerBindEditor', () => {
     expect(input.exists()).toBe(true)
   })
 
-  it('sets max to annotation length', () => {
+  it('sets max to annotation length - 1 (cannot be full length)', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
@@ -36,10 +36,10 @@ describe('PrimerBindEditor', () => {
     })
 
     const input = wrapper.find('input[type="number"]')
-    expect(input.attributes('max')).toBe('50')
+    expect(input.attributes('max')).toBe('49')
   })
 
-  it('sets min to 0', () => {
+  it('sets min to 1 (cannot be 0)', () => {
     const wrapper = mount(PrimerBindEditor, {
       props: {
         modelValue: 20,
@@ -48,7 +48,7 @@ describe('PrimerBindEditor', () => {
     })
 
     const input = wrapper.find('input[type="number"]')
-    expect(input.attributes('min')).toBe('0')
+    expect(input.attributes('min')).toBe('1')
   })
 
   it('displays current value', () => {
