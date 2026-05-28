@@ -767,4 +767,72 @@ describe('coordination with TranslationLayer', () => {
       wrapper2.unmount()
     })
   })
+
+  describe('primer_bind line indicator', () => {
+    it('draws vertical dotted line for forward primer with primer_bind', () => {
+      // Forward primer from position 10-30 with primer_bind=5
+      // The 3' end is at position 30, so line should be at position 30 - 5 = 25
+      const annotation = new Annotation({
+        id: 'primer1',
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(10, 30, Orientation.PLUS),
+        attributes: { primer_bind: 5 }
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const line = wrapper.find('.primer-bind-line')
+      expect(line.exists()).toBe(true)
+
+      // x position = lmargin(60) + (end - primer_bind)(25) * charWidth(8) = 60 + 200 = 260
+      expect(line.attributes('x1')).toBe('260')
+      expect(line.attributes('x2')).toBe('260')
+      expect(line.attributes('stroke-dasharray')).toBeTruthy()
+    })
+
+    it('draws vertical dotted line for reverse primer with primer_bind', () => {
+      // Reverse primer from position 10-30 with primer_bind=5
+      // The 3' end is at position 10 (start), so line should be at position 10 + 5 = 15
+      const annotation = new Annotation({
+        id: 'primer1',
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(10, 30, Orientation.MINUS),
+        attributes: { primer_bind: 5 }
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const line = wrapper.find('.primer-bind-line')
+      expect(line.exists()).toBe(true)
+
+      // x position = lmargin(60) + (start + primer_bind)(15) * charWidth(8) = 60 + 120 = 180
+      expect(line.attributes('x1')).toBe('180')
+      expect(line.attributes('x2')).toBe('180')
+    })
+
+    it('does not draw line for primer without primer_bind attribute', () => {
+      const annotation = new Annotation({
+        id: 'primer1',
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(10, 30, Orientation.PLUS)
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      expect(wrapper.find('.primer-bind-line').exists()).toBe(false)
+    })
+
+    it('does not draw line for non-primer type even with primer_bind attribute', () => {
+      const annotation = new Annotation({
+        id: 'gene1',
+        caption: 'Test Gene',
+        type: 'gene',
+        span: ezSpan(10, 30, Orientation.PLUS),
+        attributes: { primer_bind: 5 }
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      expect(wrapper.find('.primer-bind-line').exists()).toBe(false)
+    })
+  })
 })
