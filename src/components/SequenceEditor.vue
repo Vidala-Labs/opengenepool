@@ -65,6 +65,11 @@ const props = defineProps({
   tmCalculator: {
     type: Function,
     default: null
+  },
+  /** Array of annotation field extension objects for the annotation modal */
+  annotationFields: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -2595,6 +2600,7 @@ const toolbarHelpText = `Selection Controls:
       :sequence-length="editorState.sequence.value.length"
       :readonly="props.readonly"
       :annotation="editingAnnotation"
+      :additional-fields="props.annotationFields"
       @close="closeAnnotationModal"
       @create="handleAnnotationCreate"
       @update="handleAnnotationUpdate"
