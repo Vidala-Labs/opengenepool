@@ -259,15 +259,6 @@ const availableToAdd = computed(() => {
   return OPTIONAL_FIELDS.filter(f => !visibleKeys.has(f.key))
 })
 
-// Additional field extensions active for current annotation type
-const activeAdditionalFields = computed(() => {
-  if (!annotationType.value) return []
-  return props.additionalFields.filter(field => {
-    if (!field.forTypes || !field.forTypes.includes(annotationType.value)) return false
-    return true
-  })
-})
-
 function addField(key) {
   if (key && !visibleFields.value.includes(key)) {
     visibleFields.value.push(key)
