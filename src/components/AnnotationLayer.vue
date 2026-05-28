@@ -478,6 +478,107 @@ function getMenuItemsForElement(dataset) {
     }
   }
 
+  // Clip primer binding option
+  // When selection exactly matches a primer's span, and clicked annotation has exactly one end inside
+  if (selection?.isSelected?.value && selection?.domain?.value) {
+    const selRanges = selection.domain.value.ranges
+    if (selRanges?.length === 1) {
+      const selRange = selRanges[0]
+
+      // Find primers whose span exactly matches selection (single-segment, no primer_bind)
+      const matchingPrimers = props.annotations.filter(ann => {
+        if (ann.type !== 'primer') return false
+        if (ann.attributes?.primer_bind !== undefined) return false
+        const ranges = ann.span?.ranges
+        if (!ranges || ranges.length !== 1) return false
+        const r = ranges[0]
+        return r.start === selRange.start && r.end === selRange.end
+      })
+
+      // Check if clicked annotation has exactly one end inside selection
+      const clickedRange = annotation.span?.ranges?.[rangeIndex ?? 0]
+      if (clickedRange && matchingPrimers.length > 0) {
+        const startInside = clickedRange.start > selRange.start && clickedRange.start < selRange.end
+        const endInside = clickedRange.end > selRange.start && clickedRange.end < selRange.end
+
+        if (startInside !== endInside) { // XOR - exactly one end inside
+          const clipPosition = startInside ? clickedRange.start : clickedRange.end
+
+          for (const primer of matchingPrimers) {
+            items.push({
+              label: `Clip primer binding of ${primer.caption}`,
+              action: () => {
+                // Calculate primer_bind based on orientation
+                const primerRange = primer.span.ranges[0]
+                let primerBind
+                if (primerRange.orientation === Orientation.PLUS) {
+                  primerBind = primerRange.end - clipPosition
+                } else {
+                  primerBind = clipPosition - primerRange.start
+                }
+                // Update via document or emit
+                if (props.document) {
+                  props.document.updateAnnotation({
+                    id: primer.id,
+                    attributes: { ...primer.attributes, primer_bind: primerBind }
+                  })
+                }
+              }
+            })
+          }
+        }
+      }
+    }
+  }
+
+  // Reverse operation: Clip this primer with selection
+  // When right-clicking a primer, selection has one terminus inside primer
+  if (selection?.isSelected?.value && selection?.domain?.value) {
+    const selRanges = selection.domain.value.ranges
+    // Only single-range selection
+    if (selRanges?.length === 1) {
+      const selRange = selRanges[0]
+
+      // Check if clicked annotation is an eligible primer
+      if (annotation.type === 'primer' &&
+          annotation.attributes?.primer_bind === undefined) {
+        const primerRanges = annotation.span?.ranges
+        // Only single-segment primers
+        if (primerRanges?.length === 1) {
+          const primerRange = primerRanges[0]
+
+          // Check if exactly one selection terminus is inside primer (exclusive)
+          const selStartInside = selRange.start > primerRange.start && selRange.start < primerRange.end
+          const selEndInside = selRange.end > primerRange.start && selRange.end < primerRange.end
+
+          if (selStartInside !== selEndInside) { // XOR - exactly one terminus inside
+            const clipPosition = selStartInside ? selRange.start : selRange.end
+
+            items.push({
+              label: 'Clip this primer with selection',
+              action: () => {
+                // Calculate primer_bind based on orientation
+                let primerBind
+                if (primerRange.orientation === Orientation.PLUS) {
+                  primerBind = primerRange.end - clipPosition
+                } else {
+                  primerBind = clipPosition - primerRange.start
+                }
+                // Update via document
+                if (props.document) {
+                  props.document.updateAnnotation({
+                    id: annotation.id,
+                    attributes: { ...annotation.attributes, primer_bind: primerBind }
+                  })
+                }
+              }
+            })
+          }
+        }
+      }
+    }
+  }
+
   return items
 }
 
@@ -489,6 +590,35 @@ function getFragmentX(fragment) {
 // Calculate width for a fragment
 function getFragmentWidth(fragment) {
   return fragment.width * graphics.metrics.value.charWidth
+}
+
+// Calculate x position for primer_bind line indicator
+// Returns null if no line should be drawn
+function getPrimerBindLineX(element) {
+  const fragment = element.fragment
+  const annotation = fragment.annotation
+
+  // Only for primer type with primer_bind attribute
+  if (fragment.type !== 'primer' && annotation?.type !== 'primer') return null
+  const primerBind = annotation?.attributes?.primer_bind
+  if (primerBind === undefined || primerBind === null) return null
+
+  const { lmargin, charWidth } = graphics.metrics.value
+
+  // For forward (PLUS) orientation: 3' end is at fragment.end, line at end - primer_bind
+  // For reverse (MINUS) orientation: 3' end is at fragment.start, line at start + primer_bind
+  if (fragment.orientation === Orientation.PLUS) {
+    // Fragment uses fenced coordinates where end is exclusive
+    // The line should be at position (end - primer_bind) from the 3' end
+    const linePos = fragment.end - primerBind
+    return lmargin + linePos * charWidth
+  } else if (fragment.orientation === Orientation.MINUS) {
+    // For reverse strand, 3' end is at start
+    const linePos = fragment.start + primerBind
+    return lmargin + linePos * charWidth
+  }
+
+  return null
 }
 
 // Is this an alignment mode layer?
@@ -760,6 +890,27 @@ defineExpose({
         >
           {{ element.fragment.caption }}
         </text>
+
+        <!-- Primer binding line indicator (vertical dotted line showing where primer binds) -->
+        <template v-if="getPrimerBindLineX(element) !== null">
+          <rect
+            :x="getPrimerBindLineX(element) - 2"
+            :y="stackDirection === 'down' ? -arrowEdge : -arrowEdge"
+            :width="4"
+            :height="arrowEdge"
+            fill="#333"
+          />
+          <line
+            :x1="getPrimerBindLineX(element)"
+            :x2="getPrimerBindLineX(element)"
+            :y1="stackDirection === 'down' ? 0 : -height"
+            :y2="stackDirection === 'down' ? height : 0"
+            class="primer-bind-line"
+            stroke="black"
+            stroke-width="1"
+            stroke-dasharray="2,2"
+          />
+        </template>
       </g>
     </g>
   </g>

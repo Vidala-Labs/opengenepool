@@ -25,7 +25,7 @@ const props = defineProps({
     type: Object,
     default: null
   },
-  /** Array of additional field extensions for specific annotation types */
+  /** Additional field definitions from extensions/plugins */
   additionalFields: {
     type: Array,
     default: () => []
@@ -63,6 +63,37 @@ const ranges = ref([])
 const attributes = ref({})
 const visibleFields = ref([])
 const customFieldName = ref('')
+const additionalFieldValues = ref({})
+
+// Additional fields filtered by current annotation type
+const activeAdditionalFields = computed(() => {
+  if (!annotationType.value) return []
+  return props.additionalFields.filter(field => {
+    // Must match annotation type
+    if (!field.forTypes.includes(annotationType.value)) return false
+    // primer_bind only available for single-range annotations
+    if (field.key === 'primer_bind' && ranges.value.length !== 1) return false
+    return true
+  })
+})
+
+// Annotation length computed from ranges
+const annotationLength = computed(() => {
+  if (!ranges.value || ranges.value.length === 0) return 0
+  // Sum up all range lengths
+  return ranges.value.reduce((total, range) => {
+    return total + (range.end - range.start + 1)
+  }, 0)
+})
+
+// Full annotation context for extension editors
+const annotationContext = computed(() => ({
+  type: annotationType.value,
+  label: caption.value,
+  ranges: ranges.value,
+  length: annotationLength.value,
+  attributes: attributes.value
+}))
 
 // Convert Span object to form-friendly range array
 function spanToFormRanges(span) {
@@ -103,10 +134,21 @@ watch(() => props.open, (isOpen) => {
       annotationType.value = props.annotation.type || ''
       // Get ranges from existing annotation span
       ranges.value = spanToFormRanges(props.annotation.span || props.span)
-      // Pre-fill attributes (filter underscore-prefixed keys from display)
+      // Pre-fill attributes (filter underscore-prefixed keys and extension keys from display)
       const attrs = props.annotation.attributes || {}
       attributes.value = { ...attrs }
-      visibleFields.value = Object.keys(attrs).filter(key => !key.startsWith('_'))
+      // Build set of keys handled by additionalFields extensions
+      const extensionKeys = new Set(props.additionalFields.map(f => f.key))
+      visibleFields.value = Object.keys(attrs).filter(key =>
+        !key.startsWith('_') && !extensionKeys.has(key)
+      )
+      // Pre-fill additional field values from existing attributes
+      additionalFieldValues.value = {}
+      for (const field of props.additionalFields) {
+        if (field.key in attrs) {
+          additionalFieldValues.value[field.key] = attrs[field.key]
+        }
+      }
     } else {
       // Create mode - use span prop and reset fields
       ranges.value = spanToFormRanges(props.span)
@@ -114,6 +156,7 @@ watch(() => props.open, (isOpen) => {
       annotationType.value = ''
       attributes.value = {}
       visibleFields.value = []
+      additionalFieldValues.value = {}
     }
     customFieldName.value = ''
   }
@@ -216,15 +259,6 @@ const availableToAdd = computed(() => {
   return OPTIONAL_FIELDS.filter(f => !visibleKeys.has(f.key))
 })
 
-// Additional field extensions active for current annotation type
-const activeAdditionalFields = computed(() => {
-  if (!annotationType.value) return []
-  return props.additionalFields.filter(field => {
-    if (!field.forTypes || !field.forTypes.includes(annotationType.value)) return false
-    return true
-  })
-})
-
 function addField(key) {
   if (key && !visibleFields.value.includes(key)) {
     visibleFields.value.push(key)
@@ -251,6 +285,11 @@ function getFieldLabel(key) {
   return field ? field.label : key
 }
 
+function clearAdditionalField(key) {
+  delete additionalFieldValues.value[key]
+  delete attributes.value[key]
+}
+
 function close() {
   emit('close')
 }
@@ -263,8 +302,56 @@ function handleSubmit() {
   for (const [key, value] of Object.entries(attributes.value)) {
     // Skip internal attributes (underscore prefix = one-way from backend)
     if (key.startsWith('_')) continue
-    if (value && value.trim()) {
-      finalAttrs[key] = value.trim()
+    if (typeof value === 'string') {
+      if (value.trim()) {
+        finalAttrs[key] = value.trim()
+      }
+    } else if (value !== null && value !== undefined) {
+      finalAttrs[key] = value
+    }
+  }
+
+  // Include additional field values (only for active fields matching current type)
+  const activeKeys = new Set(activeAdditionalFields.value.map(f => f.key))
+  for (const [key, value] of Object.entries(additionalFieldValues.value)) {
+    if (activeKeys.has(key) && value !== null && value !== undefined && value !== '') {
+      finalAttrs[key] = value
+    }
+  }
+
+  // Adjust primer_bind when primer annotation ranges change
+  // Keep the binding divider at the same absolute position
+  if (isEditMode.value && annotationType.value === 'primer' && props.annotation?.attributes?.primer_bind !== undefined) {
+    const originalSpan = props.annotation.span
+    const newSpan = computedSpan.value
+    const originalPrimerBind = props.annotation.attributes.primer_bind
+
+    if (originalSpan?.ranges?.length === 1 && newSpan?.ranges?.length === 1) {
+      const originalRange = originalSpan.ranges[0]
+      const newRange = newSpan.ranges[0]
+
+      // Calculate divider position based on orientation
+      // For PLUS (forward): 3' end is at range.end, divider at end - primer_bind
+      // For MINUS (reverse): 3' end is at range.start, divider at start + primer_bind
+      let dividerPos
+      let newPrimerBind
+
+      if (originalRange.orientation === Orientation.PLUS) {
+        dividerPos = originalRange.end - originalPrimerBind
+        newPrimerBind = newRange.end - dividerPos
+      } else if (originalRange.orientation === Orientation.MINUS) {
+        dividerPos = originalRange.start + originalPrimerBind
+        newPrimerBind = dividerPos - newRange.start
+      }
+
+      // Validate new primer_bind: must be >= 1 and < new annotation length
+      const newLength = newRange.end - newRange.start
+      if (newPrimerBind >= 1 && newPrimerBind < newLength) {
+        finalAttrs.primer_bind = newPrimerBind
+      } else {
+        // Invalid - explicitly delete since it may have been copied from additionalFieldValues
+        delete finalAttrs.primer_bind
+      }
     }
   }
 
@@ -430,17 +517,25 @@ function onOverlayClick() {
             />
           </div>
 
-          <!-- Additional field extensions (for specific annotation types) -->
-          <div
-            v-for="field in activeAdditionalFields"
-            :key="field.key"
-            class="form-group"
-          >
-            <label>{{ field.label }}</label>
+          <!-- Additional fields from extensions/plugins -->
+          <div v-for="field in activeAdditionalFields" :key="field.key" class="form-group">
+            <div class="form-label-row">
+              <label :for="'annotation-additional-' + field.key">{{ field.label }}</label>
+              <button
+                v-if="additionalFieldValues[field.key] !== undefined && additionalFieldValues[field.key] !== null && additionalFieldValues[field.key] !== ''"
+                type="button"
+                class="btn-remove-field"
+                @click="clearAdditionalField(field.key)"
+                title="Clear field"
+              >
+                <TrashIcon class="icon-small" />
+              </button>
+            </div>
             <component
               :is="field.editor"
-              v-model="attributes[field.key]"
-              :annotation="{ ranges, type: annotationType, caption }"
+              :id="'annotation-additional-' + field.key"
+              v-model="additionalFieldValues[field.key]"
+              :annotation="annotationContext"
             />
           </div>
 
@@ -469,7 +564,7 @@ function onOverlayClick() {
                 type="text"
                 class="custom-field-input"
                 v-model="customFieldName"
-                placeholder="Custom qualifier"
+                placeholder="Custom field"
                 @keyup.enter="addCustomField"
               />
             </div>

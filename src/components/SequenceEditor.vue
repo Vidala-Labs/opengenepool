@@ -66,7 +66,7 @@ const props = defineProps({
     type: Function,
     default: null
   },
-  /** Array of annotation field extension objects for the annotation modal */
+  /** Additional annotation field definitions from extensions/plugins */
   annotationFields: {
     type: Array,
     default: () => []
@@ -417,6 +417,46 @@ const selectionStatusText = computed(() => {
     const tmDisplay = calculator(selectedSeq)
     if (tmDisplay) {
       statusText += ` · ${tmDisplay}`
+    }
+
+    // Check if selection matches a primer with primer_bind attribute
+    const matchingPrimer = localAnnotations.value?.find(ann => {
+      if (ann.type !== 'primer') return false
+      if (ann.attributes?.primer_bind === undefined) return false
+      const ranges = ann.span?.ranges
+      if (!ranges || ranges.length !== 1) return false
+      const r = ranges[0]
+      return r.start === range.start && r.end === range.end
+    })
+
+    if (matchingPrimer) {
+      const primerRange = matchingPrimer.span.ranges[0]
+      const primerBind = matchingPrimer.attributes.primer_bind
+
+      // Calculate binding region coordinates based on strand orientation
+      // Forward (PLUS): binding at 3' end of primer (end of range)
+      // Reverse (MINUS): binding at 5' end (start of range, but reversed)
+      let bindStart, bindEnd
+      if (primerRange.orientation === Orientation.MINUS) {
+        bindStart = primerRange.start
+        bindEnd = primerRange.start + primerBind
+      } else {
+        bindStart = primerRange.end - primerBind
+        bindEnd = primerRange.end
+      }
+
+      // Extract binding region sequence
+      let bindingSeq = seq.slice(bindStart, bindEnd)
+
+      // For minus strand, reverse complement to get primer sequence
+      if (primerRange.orientation === Orientation.MINUS) {
+        bindingSeq = reverseComplement(bindingSeq)
+      }
+
+      const bindingTm = calculator(bindingSeq)
+      if (bindingTm) {
+        statusText += ` · Binding ${bindingTm}`
+      }
     }
   }
 
@@ -1615,6 +1655,22 @@ function handleAnnotationContextMenu(data) {
     annotation: data.annotation,
     fragment: data.fragment
   })
+
+  // Also get layer-specific items from AnnotationLayer (e.g., clip primer binding)
+  // Only when not readonly - these are edit actions
+  if (!props.readonly) {
+    const dataset = {
+      layer: 'annotation',
+      annotationId: String(data.annotation.id),
+      rangeIndex: String(data.fragment?.rangeIndex ?? 0)
+    }
+    const layerItems = annotationLayerRef.value?.getMenuItemsForElement?.(dataset) || []
+    if (layerItems.length > 0) {
+      items.push({ separator: true })
+      items.push(...layerItems)
+    }
+  }
+
   contextMenuItems.value = items
   contextMenuX.value = data.event.clientX
   contextMenuY.value = data.event.clientY
