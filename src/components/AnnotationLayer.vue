@@ -388,9 +388,9 @@ function getMenuItemsForElement(dataset) {
     action: () => {
       if (props.document) {
         props.document.deleteAnnotation(effectiveAnnotation.id)
-      } else {
-        emit('delete-annotation', { id: effectiveAnnotation.id })
       }
+      // Always emit event so parent can respond (e.g., emit annotations-update)
+      emit('delete-annotation', { id: effectiveAnnotation.id })
     }
   })
 
