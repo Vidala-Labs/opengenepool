@@ -1615,6 +1615,22 @@ function handleAnnotationContextMenu(data) {
     annotation: data.annotation,
     fragment: data.fragment
   })
+
+  // Also get layer-specific items from AnnotationLayer (e.g., clip primer binding)
+  // Only when not readonly - these are edit actions
+  if (!props.readonly) {
+    const dataset = {
+      layer: 'annotation',
+      annotationId: String(data.annotation.id),
+      rangeIndex: String(data.fragment?.rangeIndex ?? 0)
+    }
+    const layerItems = annotationLayerRef.value?.getMenuItemsForElement?.(dataset) || []
+    if (layerItems.length > 0) {
+      items.push({ separator: true })
+      items.push(...layerItems)
+    }
+  }
+
   contextMenuItems.value = items
   contextMenuX.value = data.event.clientX
   contextMenuY.value = data.event.clientY

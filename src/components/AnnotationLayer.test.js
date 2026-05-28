@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
 import AnnotationLayer, { __resetModuleState, allAnnotationTypes } from './AnnotationLayer.vue'
@@ -833,6 +833,618 @@ describe('coordination with TranslationLayer', () => {
 
       const wrapper = mountWithProviders({ annotations: [annotation] })
       expect(wrapper.find('.primer-bind-line').exists()).toBe(false)
+    })
+  })
+
+  describe('clip primer binding context menu', () => {
+    // Helper to mount with selection provider
+    function mountWithSelection(props = {}, selectionState = {}, options = {}) {
+      const { editorState, graphics } = createMockProviders(options)
+
+      const selection = {
+        isSelected: ref(selectionState.isSelected ?? false),
+        domain: ref(selectionState.domain ?? null)
+      }
+
+      return mount(AnnotationLayer, {
+        props,
+        global: {
+          provide: {
+            editorState,
+            graphics,
+            selection
+          }
+        }
+      })
+    }
+
+    // Helper to create selection domain matching a range
+    function selectionDomainFor(start, end) {
+      return { ranges: [new Range(start, end, Orientation.NONE)] }
+    }
+
+    describe('positive tests', () => {
+      it('shows clip option for forward primer when annotation end is inside selection', () => {
+        // Primer spans 10-30 (forward), selection is 10-30
+        // Gene annotation spans 5-20, so its END (20) is inside selection
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'FWD Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 20, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 30) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeTruthy()
+        expect(clipItem.label).toBe('Clip primer binding of FWD Primer')
+      })
+
+      it('shows clip option for reverse primer when annotation start is inside selection', () => {
+        // Primer spans 10-30 (reverse), selection is 10-30
+        // Gene annotation spans 15-35, so its START (15) is inside selection
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'REV Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.MINUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(15, 35, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 30) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeTruthy()
+        expect(clipItem.label).toBe('Clip primer binding of REV Primer')
+      })
+
+      it('shows multiple menu items when multiple primers match selection', () => {
+        // Two primers both span 10-30
+        // Annotation spans 5-20, its END (20) is inside selection
+        const primer1 = new Annotation({
+          id: 'primer1',
+          caption: 'Primer A',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS)
+        })
+        const primer2 = new Annotation({
+          id: 'primer2',
+          caption: 'Primer B',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.MINUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 20, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer1, primer2, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 30) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItems = items.filter(i => i.label.includes('Clip primer binding'))
+        expect(clipItems).toHaveLength(2)
+        expect(clipItems.map(i => i.label)).toContain('Clip primer binding of Primer A')
+        expect(clipItems.map(i => i.label)).toContain('Clip primer binding of Primer B')
+      })
+    })
+
+    describe('negative tests', () => {
+      it('no option when no selection exists', () => {
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'FWD Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 20, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: false, domain: null }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeUndefined()
+      })
+
+      it('no option when selection does not exactly match primer span', () => {
+        // Primer spans 10-30, selection is 10-25 (partial match)
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'FWD Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 20, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 25) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeUndefined()
+      })
+
+      it('no option when primer is multi-segment', () => {
+        // Multi-range primer (two segments)
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'Multi Primer',
+          type: 'primer',
+          span: new Span([
+            new Range(10, 20, Orientation.PLUS),
+            new Range(25, 35, Orientation.PLUS)
+          ])
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 15, Orientation.PLUS)
+        })
+
+        // Selection matches first segment only
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 20) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeUndefined()
+      })
+
+      it('no option when primer already has primer_bind set', () => {
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'FWD Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS),
+          attributes: { primer_bind: 5 }
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 20, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 30) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeUndefined()
+      })
+
+      it('no option when both annotation ends are inside selection', () => {
+        // Annotation spans 15-25, both ends inside selection 10-30
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'FWD Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(15, 25, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 30) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeUndefined()
+      })
+
+      it('no option when neither annotation end is inside selection', () => {
+        // Annotation spans 5-35, both ends OUTSIDE selection 10-30
+        const primer = new Annotation({
+          id: 'primer1',
+          caption: 'FWD Primer',
+          type: 'primer',
+          span: ezSpan(10, 30, Orientation.PLUS)
+        })
+        const gene = new Annotation({
+          id: 'gene1',
+          caption: 'Gene',
+          type: 'gene',
+          span: ezSpan(5, 35, Orientation.PLUS)
+        })
+
+        const wrapper = mountWithSelection(
+          { annotations: [primer, gene] },
+          { isSelected: true, domain: selectionDomainFor(10, 30) }
+        )
+
+        const items = wrapper.vm.getMenuItemsForElement({
+          layer: 'annotation',
+          annotationId: 'gene1',
+          rangeIndex: '0'
+        })
+
+        const clipItem = items.find(i => i.label.includes('Clip primer binding'))
+        expect(clipItem).toBeUndefined()
+      })
+    })
+
+    describe('clip primer with selection (reverse operation)', () => {
+      // Right-click on primer, selection has one terminus inside primer
+      // Shows "Clip this primer with selection"
+
+      describe('positive tests', () => {
+        it('shows option when selection end is inside forward primer', () => {
+          // Primer 10..50, selection 30..70 - selection start (30) inside primer
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: selectionDomainFor(30, 70) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeDefined()
+        })
+
+        it('shows option when selection start is inside reverse primer', () => {
+          // Primer 10..50, selection 5..30 - selection end (30) inside primer
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'REV Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.MINUS)
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: selectionDomainFor(5, 30) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeDefined()
+        })
+
+        it('sets correct primer_bind for forward primer clipped at selection start', () => {
+          // Primer 10..50 (40bp), selection start at 30
+          // primer_bind should be 50 - 30 = 20 (bases from 3' end to clip point)
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          const mockDoc = {
+            updateAnnotation: mock()
+          }
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer], document: mockDoc },
+            { isSelected: true, domain: selectionDomainFor(30, 70) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          clipItem.action()
+
+          expect(mockDoc.updateAnnotation).toHaveBeenCalledWith({
+            id: 'primer1',
+            attributes: { primer_bind: 20 }
+          })
+        })
+
+        it('sets correct primer_bind for reverse primer clipped at selection end', () => {
+          // Primer 10..50 (40bp), selection end at 30
+          // For reverse primer: primer_bind = 30 - 10 = 20 (bases from 3' end to clip point)
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'REV Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.MINUS)
+          })
+
+          const mockDoc = {
+            updateAnnotation: mock()
+          }
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer], document: mockDoc },
+            { isSelected: true, domain: selectionDomainFor(5, 30) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          clipItem.action()
+
+          expect(mockDoc.updateAnnotation).toHaveBeenCalledWith({
+            id: 'primer1',
+            attributes: { primer_bind: 20 }
+          })
+        })
+      })
+
+      describe('negative tests', () => {
+        it('no option when no selection', () => {
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: false, domain: null }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+
+        it('no option when clicked annotation is not a primer', () => {
+          const gene = new Annotation({
+            id: 'gene1',
+            caption: 'Gene',
+            type: 'gene',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [gene] },
+            { isSelected: true, domain: selectionDomainFor(30, 70) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'gene1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+
+        it('no option when primer is multi-segment', () => {
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'Multi Primer',
+            type: 'primer',
+            span: new Span([new Range(10, 30), new Range(40, 60)])
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: selectionDomainFor(25, 70) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+
+        it('no option when primer already has primer_bind', () => {
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS),
+            attributes: { primer_bind: 15 }
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: selectionDomainFor(30, 70) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+
+        it('no option when both selection ends are inside primer', () => {
+          // Primer 10..50, selection 20..40 - both ends inside primer
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: selectionDomainFor(20, 40) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+
+        it('no option when neither selection end is inside primer', () => {
+          // Primer 10..50, selection 5..60 - both ends outside primer
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: selectionDomainFor(5, 60) }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+
+        it('no option when selection has multiple ranges', () => {
+          const primer = new Annotation({
+            id: 'primer1',
+            caption: 'FWD Primer',
+            type: 'primer',
+            span: ezSpan(10, 50, Orientation.PLUS)
+          })
+
+          // Multi-range selection
+          const multiRangeDomain = {
+            ranges: [new Range(30, 35), new Range(60, 70)]
+          }
+
+          const wrapper = mountWithSelection(
+            { annotations: [primer] },
+            { isSelected: true, domain: multiRangeDomain }
+          )
+
+          const items = wrapper.vm.getMenuItemsForElement({
+            layer: 'annotation',
+            annotationId: 'primer1',
+            rangeIndex: '0'
+          })
+
+          const clipItem = items.find(i => i.label === 'Clip this primer with selection')
+          expect(clipItem).toBeUndefined()
+        })
+      })
     })
   })
 })
