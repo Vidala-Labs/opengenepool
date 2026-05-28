@@ -190,6 +190,49 @@ export class Range {
   }
 
   /**
+   * Parse a fenced coordinate string into a Range.
+   * @param {string} str - Fenced string like "10..50", "(10..50)", "[10..50]", "<10..50", "10..>50", "25"
+   * @returns {Range}
+   */
+  static parse(str) {
+    str = str.trim()
+
+    // Detect orientation from brackets
+    let orientation = Orientation.PLUS
+    if (str.startsWith('(') && str.endsWith(')')) {
+      orientation = Orientation.MINUS
+      str = str.slice(1, -1)
+    } else if (str.startsWith('[') && str.endsWith(']')) {
+      orientation = Orientation.NONE
+      str = str.slice(1, -1)
+    }
+
+    // Check for indefinite markers
+    let startIndefinite = false
+    let endIndefinite = false
+    if (str.startsWith('<')) {
+      startIndefinite = true
+      str = str.slice(1)
+    }
+
+    // Handle cursor position (single number)
+    if (!str.includes('..')) {
+      const pos = parseInt(str, 10)
+      return new Range(pos, pos, orientation, startIndefinite, false)
+    }
+
+    const [startStr, endStr] = str.split('..')
+    if (endStr.startsWith('>')) {
+      endIndefinite = true
+    }
+
+    const start = parseInt(startStr, 10)
+    const end = parseInt(endStr.replace('>', ''), 10)
+
+    return new Range(start, end, orientation, startIndefinite, endIndefinite)
+  }
+
+  /**
    * GenBank format representation (1-based, inclusive coordinates)
    * @returns {string} GenBank location string
    */
@@ -229,6 +272,17 @@ export class Span {
    */
   constructor(ranges = []) {
     this.ranges = [...ranges]
+  }
+
+  /**
+   * Parse a fenced coordinate string into a Span.
+   * @param {string} str - Fenced string like "10..50" or "10..50 + 60..70"
+   * @returns {Span}
+   */
+  static parse(str) {
+    const parts = str.split(' + ').map(s => s.trim())
+    const ranges = parts.map(part => Range.parse(part))
+    return new Span(ranges)
   }
 
   /**
