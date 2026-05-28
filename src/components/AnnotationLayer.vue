@@ -603,22 +603,37 @@ function getPrimerBindLineX(element) {
   const primerBind = annotation?.attributes?.primer_bind
   if (primerBind === undefined || primerBind === null) return null
 
-  const { lmargin, charWidth } = graphics.metrics.value
+  // Get the annotation's full span (not fragment)
+  const annRange = annotation?.span?.ranges?.[0]
+  if (!annRange) return null
 
-  // For forward (PLUS) orientation: 3' end is at fragment.end, line at end - primer_bind
-  // For reverse (MINUS) orientation: 3' end is at fragment.start, line at start + primer_bind
-  if (fragment.orientation === Orientation.PLUS) {
-    // Fragment uses fenced coordinates where end is exclusive
-    // The line should be at position (end - primer_bind) from the 3' end
-    const linePos = fragment.end - primerBind
-    return lmargin + linePos * charWidth
-  } else if (fragment.orientation === Orientation.MINUS) {
-    // For reverse strand, 3' end is at start
-    const linePos = fragment.start + primerBind
-    return lmargin + linePos * charWidth
+  const { lmargin, charWidth } = graphics.metrics.value
+  const zoomLevel = editorState.zoomLevel.value
+
+  // Calculate absolute line position from annotation's actual start/end
+  let linePos
+  if (annRange.orientation === Orientation.PLUS) {
+    // Forward: 3' end at annRange.end, line at end - primerBind
+    linePos = annRange.end - primerBind
+  } else if (annRange.orientation === Orientation.MINUS) {
+    // Reverse: 3' end at annRange.start, line at start + primerBind
+    linePos = annRange.start + primerBind
+  } else {
+    return null
   }
 
-  return null
+  // Fragment positions are line-relative, convert to absolute for comparison
+  const fragAbsStart = fragment.line * zoomLevel + fragment.start
+  const fragAbsEnd = fragment.line * zoomLevel + fragment.end
+
+  // Only draw if linePos falls within this fragment's absolute range
+  if (linePos < fragAbsStart || linePos > fragAbsEnd) {
+    return null
+  }
+
+  // Convert absolute linePos to line-relative for x calculation
+  const lineRelativePos = linePos - fragment.line * zoomLevel
+  return lmargin + lineRelativePos * charWidth
 }
 
 // Is this an alignment mode layer?
