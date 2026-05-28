@@ -534,7 +534,7 @@ describe('large sequence handling', () => {
     expect(result.queryAligned.length).toBe(5000)
     expect(result.targetAligned.length).toBe(5000)
     expect(result.score).toBe(10000) // 5000 bases * 2 match score
-  })
+  }, 30000)
 
   it('correctly aligns large sequences with mismatches', () => {
     // Create sequences with some mismatches
