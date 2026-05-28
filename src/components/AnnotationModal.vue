@@ -297,11 +297,16 @@ function close() {
 function handleSubmit() {
   if (!isValid.value) return
 
+  // Keys handled by extension fields - these should only come from additionalFieldValues
+  const activeExtensionKeys = new Set(activeAdditionalFields.value.map(f => f.key))
+
   // Build final attributes (only non-empty values, exclude underscore-prefixed internal attrs)
   const finalAttrs = {}
   for (const [key, value] of Object.entries(attributes.value)) {
     // Skip internal attributes (underscore prefix = one-way from backend)
     if (key.startsWith('_')) continue
+    // Skip keys handled by extension fields - they're managed via additionalFieldValues
+    if (activeExtensionKeys.has(key)) continue
     if (typeof value === 'string') {
       if (value.trim()) {
         finalAttrs[key] = value.trim()
@@ -312,9 +317,8 @@ function handleSubmit() {
   }
 
   // Include additional field values (only for active fields matching current type)
-  const activeKeys = new Set(activeAdditionalFields.value.map(f => f.key))
   for (const [key, value] of Object.entries(additionalFieldValues.value)) {
-    if (activeKeys.has(key) && value !== null && value !== undefined && value !== '') {
+    if (activeExtensionKeys.has(key) && value !== null && value !== undefined && value !== '') {
       finalAttrs[key] = value
     }
   }

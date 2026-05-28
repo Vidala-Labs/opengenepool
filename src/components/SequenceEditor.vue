@@ -1553,6 +1553,25 @@ function handleExtendCancel() {
 }
 
 function handleAnnotationContextMenu(data) {
+  // Handle direct actions from AnnotationLayer (merge/split)
+  if (data.action) {
+    const { annotation, rangeIndex, action } = data
+
+    if (action === 'merge-left' && rangeIndex > 0) {
+      mergeAnnotationRanges(annotation, rangeIndex - 1, rangeIndex)
+      return
+    }
+    if (action === 'merge-right' && rangeIndex < annotation.span.ranges.length - 1) {
+      mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1)
+      return
+    }
+    if (action === 'split' && data.splitPosition !== undefined) {
+      splitAnnotationAtPosition(annotation, rangeIndex, data.splitPosition)
+      return
+    }
+    // Unknown action - fall through to show context menu
+  }
+
   // Show the same context menu as selection
   const items = buildContextMenuItems({
     source: 'annotation',
