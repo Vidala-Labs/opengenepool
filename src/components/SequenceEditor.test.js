@@ -1742,6 +1742,138 @@ describe('SequenceEditor', () => {
       expect(statusBox.exists()).toBe(true)
       expect(statusBox.text()).toContain('Long Tm: works')
     })
+
+    describe('primer binding region Tm', () => {
+      it('shows binding Tm for forward primer with primer_bind when selection matches', async () => {
+        // 50bp primer with 20bp binding region at end (forward strand)
+        const primerSeq = 'ATCGATCGATCGATCGATCGATCGATCGATCG' + 'GCTAGCTAGCTAGCTAGC' // 32 + 18 = 50bp
+        const annotation = new Annotation({
+          id: 'primer1',
+          caption: 'Forward Primer',
+          type: 'primer',
+          span: new Span([new Range(10, 60, Orientation.PLUS)]),
+          attributes: { primer_bind: 18 }
+        })
+        const wrapper = mount(SequenceEditor, {
+          props: {
+            sequence: createDoc('A'.repeat(10) + primerSeq + 'A'.repeat(40), [annotation]),
+            initialZoom: 100
+          }
+        })
+        await wrapper.vm.$nextTick()
+
+        // Select exactly the primer range
+        wrapper.vm.setSelection(ezSpan(10, 60, Orientation.PLUS))
+        await wrapper.vm.$nextTick()
+
+        const statusBox = wrapper.find('.selection-status')
+        expect(statusBox.exists()).toBe(true)
+        expect(statusBox.text()).toContain('Tm:')
+        expect(statusBox.text()).toContain('Binding Tm:')
+      })
+
+      it('shows binding Tm for reverse primer with primer_bind when selection matches', async () => {
+        // Reverse primer: binding region is at START of range
+        const primerSeq = 'ATCGATCGATCGATCGATCG' + 'GCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA' // 20 + 32 = 52bp
+        const annotation = new Annotation({
+          id: 'primer2',
+          caption: 'Reverse Primer',
+          type: 'primer',
+          span: new Span([new Range(10, 62, Orientation.MINUS)]),
+          attributes: { primer_bind: 20 }
+        })
+        const wrapper = mount(SequenceEditor, {
+          props: {
+            sequence: createDoc('A'.repeat(10) + primerSeq + 'A'.repeat(28), [annotation]),
+            initialZoom: 100
+          }
+        })
+        await wrapper.vm.$nextTick()
+
+        // Select exactly the primer range
+        wrapper.vm.setSelection(ezSpan(10, 62, Orientation.MINUS))
+        await wrapper.vm.$nextTick()
+
+        const statusBox = wrapper.find('.selection-status')
+        expect(statusBox.exists()).toBe(true)
+        expect(statusBox.text()).toContain('Tm:')
+        expect(statusBox.text()).toContain('Binding Tm:')
+      })
+
+      it('does not show binding Tm for primer without primer_bind attribute', async () => {
+        const annotation = new Annotation({
+          id: 'primer3',
+          caption: 'No Bind Primer',
+          type: 'primer',
+          span: new Span([new Range(10, 60, Orientation.PLUS)]),
+          attributes: {} // No primer_bind
+        })
+        const wrapper = mount(SequenceEditor, {
+          props: {
+            sequence: createDoc('A'.repeat(100), [annotation]),
+            initialZoom: 100
+          }
+        })
+        await wrapper.vm.$nextTick()
+
+        wrapper.vm.setSelection(ezSpan(10, 60))
+        await wrapper.vm.$nextTick()
+
+        const statusBox = wrapper.find('.selection-status')
+        expect(statusBox.exists()).toBe(true)
+        expect(statusBox.text()).toContain('Tm:')
+        expect(statusBox.text()).not.toContain('Binding Tm:')
+      })
+
+      it('does not show binding Tm when selection does not exactly match primer', async () => {
+        const annotation = new Annotation({
+          id: 'primer4',
+          caption: 'Partial Primer',
+          type: 'primer',
+          span: new Span([new Range(10, 60, Orientation.PLUS)]),
+          attributes: { primer_bind: 20 }
+        })
+        const wrapper = mount(SequenceEditor, {
+          props: {
+            sequence: createDoc('A'.repeat(100), [annotation]),
+            initialZoom: 100
+          }
+        })
+        await wrapper.vm.$nextTick()
+
+        // Select only part of the primer (not exact match)
+        wrapper.vm.setSelection(ezSpan(10, 50))
+        await wrapper.vm.$nextTick()
+
+        const statusBox = wrapper.find('.selection-status')
+        expect(statusBox.exists()).toBe(true)
+        expect(statusBox.text()).not.toContain('Binding Tm:')
+      })
+
+      it('does not show binding Tm for non-primer annotation', async () => {
+        const annotation = new Annotation({
+          id: 'gene1',
+          caption: 'Some Gene',
+          type: 'CDS',
+          span: new Span([new Range(10, 60, Orientation.PLUS)]),
+          attributes: { primer_bind: 20 } // Would have primer_bind but wrong type
+        })
+        const wrapper = mount(SequenceEditor, {
+          props: {
+            sequence: createDoc('A'.repeat(100), [annotation]),
+            initialZoom: 100
+          }
+        })
+        await wrapper.vm.$nextTick()
+
+        wrapper.vm.setSelection(ezSpan(10, 60))
+        await wrapper.vm.$nextTick()
+
+        const statusBox = wrapper.find('.selection-status')
+        expect(statusBox.exists()).toBe(true)
+        expect(statusBox.text()).not.toContain('Binding Tm:')
+      })
+    })
   })
 
   describe('document mode (no alignment)', () => {
