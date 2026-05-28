@@ -24,6 +24,11 @@ const props = defineProps({
   annotation: {
     type: Object,
     default: null
+  },
+  /** Array of additional field extensions for specific annotation types */
+  additionalFields: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -209,6 +214,15 @@ function moveRangeDown(index) {
 const availableToAdd = computed(() => {
   const visibleKeys = new Set(visibleFields.value)
   return OPTIONAL_FIELDS.filter(f => !visibleKeys.has(f.key))
+})
+
+// Additional field extensions active for current annotation type
+const activeAdditionalFields = computed(() => {
+  if (!annotationType.value) return []
+  return props.additionalFields.filter(field => {
+    if (!field.forTypes || !field.forTypes.includes(annotationType.value)) return false
+    return true
+  })
 })
 
 function addField(key) {
@@ -413,6 +427,20 @@ function onOverlayClick() {
               type="text"
               :id="'annotation-attr-' + key"
               v-model="attributes[key]"
+            />
+          </div>
+
+          <!-- Additional field extensions (for specific annotation types) -->
+          <div
+            v-for="field in activeAdditionalFields"
+            :key="field.key"
+            class="form-group"
+          >
+            <label>{{ field.label }}</label>
+            <component
+              :is="field.editor"
+              v-model="attributes[field.key]"
+              :annotation="{ ranges, type: annotationType, caption }"
             />
           </div>
 
