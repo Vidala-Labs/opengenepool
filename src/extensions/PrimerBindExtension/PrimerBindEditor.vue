@@ -1,0 +1,44 @@
+<script setup>
+const props = defineProps({
+  modelValue: {
+    type: Number,
+    default: null
+  },
+  annotationLength: {
+    type: Number,
+    required: true
+  }
+})
+
+const emit = defineEmits(['update:modelValue'])
+
+function onInput(event) {
+  const value = event.target.value
+  if (value === '') {
+    emit('update:modelValue', null)
+  } else {
+    emit('update:modelValue', parseInt(value, 10))
+  }
+}
+</script>
+
+<template>
+  <input
+    type="number"
+    :value="modelValue"
+    :min="0"
+    :max="annotationLength"
+    @input="onInput"
+    class="primer-bind-editor"
+  />
+</template>
+
+<style scoped>
+.primer-bind-editor {
+  width: 80px;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+</style>

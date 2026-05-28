@@ -14,6 +14,7 @@ import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
 import { ORFFinderExtension } from '../src/extensions/ORFFinderExtension/index.js'
 import { BlastExtension } from '../src/extensions/BlastExtension/index.js'
 import { RestrictionExtension } from '../src/extensions/RestrictionExtension/index.js'
+import { PrimerBindExtension } from '../src/extensions/PrimerBindExtension/index.js'
 
 // List of sequences for sidebar
 const sequences = ref([])
@@ -341,6 +342,7 @@ const hasMetadata = computed(() => {
         :key="currentSequenceData.id"
         :sequence="targetDoc"
         :extensions="[SearchExtension, ORFFinderExtension, BlastExtension, RestrictionExtension]"
+        :annotation-fields="[PrimerBindExtension]"
         @edit="handleEdit"
         @select="handleSelect"
         @annotations-update="handleAnnotationsUpdate"

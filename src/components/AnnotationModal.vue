@@ -24,6 +24,11 @@ const props = defineProps({
   annotation: {
     type: Object,
     default: null
+  },
+  /** Additional field definitions from extensions/plugins */
+  additionalFields: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -58,6 +63,24 @@ const ranges = ref([])
 const attributes = ref({})
 const visibleFields = ref([])
 const customFieldName = ref('')
+const additionalFieldValues = ref({})
+
+// Additional fields filtered by current annotation type
+const activeAdditionalFields = computed(() => {
+  if (!annotationType.value) return []
+  return props.additionalFields.filter(field =>
+    field.forTypes.includes(annotationType.value)
+  )
+})
+
+// Annotation length computed from ranges
+const annotationLength = computed(() => {
+  if (!ranges.value || ranges.value.length === 0) return 0
+  // Sum up all range lengths
+  return ranges.value.reduce((total, range) => {
+    return total + (range.end - range.start + 1)
+  }, 0)
+})
 
 // Convert Span object to form-friendly range array
 function spanToFormRanges(span) {
@@ -98,10 +121,21 @@ watch(() => props.open, (isOpen) => {
       annotationType.value = props.annotation.type || ''
       // Get ranges from existing annotation span
       ranges.value = spanToFormRanges(props.annotation.span || props.span)
-      // Pre-fill attributes (filter underscore-prefixed keys from display)
+      // Pre-fill attributes (filter underscore-prefixed keys and extension keys from display)
       const attrs = props.annotation.attributes || {}
       attributes.value = { ...attrs }
-      visibleFields.value = Object.keys(attrs).filter(key => !key.startsWith('_'))
+      // Build set of keys handled by additionalFields extensions
+      const extensionKeys = new Set(props.additionalFields.map(f => f.key))
+      visibleFields.value = Object.keys(attrs).filter(key =>
+        !key.startsWith('_') && !extensionKeys.has(key)
+      )
+      // Pre-fill additional field values from existing attributes
+      additionalFieldValues.value = {}
+      for (const field of props.additionalFields) {
+        if (field.key in attrs) {
+          additionalFieldValues.value[field.key] = attrs[field.key]
+        }
+      }
     } else {
       // Create mode - use span prop and reset fields
       ranges.value = spanToFormRanges(props.span)
@@ -109,6 +143,7 @@ watch(() => props.open, (isOpen) => {
       annotationType.value = ''
       attributes.value = {}
       visibleFields.value = []
+      additionalFieldValues.value = {}
     }
     customFieldName.value = ''
   }
@@ -237,6 +272,11 @@ function getFieldLabel(key) {
   return field ? field.label : key
 }
 
+function clearAdditionalField(key) {
+  delete additionalFieldValues.value[key]
+  delete attributes.value[key]
+}
+
 function close() {
   emit('close')
 }
@@ -251,6 +291,14 @@ function handleSubmit() {
     if (key.startsWith('_')) continue
     if (value && value.trim()) {
       finalAttrs[key] = value.trim()
+    }
+  }
+
+  // Include additional field values (only for active fields matching current type)
+  const activeKeys = new Set(activeAdditionalFields.value.map(f => f.key))
+  for (const [key, value] of Object.entries(additionalFieldValues.value)) {
+    if (activeKeys.has(key) && value !== null && value !== undefined && value !== '') {
+      finalAttrs[key] = value
     }
   }
 
@@ -416,6 +464,28 @@ function onOverlayClick() {
             />
           </div>
 
+          <!-- Additional fields from extensions/plugins -->
+          <div v-for="field in activeAdditionalFields" :key="field.key" class="form-group">
+            <div class="form-label-row">
+              <label :for="'annotation-additional-' + field.key">{{ field.label }}</label>
+              <button
+                v-if="additionalFieldValues[field.key] !== undefined && additionalFieldValues[field.key] !== null && additionalFieldValues[field.key] !== ''"
+                type="button"
+                class="btn-remove-field"
+                @click="clearAdditionalField(field.key)"
+                title="Clear field"
+              >
+                <TrashIcon class="icon-small" />
+              </button>
+            </div>
+            <component
+              :is="field.editor"
+              :id="'annotation-additional-' + field.key"
+              v-model="additionalFieldValues[field.key]"
+              :annotation-length="annotationLength"
+            />
+          </div>
+
           <!-- Add field dropdown and actions -->
           <div class="form-actions">
             <div class="add-field-controls">
@@ -441,7 +511,7 @@ function onOverlayClick() {
                 type="text"
                 class="custom-field-input"
                 v-model="customFieldName"
-                placeholder="Custom qualifier"
+                placeholder="Custom field"
                 @keyup.enter="addCustomField"
               />
             </div>

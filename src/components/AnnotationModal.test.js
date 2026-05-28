@@ -848,4 +848,482 @@ describe('AnnotationModal', () => {
       expect(wrapper.find('.modal-overlay').exists()).toBe(false)
     })
   })
+
+  describe('additionalFields prop', () => {
+    const MockEditor = {
+      props: ['modelValue', 'annotationLength'],
+      emits: ['update:modelValue'],
+      template: '<input class="mock-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
+    }
+
+    const MockDisplay = {
+      props: ['value'],
+      template: '<span class="mock-display">{{ value }}</span>'
+    }
+
+    const testField = {
+      key: 'test_field',
+      label: 'Test Field',
+      forTypes: ['primer'],
+      editor: MockEditor,
+      display: MockDisplay
+    }
+
+    it('shows additional field editor when annotation type matches', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      // Select primer type
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      // Should show the additional field editor
+      expect(wrapper.find('.mock-editor').exists()).toBe(true)
+    })
+
+    it('does not show additional field when annotation type does not match', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      // Select gene type (not in forTypes)
+      await wrapper.find('#annotation-type').setValue('gene')
+      await wrapper.vm.$nextTick()
+
+      // Should not show the additional field editor
+      expect(wrapper.find('.mock-editor').exists()).toBe(false)
+    })
+
+    it('passes annotation length to editor component', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 25),  // 25 bp annotation
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      // Find the editor component and check its props
+      const editor = wrapper.findComponent(MockEditor)
+      expect(editor.exists()).toBe(true)
+      expect(editor.props('annotationLength')).toBe(25)
+    })
+
+    it('includes additional field value in emitted attributes', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      // Fill required fields
+      await wrapper.find('#annotation-caption').setValue('Test Primer')
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      // Set additional field value
+      await wrapper.find('.mock-editor').setValue('test_value')
+      await wrapper.vm.$nextTick()
+
+      // Submit
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0][0].attributes.test_field).toBe('test_value')
+    })
+
+    it('displays field label', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.text()).toContain('Test Field')
+    })
+
+    it('supports multiple additional fields', async () => {
+      const secondField = {
+        key: 'second_field',
+        label: 'Second Field',
+        forTypes: ['primer'],
+        editor: MockEditor,
+        display: MockDisplay
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField, secondField]
+        }
+      })
+
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.findAll('.mock-editor').length).toBe(2)
+    })
+
+    it('hides additional field when type changes away from matching type', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      // Select primer type - field should appear
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.mock-editor').exists()).toBe(true)
+
+      // Change to gene type - field should disappear
+      await wrapper.find('#annotation-type').setValue('gene')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.mock-editor').exists()).toBe(false)
+    })
+
+    it('pre-populates additional field value when editing existing annotation', async () => {
+      const existingAnnotation = {
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(0, 20),
+        attributes: { test_field: 'existing_value' }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          annotation: existingAnnotation,
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // Editor should have the existing value
+      const editor = wrapper.findComponent(MockEditor)
+      expect(editor.exists()).toBe(true)
+      expect(editor.props('modelValue')).toBe('existing_value')
+    })
+
+    it('does not include empty additional field values in emitted attributes', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      // Fill required fields
+      await wrapper.find('#annotation-caption').setValue('Test Primer')
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      // Leave additional field empty (don't set any value)
+
+      // Submit
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')
+      expect(emitted).toHaveLength(1)
+      // test_field should NOT be in attributes since it's empty
+      expect(emitted[0][0].attributes).toEqual({})
+    })
+
+    it('clears additional field values when type changes', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [testField]
+        }
+      })
+
+      // Fill required fields and additional field
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+      await wrapper.find('.mock-editor').setValue('some_value')
+      await wrapper.vm.$nextTick()
+
+      // Change type to gene (no additional fields)
+      await wrapper.find('#annotation-type').setValue('gene')
+      await wrapper.vm.$nextTick()
+
+      // Submit
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')
+      expect(emitted).toHaveLength(1)
+      // test_field should NOT be in attributes since type changed
+      expect(emitted[0][0].attributes).toEqual({})
+    })
+  })
+
+  describe('additionalFields - no duplicate display', () => {
+    const MockEditor = {
+      props: ['modelValue', 'annotationLength'],
+      emits: ['update:modelValue'],
+      template: '<input class="mock-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
+    }
+
+    const MockDisplay = {
+      props: ['value'],
+      template: '<span class="mock-display">{{ value }}</span>'
+    }
+
+    const testField = {
+      key: 'test_field',
+      label: 'Test Field',
+      forTypes: ['primer'],
+      editor: MockEditor,
+      display: MockDisplay
+    }
+
+    it('does not show attribute in visibleFields when handled by additionalField extension', async () => {
+      // Bug: When editing annotation with test_field attribute, it shows up TWICE:
+      // 1. In the generic attributes list (visibleFields)
+      // 2. In the additionalFields section (extension editor)
+      const existingAnnotation = {
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(0, 20),
+        attributes: { test_field: 'existing_value' }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          annotation: existingAnnotation,
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // Extension editor should show
+      expect(wrapper.find('.mock-editor').exists()).toBe(true)
+
+      // But the generic attribute field should NOT show (no duplicate)
+      expect(wrapper.find('#annotation-attr-test_field').exists()).toBe(false)
+    })
+
+    it('filters extension keys from visibleFields in edit mode', async () => {
+      const existingAnnotation = {
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(0, 20),
+        attributes: { test_field: 'value1', note: 'some note' }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          annotation: existingAnnotation,
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // note should show as regular attribute
+      expect(wrapper.find('#annotation-attr-note').exists()).toBe(true)
+
+      // test_field should NOT show as regular attribute (extension handles it)
+      expect(wrapper.find('#annotation-attr-test_field').exists()).toBe(false)
+
+      // Extension editor should show test_field
+      expect(wrapper.find('.mock-editor').exists()).toBe(true)
+    })
+  })
+
+  describe('additionalFields - clear/remove capability', () => {
+    const MockEditor = {
+      props: ['modelValue', 'annotationLength'],
+      emits: ['update:modelValue'],
+      template: '<input class="mock-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
+    }
+
+    const MockDisplay = {
+      props: ['value'],
+      template: '<span class="mock-display">{{ value }}</span>'
+    }
+
+    const testField = {
+      key: 'test_field',
+      label: 'Test Field',
+      forTypes: ['primer'],
+      editor: MockEditor,
+      display: MockDisplay
+    }
+
+    it('shows remove button for additional field when it has a value', async () => {
+      const existingAnnotation = {
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(0, 20),
+        attributes: { test_field: 'existing_value' }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          annotation: existingAnnotation,
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // Should have a remove button for the additional field
+      const additionalFieldGroup = wrapper.find('#annotation-additional-test_field').element.closest('.form-group')
+      expect(additionalFieldGroup.querySelector('.btn-remove-field')).toBeTruthy()
+    })
+
+    it('clears additional field value when remove button clicked', async () => {
+      const existingAnnotation = {
+        caption: 'Test Primer',
+        type: 'primer',
+        span: ezSpan(0, 20),
+        attributes: { test_field: 'existing_value' }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          annotation: existingAnnotation,
+          additionalFields: [testField]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // Find and click remove button for additional field
+      const formGroups = wrapper.findAll('.form-group')
+      const additionalFieldGroup = formGroups.find(g => g.find('.mock-editor').exists())
+      await additionalFieldGroup.find('.btn-remove-field').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      // Submit and verify field is not included
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('update')
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0][0].attributes.test_field).toBeUndefined()
+    })
+  })
+
+  describe('PrimerBindExtension integration', () => {
+    // Import real extension for integration test
+    const { PrimerBindExtension } = require('../extensions/PrimerBindExtension/index.js')
+
+    it('shows primer_bind field with number input for primer type', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [PrimerBindExtension]
+        }
+      })
+
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      // Should have number input
+      const input = wrapper.find('input[type="number"].primer-bind-editor')
+      expect(input.exists()).toBe(true)
+    })
+
+    it('sets max attribute on primer_bind input to annotation length', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 25),  // 25 bp
+          additionalFields: [PrimerBindExtension]
+        }
+      })
+
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      const input = wrapper.find('input[type="number"].primer-bind-editor')
+      expect(input.element.max).toBe('25')
+    })
+
+    it('saves primer_bind as integer in attributes', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          additionalFields: [PrimerBindExtension]
+        }
+      })
+
+      await wrapper.find('#annotation-caption').setValue('Forward Primer')
+      await wrapper.find('#annotation-type').setValue('primer')
+      await wrapper.vm.$nextTick()
+
+      await wrapper.find('.primer-bind-editor').setValue('15')
+      await wrapper.vm.$nextTick()
+
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0][0].attributes.primer_bind).toBe(15)
+    })
+
+    it('pre-populates primer_bind when editing existing annotation', async () => {
+      const existingAnnotation = {
+        caption: 'Forward Primer',
+        type: 'primer',
+        span: ezSpan(0, 20),
+        attributes: { primer_bind: 18 }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20),
+          annotation: existingAnnotation,
+          additionalFields: [PrimerBindExtension]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      const input = wrapper.find('.primer-bind-editor')
+      expect(input.exists()).toBe(true)
+      expect(input.element.value).toBe('18')
+    })
+  })
 })
