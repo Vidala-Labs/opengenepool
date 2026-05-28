@@ -6,6 +6,30 @@
  * as the LiveView backend, enabling offline-first editing.
  */
 
+import { Span } from '../utils/dna.js'
+
+/**
+ * Normalize a span from storage back to a Span object.
+ * Handles: Span instances, fenced strings from toJSON(), objects with ranges array.
+ */
+function normalizeSpan(span) {
+  if (span instanceof Span) return span
+  if (typeof span === 'string') return Span.parse(span)
+  if (span?.ranges) return new Span(span.ranges)
+  return new Span()
+}
+
+/**
+ * Normalize annotations loaded from IndexedDB.
+ * Converts string spans back to Span objects.
+ */
+function normalizeAnnotations(annotations) {
+  return annotations.map(ann => ({
+    ...ann,
+    span: normalizeSpan(ann.span)
+  }))
+}
+
 const DB_NAME = 'opengenepool'
 const DB_VERSION = 1
 const SEQUENCES_STORE = 'sequences'
@@ -209,7 +233,11 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
     // Additional methods for standalone mode
     async load() {
       await dbPromise
-      return getSequence(db, sequenceId)
+      const sequence = await getSequence(db, sequenceId)
+      if (sequence?.annotations) {
+        sequence.annotations = normalizeAnnotations(sequence.annotations)
+      }
+      return sequence
     },
 
     async save(sequence) {

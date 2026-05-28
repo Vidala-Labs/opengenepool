@@ -219,6 +219,81 @@ describe('Range', () => {
     })
   })
 
+  describe('parse', () => {
+    it('parses simple range', () => {
+      const r = Range.parse('10..50')
+      expect(r.start).toBe(10)
+      expect(r.end).toBe(50)
+      expect(r.orientation).toBe(Orientation.PLUS)
+    })
+
+    it('parses minus strand', () => {
+      const r = Range.parse('(10..50)')
+      expect(r.start).toBe(10)
+      expect(r.end).toBe(50)
+      expect(r.orientation).toBe(Orientation.MINUS)
+    })
+
+    it('parses unoriented', () => {
+      const r = Range.parse('[10..50]')
+      expect(r.start).toBe(10)
+      expect(r.end).toBe(50)
+      expect(r.orientation).toBe(Orientation.NONE)
+    })
+
+    it('parses indefinite start', () => {
+      const r = Range.parse('<10..50')
+      expect(r.start).toBe(10)
+      expect(r.end).toBe(50)
+      expect(r.startIndefinite).toBe(true)
+      expect(r.endIndefinite).toBe(false)
+    })
+
+    it('parses indefinite end', () => {
+      const r = Range.parse('10..>50')
+      expect(r.start).toBe(10)
+      expect(r.end).toBe(50)
+      expect(r.startIndefinite).toBe(false)
+      expect(r.endIndefinite).toBe(true)
+    })
+
+    it('parses both indefinite', () => {
+      const r = Range.parse('<10..>50')
+      expect(r.startIndefinite).toBe(true)
+      expect(r.endIndefinite).toBe(true)
+    })
+
+    it('parses indefinite with minus strand', () => {
+      const r = Range.parse('(<10..>50)')
+      expect(r.orientation).toBe(Orientation.MINUS)
+      expect(r.startIndefinite).toBe(true)
+      expect(r.endIndefinite).toBe(true)
+    })
+
+    it('parses cursor position', () => {
+      const r = Range.parse('25')
+      expect(r.start).toBe(25)
+      expect(r.end).toBe(25)
+    })
+
+    it('roundtrips through toFencedString', () => {
+      const cases = [
+        '10..50',
+        '(10..50)',
+        '[10..50]',
+        '<10..50',
+        '10..>50',
+        '<10..>50',
+        '(<10..>50)',
+        '[<10..>50]',
+        '25'
+      ]
+      for (const str of cases) {
+        expect(Range.parse(str).toFencedString()).toBe(str)
+      }
+    })
+  })
+
   describe('indefinite locations', () => {
     describe('constructor', () => {
       it('defaults indefinite flags to false', () => {
@@ -321,6 +396,42 @@ describe('Span', () => {
       expect(span.length).toBe(2)
       expect(span.ranges[0].orientation).toBe(Orientation.PLUS)
       expect(span.ranges[1].orientation).toBe(Orientation.MINUS)
+    })
+  })
+
+  describe('Span.parse', () => {
+    it('parses single range', () => {
+      const s = Span.parse('10..50')
+      expect(s.ranges).toHaveLength(1)
+      expect(s.ranges[0].start).toBe(10)
+      expect(s.ranges[0].end).toBe(50)
+    })
+
+    it('parses joined ranges', () => {
+      const s = Span.parse('10..50 + 60..70')
+      expect(s.ranges).toHaveLength(2)
+      expect(s.ranges[0].start).toBe(10)
+      expect(s.ranges[0].end).toBe(50)
+      expect(s.ranges[1].start).toBe(60)
+      expect(s.ranges[1].end).toBe(70)
+    })
+
+    it('parses mixed orientations', () => {
+      const s = Span.parse('10..50 + (60..70)')
+      expect(s.ranges[0].orientation).toBe(Orientation.PLUS)
+      expect(s.ranges[1].orientation).toBe(Orientation.MINUS)
+    })
+
+    it('roundtrips through toFencedString', () => {
+      const cases = [
+        '10..50',
+        '10..50 + 60..70',
+        '10..50 + (60..70)',
+        '<10..50 + 60..>70'
+      ]
+      for (const str of cases) {
+        expect(Span.parse(str).toFencedString()).toBe(str)
+      }
     })
   })
 

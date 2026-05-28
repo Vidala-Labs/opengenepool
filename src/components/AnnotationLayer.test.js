@@ -834,6 +834,49 @@ describe('coordination with TranslationLayer', () => {
       const wrapper = mountWithProviders({ annotations: [annotation] })
       expect(wrapper.find('.primer-bind-line').exists()).toBe(false)
     })
+
+    it('draws line only on correct fragment for multi-line forward primer', () => {
+      // Forward primer from 80-150 (spans lines at zoom=100)
+      // primer_bind=20, so line at position 130 (on line 1, not line 0)
+      const annotation = new Annotation({
+        id: 'primer1',
+        caption: 'Multi-line Primer',
+        type: 'primer',
+        span: ezSpan(80, 150, Orientation.PLUS),
+        attributes: { primer_bind: 20 }
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const lines = wrapper.findAll('.primer-bind-line')
+
+      // Should only have ONE line, not two
+      expect(lines).toHaveLength(1)
+
+      // Line should be at position 130: lmargin(60) + 30*charWidth(8) = 300
+      // (position 130 is at offset 30 on line 1)
+      expect(lines[0].attributes('x1')).toBe('300')
+    })
+
+    it('draws line only on correct fragment for multi-line reverse primer', () => {
+      // Reverse primer from 80-150 (spans lines at zoom=100)
+      // primer_bind=15, so line at position 95 (on line 0)
+      const annotation = new Annotation({
+        id: 'primer1',
+        caption: 'Multi-line Primer',
+        type: 'primer',
+        span: ezSpan(80, 150, Orientation.MINUS),
+        attributes: { primer_bind: 15 }
+      })
+
+      const wrapper = mountWithProviders({ annotations: [annotation] })
+      const lines = wrapper.findAll('.primer-bind-line')
+
+      // Should only have ONE line
+      expect(lines).toHaveLength(1)
+
+      // Line should be at position 95: lmargin(60) + 95*charWidth(8) = 820
+      expect(lines[0].attributes('x1')).toBe('820')
+    })
   })
 
   describe('clip primer binding context menu', () => {
