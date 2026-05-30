@@ -96,6 +96,18 @@ describe('SelectionDomain', () => {
       expect(domain.orientation).toBe(Orientation.PLUS)
     })
   })
+
+  describe('totalLength', () => {
+    it('returns correct total for wrapped circular selection', () => {
+      // Simulate what CircularEditor does when wrapping around origin:
+      // creates multi-range selection with ranges on either side of origin
+      const domain = new SelectionDomain([new Range(400, 500)])
+      domain.ranges.push(new Range(0, 100, Orientation.PLUS))
+
+      // totalLength should sum both ranges: 100 + 100 = 200
+      expect(domain.totalLength).toBe(200)
+    })
+  })
 })
 
 describe('useSelection', () => {
