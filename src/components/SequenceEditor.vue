@@ -2333,7 +2333,7 @@ onMounted(() => {
   // Set up click-outside handler for config panel
   document.addEventListener('click', handleClickOutside)
 
-  emit('ready')
+  nextTick(() => emit('ready'))
 
   onUnmounted(() => {
     resizeObserver.disconnect()

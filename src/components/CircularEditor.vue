@@ -314,21 +314,21 @@ function handleMouseMove(event) {
           currentRange.end = seqLen
           currentRange.orientation = originalOrientation
 
-          ranges.push({
-            start: 0,
-            end: pos,
-            orientation: originalOrientation
-          })
+          ranges.push(new Range(
+            0,
+            pos,
+            originalOrientation
+          ))
         } else {
           currentRange.start = 0
           currentRange.end = anchor
           currentRange.orientation = originalOrientation
 
-          ranges.push({
-            start: pos,
-            end: seqLen,
-            orientation: originalOrientation
-          })
+          ranges.push(new Range(
+            pos,
+            seqLen,
+            originalOrientation
+          ))
         }
       } else {
         if (ranges.length > 1) {
