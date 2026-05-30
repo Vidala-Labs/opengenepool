@@ -323,37 +323,18 @@ function handleSubmit() {
     }
   }
 
-  // Adjust primer_bind when primer annotation ranges change
-  // Keep the binding divider at the same absolute position
-  if (isEditMode.value && annotationType.value === 'primer' && props.annotation?.attributes?.primer_bind !== undefined) {
-    const originalSpan = props.annotation.span
+  // Validate primer_bind: delete if invalid (multi-range or length <= primer_bind)
+  if (finalAttrs.primer_bind !== undefined) {
     const newSpan = computedSpan.value
-    const originalPrimerBind = props.annotation.attributes.primer_bind
+    const isMultiRange = newSpan?.ranges?.length > 1
 
-    if (originalSpan?.ranges?.length === 1 && newSpan?.ranges?.length === 1) {
-      const originalRange = originalSpan.ranges[0]
-      const newRange = newSpan.ranges[0]
-
-      // Calculate divider position based on orientation
-      // For PLUS (forward): 3' end is at range.end, divider at end - primer_bind
-      // For MINUS (reverse): 3' end is at range.start, divider at start + primer_bind
-      let dividerPos
-      let newPrimerBind
-
-      if (originalRange.orientation === Orientation.PLUS) {
-        dividerPos = originalRange.end - originalPrimerBind
-        newPrimerBind = newRange.end - dividerPos
-      } else if (originalRange.orientation === Orientation.MINUS) {
-        dividerPos = originalRange.start + originalPrimerBind
-        newPrimerBind = dividerPos - newRange.start
-      }
-
-      // Validate new primer_bind: must be >= 1 and < new annotation length
-      const newLength = newRange.end - newRange.start
-      if (newPrimerBind >= 1 && newPrimerBind < newLength) {
-        finalAttrs.primer_bind = newPrimerBind
-      } else {
-        // Invalid - explicitly delete since it may have been copied from additionalFieldValues
+    if (isMultiRange) {
+      // primer_bind only valid for single-range annotations
+      delete finalAttrs.primer_bind
+    } else if (newSpan?.ranges?.length === 1) {
+      const newLength = newSpan.ranges[0].end - newSpan.ranges[0].start
+      // primer_bind must be < annotation length (at least 1 base must not be in binding region)
+      if (finalAttrs.primer_bind >= newLength) {
         delete finalAttrs.primer_bind
       }
     }

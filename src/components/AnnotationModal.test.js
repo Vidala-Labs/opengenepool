@@ -1328,10 +1328,8 @@ describe('AnnotationModal', () => {
       expect(input.element.value).toBe('18')
     })
 
-    it('adjusts primer_bind when forward primer end changes to keep divider position', async () => {
-      // Forward primer 0-20 with primer_bind=15
-      // Divider is at position 20 - 15 = 5
-      // If we extend end to 25, primer_bind should become 25 - 5 = 20
+    it('preserves primer_bind when annotation is extended', async () => {
+      // primer_bind is just a plain parameter - extending the annotation should NOT change it
       const existingAnnotation = {
         caption: 'Forward Primer',
         type: 'primer',
@@ -1350,60 +1348,23 @@ describe('AnnotationModal', () => {
 
       await wrapper.vm.$nextTick()
 
-      // Change the end position from 20 to 25
+      // Change the end position from 20 to 25 (extending the annotation)
       const endInput = wrapper.find('.range-end')
       await endInput.setValue('25')
       await wrapper.vm.$nextTick()
 
-      // Submit the form (caption and type already set from annotation)
+      // Submit the form
       await wrapper.find('form').trigger('submit')
 
       const emitted = wrapper.emitted('update')
       expect(emitted).toHaveLength(1)
-      // Divider was at 5, new end is 25, so primer_bind = 25 - 5 = 20
-      expect(emitted[0][0].attributes.primer_bind).toBe(20)
+      // primer_bind should remain 15, not be recalculated
+      expect(emitted[0][0].attributes.primer_bind).toBe(15)
     })
 
-    it('adjusts primer_bind when reverse primer start changes to keep divider position', async () => {
-      // Reverse primer 10-30 with primer_bind=8
-      // Divider is at position 10 + 8 = 18
-      // If we move start to 5, primer_bind should become 18 - 5 = 13
-      const existingAnnotation = {
-        caption: 'Reverse Primer',
-        type: 'primer',
-        span: ezSpan(10, 30, Orientation.MINUS),
-        attributes: { primer_bind: 8 }
-      }
-
-      const wrapper = mount(AnnotationModal, {
-        props: {
-          open: true,
-          span: ezSpan(10, 30, Orientation.MINUS),
-          annotation: existingAnnotation,
-          additionalFields: [PrimerBindExtension]
-        }
-      })
-
-      await wrapper.vm.$nextTick()
-
-      // Change the start position from 10 to 5 (input shows 11, change to 6 for 1-based)
-      const startInput = wrapper.find('.range-start')
-      await startInput.setValue('6')  // 1-based, so 6 = position 5
-      await wrapper.vm.$nextTick()
-
-      // Submit the form (caption and type already set from annotation)
-      await wrapper.find('form').trigger('submit')
-
-      const emitted = wrapper.emitted('update')
-      expect(emitted).toHaveLength(1)
-      // Divider was at 18, new start is 5, so primer_bind = 18 - 5 = 13
-      expect(emitted[0][0].attributes.primer_bind).toBe(13)
-    })
-
-    it('deletes primer_bind when forward primer end moves before divider', async () => {
-      // Forward primer 0-20 with primer_bind=15
-      // Divider is at position 20 - 15 = 5
-      // If we shrink end to 4, divider would be invalid, so delete primer_bind
+    it('deletes primer_bind when annotation shrinks to length <= primer_bind', async () => {
+      // primer_bind=15, annotation length=20
+      // If annotation shrinks to length 15 or less, primer_bind is invalid and should be deleted
       const existingAnnotation = {
         caption: 'Forward Primer',
         type: 'primer',
@@ -1422,35 +1383,34 @@ describe('AnnotationModal', () => {
 
       await wrapper.vm.$nextTick()
 
-      // Change the end position from 20 to 4
+      // Shrink annotation to length 15 (primer_bind must be < length, so this is invalid)
       const endInput = wrapper.find('.range-end')
-      await endInput.setValue('4')
+      await endInput.setValue('15')
       await wrapper.vm.$nextTick()
 
-      // Submit the form (caption and type already set from annotation)
+      // Submit the form
       await wrapper.find('form').trigger('submit')
 
       const emitted = wrapper.emitted('update')
       expect(emitted).toHaveLength(1)
-      // Divider was at 5, new end is 4, which is <= divider, so primer_bind deleted
+      // primer_bind should be deleted since length (15) is not > primer_bind (15)
       expect(emitted[0][0].attributes.primer_bind).toBeUndefined()
     })
 
-    it('deletes primer_bind when reverse primer start moves past divider', async () => {
-      // Reverse primer 10-30 with primer_bind=8
-      // Divider is at position 10 + 8 = 18
-      // If we move start to 20, divider would be invalid, so delete primer_bind
+    it('preserves primer_bind when annotation shrinks but length > primer_bind', async () => {
+      // primer_bind=10, annotation length=20
+      // If annotation shrinks to length 15, primer_bind is still valid (15 > 10)
       const existingAnnotation = {
-        caption: 'Reverse Primer',
+        caption: 'Forward Primer',
         type: 'primer',
-        span: ezSpan(10, 30, Orientation.MINUS),
-        attributes: { primer_bind: 8 }
+        span: ezSpan(0, 20, Orientation.PLUS),
+        attributes: { primer_bind: 10 }
       }
 
       const wrapper = mount(AnnotationModal, {
         props: {
           open: true,
-          span: ezSpan(10, 30, Orientation.MINUS),
+          span: ezSpan(0, 20, Orientation.PLUS),
           annotation: existingAnnotation,
           additionalFields: [PrimerBindExtension]
         }
@@ -1458,18 +1418,98 @@ describe('AnnotationModal', () => {
 
       await wrapper.vm.$nextTick()
 
-      // Change the start position from 10 to 20 (input shows 11, change to 21)
-      const startInput = wrapper.find('.range-start')
-      await startInput.setValue('21')  // 1-based, so 21 = position 20
+      // Shrink annotation to length 15 (primer_bind=10 is still valid since 15 > 10)
+      const endInput = wrapper.find('.range-end')
+      await endInput.setValue('15')
       await wrapper.vm.$nextTick()
 
-      // Submit the form (caption and type already set from annotation)
+      // Submit the form
       await wrapper.find('form').trigger('submit')
 
       const emitted = wrapper.emitted('update')
       expect(emitted).toHaveLength(1)
-      // Divider was at 18, new start is 20, which is >= divider, so primer_bind deleted
+      // primer_bind should remain 10
+      expect(emitted[0][0].attributes.primer_bind).toBe(10)
+    })
+
+    it('deletes primer_bind when adding a second segment', async () => {
+      // primer_bind only makes sense for single-range annotations
+      const existingAnnotation = {
+        caption: 'Forward Primer',
+        type: 'primer',
+        span: ezSpan(0, 20, Orientation.PLUS),
+        attributes: { primer_bind: 10 }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20, Orientation.PLUS),
+          annotation: existingAnnotation,
+          additionalFields: [PrimerBindExtension]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // Add a second range
+      await wrapper.find('.btn-add-range').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      // Fill in the second range
+      const startInputs = wrapper.findAll('.range-start')
+      const endInputs = wrapper.findAll('.range-end')
+      await startInputs[1].setValue('30')
+      await endInputs[1].setValue('40')
+      await wrapper.vm.$nextTick()
+
+      // Submit the form
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('update')
+      expect(emitted).toHaveLength(1)
+      // primer_bind should be deleted since we now have multiple ranges
       expect(emitted[0][0].attributes.primer_bind).toBeUndefined()
+    })
+
+    it('preserves user-edited primer_bind value when span is unchanged', async () => {
+      // BUG: When editing an existing primer annotation, if user changes primer_bind
+      // but not the span, the recalculation logic should NOT overwrite the user's input.
+      // The current code recalculates primer_bind based on keeping the divider position,
+      // but this overwrites explicit user edits.
+      const existingAnnotation = {
+        caption: 'Forward Primer',
+        type: 'primer',
+        span: ezSpan(0, 20, Orientation.PLUS),
+        attributes: { primer_bind: 5 }
+      }
+
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 20, Orientation.PLUS),
+          annotation: existingAnnotation,
+          additionalFields: [PrimerBindExtension]
+        }
+      })
+
+      await wrapper.vm.$nextTick()
+
+      // Verify initial value
+      const input = wrapper.find('.primer-bind-editor')
+      expect(input.element.value).toBe('5')
+
+      // User edits primer_bind to 8 (without changing the span)
+      await input.setValue('8')
+      await wrapper.vm.$nextTick()
+
+      // Submit the form
+      await wrapper.find('form').trigger('submit')
+
+      const emitted = wrapper.emitted('update')
+      expect(emitted).toHaveLength(1)
+      // User explicitly set primer_bind to 8, this should be preserved
+      expect(emitted[0][0].attributes.primer_bind).toBe(8)
     })
 
     it('hides primer_bind field for multi-range annotations', async () => {
