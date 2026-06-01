@@ -4,8 +4,11 @@ import {
   scoreMatch,
   buildCoordinateMap,
   mapCoordinate,
-  extractGaps
+  buildReverseCoordinateMap,
+  extractGaps,
+  mapAnnotationThroughAlignment
 } from './alignment.js'
+import { Range, Span, Orientation } from './dna.js'
 
 /**
  * Smith-Waterman Local Alignment Tests
@@ -500,13 +503,13 @@ describe('contiguous gap preference', () => {
     // Target: ATCGATCG, Query: ATCGAAATCG (extra AA)
     const result = align('ATCGAAATCG', 'ATCGATCG')
 
-    expect(result.targetAligned).toBe('ATCG--ATCG')
     expect(result.queryAligned).toBe('ATCGAAATCG')
 
     // Verify gaps are contiguous
     const gapMatches = result.targetAligned.match(/-+/g)
     expect(gapMatches).not.toBeNull()
     expect(gapMatches.length).toBe(1)
+    expect(gapMatches[0]).toBe('--')
   })
 
   it('prefers one long gap over multiple short gaps', () => {
@@ -518,6 +521,199 @@ describe('contiguous gap preference', () => {
     // Count gap regions - should be exactly 1
     const gapRegions = result.queryAligned.split(/[^-]+/).filter(s => s.length > 0)
     expect(gapRegions.length).toBe(1)
+  })
+})
+
+describe('linear operation compatibility regressions', () => {
+  function expectSingleGapRun(value, length) {
+    const gapMatches = value.match(/-+/g)
+    expect(gapMatches).not.toBeNull()
+    expect(gapMatches.length).toBe(1)
+    expect(gapMatches[0].length).toBe(length)
+  }
+
+  it('aligns small exact matches through the linear compatibility path', () => {
+    const result = align('ATCG', 'ATCG')
+
+    expect(result).toMatchObject({
+      score: 8,
+      queryStart: 0,
+      queryEnd: 4,
+      targetStart: 0,
+      targetEnd: 4,
+      queryAligned: 'ATCG',
+      targetAligned: 'ATCG',
+      identity: 100
+    })
+  })
+
+  it('keeps deterministic mismatch output for small alignments', () => {
+    const result = align('ATCGATCG', 'ATCGTTCG')
+
+    expect(result.queryAligned).toBe('ATCGATCG')
+    expect(result.targetAligned).toBe('ATCGTTCG')
+    expect(result.identity).toBe(87.5)
+  })
+
+  it('trims poor flanks from local alignments', () => {
+    const result = align('XXXATCGATCGXXX', 'YYYATCGATCGYYY')
+
+    expect(result.queryAligned).toBe('ATCGATCG')
+    expect(result.targetAligned).toBe('ATCGATCG')
+    expect(result.queryStart).toBe(3)
+    expect(result.targetStart).toBe(3)
+  })
+
+  it('returns the empty compatibility shape for no meaningful match', () => {
+    const result = align('AAAAAAA', 'TTTTTTT')
+
+    expect(result).toEqual({
+      score: 0,
+      queryStart: 0,
+      queryEnd: 0,
+      targetStart: 0,
+      targetEnd: 0,
+      queryAligned: '',
+      targetAligned: '',
+      identity: 0
+    })
+  })
+
+  it('handles a single-base match', () => {
+    const result = align('A', 'A')
+
+    expect(result.score).toBe(2)
+    expect(result.queryAligned).toBe('A')
+    expect(result.targetAligned).toBe('A')
+    expect(result.identity).toBe(100)
+  })
+
+  it('handles a single-base mismatch as no local alignment', () => {
+    const result = align('A', 'T')
+
+    expect(result.score).toBe(0)
+    expect(result.queryAligned).toBe('')
+    expect(result.targetAligned).toBe('')
+  })
+
+  it('expands target-only operations into query gaps', () => {
+    const result = align('ATCGATCG', 'ATCGAAATCG')
+
+    expect(result.queryAligned.replace(/-/g, '')).toBe('ATCGATCG')
+    expect(result.targetAligned).toBe('ATCGAAATCG')
+    expectSingleGapRun(result.queryAligned, 2)
+  })
+
+  it('expands query-only operations into target gaps', () => {
+    const result = align('ATCGAAATCG', 'ATCGATCG')
+
+    expect(result.queryAligned).toBe('ATCGAAATCG')
+    expect(result.targetAligned.replace(/-/g, '')).toBe('ATCGATCG')
+    expectSingleGapRun(result.targetAligned, 2)
+  })
+
+  it('coalesces adjacent target-only operations into one visible gap', () => {
+    const result = align('ATGCTAG', 'ATGCCCTAG')
+
+    expect(result.targetAligned).toBe('ATGCCCTAG')
+    expectSingleGapRun(result.queryAligned, 2)
+  })
+
+  it('keeps compatibility strings at equal length for gapped alignments', () => {
+    const result = align('ATCGAAATCG', 'ATCGATCG')
+
+    expect(result.queryAligned.length).toBe(result.targetAligned.length)
+  })
+
+  it('normalizes aligned output to uppercase', () => {
+    const result = align('atCg', 'aTcG')
+
+    expect(result.queryAligned).toBe('ATCG')
+    expect(result.targetAligned).toBe('ATCG')
+  })
+
+  it('keeps exported scoreMatch IUPAC semantics', () => {
+    expect(scoreMatch('A', 'A')).toBe(2)
+    expect(scoreMatch('N', 'G')).toBe(1)
+    expect(scoreMatch('R', 'A')).toBe(1)
+    expect(scoreMatch('R', 'T')).toBe(-1)
+  })
+
+  it('aligns through N wildcard positions', () => {
+    const result = align('ATCGATCG', 'ATNGANCG')
+
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.queryAligned.length).toBe(result.targetAligned.length)
+  })
+
+  it('aligns through mixed ambiguity codes', () => {
+    const result = align('ATCGATCG', 'RYCGRYCY')
+
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.queryAligned.length).toBeGreaterThan(0)
+  })
+
+  it('honors custom match scoring', () => {
+    const result = align('ATCG', 'ATCG', { match: 5 })
+
+    expect(result.score).toBe(20)
+  })
+
+  it('extracts gaps from compatibility strings with original offsets', () => {
+    const gaps = extractGaps('AT--CG', 10)
+
+    expect(gaps).toEqual([{ position: 12, length: 2 }])
+  })
+
+  it('builds reverse coordinate maps across gaps', () => {
+    const map = buildReverseCoordinateMap('AT--CG', 5)
+
+    expect(map).toEqual({
+      5: 0,
+      6: 1,
+      7: 4,
+      8: 5
+    })
+  })
+
+  it('maps original coordinates to aligned positions with offsets', () => {
+    const map = buildCoordinateMap('AT--CG', 5)
+
+    expect(mapCoordinate(5, map, 5)).toBe(0)
+    expect(mapCoordinate(6, map, 5)).toBe(1)
+    expect(mapCoordinate(7, map, 5)).toBe(4)
+    expect(mapCoordinate(8, map, 5)).toBe(5)
+  })
+
+  it('returns null when mapping annotations outside the aligned region', () => {
+    const annotation = {
+      id: 'outside',
+      caption: 'outside',
+      type: 'gene',
+      span: new Span([new Range(20, 25, Orientation.PLUS)])
+    }
+
+    const mapped = mapAnnotationThroughAlignment(annotation, buildReverseCoordinateMap('ATCG', 0), 0, 4)
+
+    expect(mapped).toBeNull()
+  })
+
+  it('clips mapped annotations and preserves orientation', () => {
+    const annotation = {
+      id: 'partial',
+      caption: 'partial',
+      type: 'CDS',
+      span: new Span([new Range(4, 9, Orientation.MINUS)])
+    }
+    const reverseMap = buildReverseCoordinateMap('AT--CGTA', 5)
+
+    const mapped = mapAnnotationThroughAlignment(annotation, reverseMap, 5, 9)
+
+    expect(mapped.id).toBe('partial')
+    expect(mapped.span.ranges).toHaveLength(1)
+    expect(mapped.span.ranges[0].start).toBe(0)
+    expect(mapped.span.ranges[0].end).toBe(6)
+    expect(mapped.span.ranges[0].orientation).toBe(Orientation.MINUS)
   })
 })
 
