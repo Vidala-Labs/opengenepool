@@ -890,6 +890,45 @@ describe('WASM implementation', () => {
     expect(jsResult.queryAligned).toContain('-')
   })
 
+  it('matches JS full result for query insertion against target', () => {
+    const query = 'ATCGAAATCG'
+    const target = 'ATCGATCG'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult).toEqual(jsResult)
+  })
+
+  it('matches JS full results for deterministic alignment cases', () => {
+    const cases = [
+      ['ATCGATCG', 'ATCGATCG'],
+      ['ATCG', 'NNNATCGNNN'],
+      ['NNNATCGNNN', 'ATCG'],
+      ['ATCGATCG', 'ATCGTTCG'],
+      ['ATCGATCG', 'ATGGATGG'],
+      ['ATCGATCG', 'ATCGAAATCG'],
+      ['ATCGAAATCG', 'ATCGATCG'],
+      ['ATGCTAG', 'ATGCCCTAG'],
+      ['XXXATCGATCGXXX', 'YYYATCGATCGYYY'],
+      ['AAAAAAA', 'TTTTTTT'],
+      ['ATCGATCG', 'ATNGANCG'],
+      ['ATCGATCG', 'RYCGRYCY'],
+      ['', 'ATCG'],
+      ['ATCG', ''],
+      ['A', 'A'],
+      ['A', 'T'],
+      ['atCg', 'aTcG'],
+      ['ATCG', 'ATCG', { match: 5 }],
+      ['ATCG', 'ATGG', { mismatch: -3 }],
+      ['ATCGATCG', 'ATCGAATCG', { gapOpen: -10, gapExtend: -5 }]
+    ]
+
+    for (const [query, target, options] of cases) {
+      expect(alignWasm(query, target, options)).toEqual(align(query, target, options))
+    }
+  })
+
   it('finds local alignment same as JS', () => {
     const query = 'XXXATCGATCGXXX'
     const target = 'YYYATCGATCGYYY'

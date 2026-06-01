@@ -4,7 +4,6 @@
 ///! Exports functions for WASM integration with JavaScript.
 ///!
 ///! Zig version: 0.15.x
-
 const std = @import("std");
 
 // WASM allocator using a simple bump allocator
@@ -30,115 +29,126 @@ fn resetHeap() void {
     heap_offset = 0;
 }
 
-// IUPAC code support
-const IupacSet = packed struct {
-    A: bool = false,
-    T: bool = false,
-    G: bool = false,
-    C: bool = false,
+fn heapMark() usize {
+    return heap_offset;
+}
 
-    fn intersects(self: IupacSet, other: IupacSet) bool {
-        return (self.A and other.A) or
-            (self.T and other.T) or
-            (self.G and other.G) or
-            (self.C and other.C);
-    }
+fn resetHeapTo(mark: usize) void {
+    heap_offset = mark;
+}
 
-    fn isSingleBase(self: IupacSet) bool {
-        const count: u8 = @intFromBool(self.A) + @intFromBool(self.T) +
-            @intFromBool(self.G) + @intFromBool(self.C);
-        return count == 1;
-    }
+const MASK_A: u8 = 1;
+const MASK_C: u8 = 2;
+const MASK_G: u8 = 4;
+const MASK_T: u8 = 8;
 
-    fn eql(self: IupacSet, other: IupacSet) bool {
-        return self.A == other.A and self.T == other.T and
-            self.G == other.G and self.C == other.C;
-    }
+const NormalizedSequence = struct {
+    text: []u8,
+    masks: []u8,
 };
 
-fn getIupacSet(base: u8) IupacSet {
-    const upper = if (base >= 'a' and base <= 'z') base - 32 else base;
-    return switch (upper) {
-        'A' => IupacSet{ .A = true },
-        'T' => IupacSet{ .T = true },
-        'G' => IupacSet{ .G = true },
-        'C' => IupacSet{ .C = true },
-        'N' => IupacSet{ .A = true, .T = true, .G = true, .C = true },
-        'R' => IupacSet{ .A = true, .G = true },
-        'Y' => IupacSet{ .C = true, .T = true },
-        'S' => IupacSet{ .G = true, .C = true },
-        'W' => IupacSet{ .A = true, .T = true },
-        'K' => IupacSet{ .G = true, .T = true },
-        'M' => IupacSet{ .A = true, .C = true },
-        'B' => IupacSet{ .C = true, .G = true, .T = true },
-        'D' => IupacSet{ .A = true, .G = true, .T = true },
-        'H' => IupacSet{ .A = true, .C = true, .T = true },
-        'V' => IupacSet{ .A = true, .C = true, .G = true },
-        else => IupacSet{},
+fn toUpper(base: u8) u8 {
+    return if (base >= 'a' and base <= 'z') base - 32 else base;
+}
+
+fn maskForUpperBase(base: u8) u8 {
+    return switch (base) {
+        'A' => MASK_A,
+        'C' => MASK_C,
+        'G' => MASK_G,
+        'T' => MASK_T,
+        'N' => MASK_A | MASK_C | MASK_G | MASK_T,
+        'R' => MASK_A | MASK_G,
+        'Y' => MASK_C | MASK_T,
+        'S' => MASK_G | MASK_C,
+        'W' => MASK_A | MASK_T,
+        'K' => MASK_G | MASK_T,
+        'M' => MASK_A | MASK_C,
+        'B' => MASK_C | MASK_G | MASK_T,
+        'D' => MASK_A | MASK_G | MASK_T,
+        'H' => MASK_A | MASK_C | MASK_T,
+        'V' => MASK_A | MASK_C | MASK_G,
+        else => 0,
     };
 }
 
-fn scoreMatch(base1: u8, base2: u8, match_score: i32, mismatch_score: i32) i32 {
-    const set1 = getIupacSet(base1);
-    const set2 = getIupacSet(base2);
+fn isSingleBaseMask(mask: u8) bool {
+    return mask == MASK_A or mask == MASK_C or mask == MASK_G or mask == MASK_T;
+}
 
-    if (!set1.intersects(set2)) {
+fn scoreMasks(mask1: u8, mask2: u8, match_score: i32, mismatch_score: i32) i32 {
+    if ((mask1 & mask2) == 0) {
         return mismatch_score;
     }
 
-    // Exact match
-    if (set1.isSingleBase() and set2.isSingleBase() and set1.eql(set2)) {
+    if (mask1 == mask2 and isSingleBaseMask(mask1)) {
         return match_score;
     }
 
-    // Ambiguous match
     return 1;
+}
+
+fn normalizeSequence(sequence: []const u8) ?NormalizedSequence {
+    const text_ptr = wasmAlloc(sequence.len) orelse return null;
+    const masks_ptr = wasmAlloc(sequence.len) orelse return null;
+    const text = text_ptr[0..sequence.len];
+    const masks = masks_ptr[0..sequence.len];
+
+    for (sequence, 0..) |base, i| {
+        const upper = toUpper(base);
+        text[i] = upper;
+        masks[i] = maskForUpperBase(upper);
+    }
+
+    return .{ .text = text, .masks = masks };
 }
 
 // Result structure for alignment
 // Layout must match JS reader expectations (all i32s packed, then f64 at 8-byte aligned offset)
 pub const AlignmentResult = extern struct {
-    score: i32,              // offset 0
-    query_start: i32,        // offset 4
-    query_end: i32,          // offset 8
-    target_start: i32,       // offset 12
-    target_end: i32,         // offset 16
-    query_aligned_ptr: u32,  // offset 20 (using u32 instead of pointer for explicit 4-byte size)
-    query_aligned_len: i32,  // offset 24
+    score: i32, // offset 0
+    query_start: i32, // offset 4
+    query_end: i32, // offset 8
+    target_start: i32, // offset 12
+    target_end: i32, // offset 16
+    query_aligned_ptr: u32, // offset 20 (using u32 instead of pointer for explicit 4-byte size)
+    query_aligned_len: i32, // offset 24
     target_aligned_ptr: u32, // offset 28
     target_aligned_len: i32, // offset 32
-    _padding: u32 = 0,       // offset 36 (padding for f64 alignment)
-    identity: f64,           // offset 40
+    _padding: u32 = 0, // offset 36 (padding for f64 alignment)
+    identity: f64, // offset 40
 };
 
 // Find max score and endpoint using linear space
 fn findMaxScoreLinearSpace(
-    query: []const u8,
-    target: []const u8,
+    query_masks: []const u8,
+    target_masks: []const u8,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
 ) struct { max_score: i32, max_i: usize, max_j: usize } {
-    const m = query.len;
-    const n = target.len;
+    const m = query_masks.len;
+    const n = target_masks.len;
+    const mark = heapMark();
+    defer resetHeapTo(mark);
 
     // Allocate rows using our heap
     const row_size = (n + 1) * @sizeOf(i32);
     const prev_h_ptr = wasmAlloc(row_size) orelse return .{ .max_score = 0, .max_i = 0, .max_j = 0 };
     const curr_h_ptr = wasmAlloc(row_size) orelse return .{ .max_score = 0, .max_i = 0, .max_j = 0 };
-    const prev_e_ptr = wasmAlloc(row_size) orelse return .{ .max_score = 0, .max_i = 0, .max_j = 0 };
-    const curr_e_ptr = wasmAlloc(row_size) orelse return .{ .max_score = 0, .max_i = 0, .max_j = 0 };
+    const prev_f_ptr = wasmAlloc(row_size) orelse return .{ .max_score = 0, .max_i = 0, .max_j = 0 };
+    const curr_f_ptr = wasmAlloc(row_size) orelse return .{ .max_score = 0, .max_i = 0, .max_j = 0 };
 
-    var prev_h: [*]i32 = @alignCast(@ptrCast(prev_h_ptr));
-    var curr_h: [*]i32 = @alignCast(@ptrCast(curr_h_ptr));
-    var prev_e: [*]i32 = @alignCast(@ptrCast(prev_e_ptr));
-    var curr_e: [*]i32 = @alignCast(@ptrCast(curr_e_ptr));
+    var prev_h: [*]i32 = @ptrCast(@alignCast(prev_h_ptr));
+    var curr_h: [*]i32 = @ptrCast(@alignCast(curr_h_ptr));
+    var prev_f: [*]i32 = @ptrCast(@alignCast(prev_f_ptr));
+    var curr_f: [*]i32 = @ptrCast(@alignCast(curr_f_ptr));
 
     // Initialize
     for (0..n + 1) |j| {
         prev_h[j] = 0;
-        prev_e[j] = std.math.minInt(i32) / 2;
+        prev_f[j] = std.math.minInt(i32) / 2;
     }
 
     var max_score: i32 = 0;
@@ -148,23 +158,23 @@ fn findMaxScoreLinearSpace(
     for (1..m + 1) |i| {
         for (0..n + 1) |j| {
             curr_h[j] = 0;
-            curr_e[j] = std.math.minInt(i32) / 2;
+            curr_f[j] = std.math.minInt(i32) / 2;
         }
-        var f: i32 = std.math.minInt(i32) / 2;
+        var e: i32 = std.math.minInt(i32) / 2;
 
         for (1..n + 1) |j| {
-            const match_val = scoreMatch(query[i - 1], target[j - 1], match_score, mismatch_score);
+            const match_val = scoreMasks(query_masks[i - 1], target_masks[j - 1], match_score, mismatch_score);
 
             // E[i][j] = max(H[i][j-1] + gapOpen + gapExtend, E[i][j-1] + gapExtend)
-            curr_e[j] = @max(
+            e = @max(
                 curr_h[j - 1] + gap_open + gap_extend,
-                curr_e[j - 1] + gap_extend,
+                e + gap_extend,
             );
 
             // F[i][j] = max(H[i-1][j] + gapOpen + gapExtend, F[i-1][j] + gapExtend)
-            f = @max(
+            curr_f[j] = @max(
                 prev_h[j] + gap_open + gap_extend,
-                f + gap_extend,
+                prev_f[j] + gap_extend,
             );
 
             // H[i][j] = max(0, H[i-1][j-1] + matchScore, E[i][j], F[i][j])
@@ -172,7 +182,7 @@ fn findMaxScoreLinearSpace(
                 0,
                 @max(
                     prev_h[j - 1] + match_val,
-                    @max(curr_e[j], f),
+                    @max(e, curr_f[j]),
                 ),
             );
 
@@ -188,9 +198,9 @@ fn findMaxScoreLinearSpace(
         prev_h = curr_h;
         curr_h = tmp_h;
 
-        const tmp_e = prev_e;
-        prev_e = curr_e;
-        curr_e = tmp_e;
+        const tmp_f = prev_f;
+        prev_f = curr_f;
+        curr_f = tmp_f;
     }
 
     return .{ .max_score = max_score, .max_i = max_i, .max_j = max_j };
@@ -198,8 +208,8 @@ fn findMaxScoreLinearSpace(
 
 // Find start point by backward scanning
 fn findStartPointLinearSpace(
-    query: []const u8,
-    target: []const u8,
+    query_masks: []const u8,
+    target_masks: []const u8,
     max_i: usize,
     max_j: usize,
     match_score: i32,
@@ -209,63 +219,64 @@ fn findStartPointLinearSpace(
 ) struct { start_i: usize, start_j: usize } {
     // Reverse scan to find start
     const n = max_j;
+    const mark = heapMark();
+    defer resetHeapTo(mark);
 
     const row_size = (n + 1) * @sizeOf(i32);
     const prev_h_ptr = wasmAlloc(row_size) orelse return .{ .start_i = 0, .start_j = 0 };
     const curr_h_ptr = wasmAlloc(row_size) orelse return .{ .start_i = 0, .start_j = 0 };
-    const prev_e_ptr = wasmAlloc(row_size) orelse return .{ .start_i = 0, .start_j = 0 };
-    const curr_e_ptr = wasmAlloc(row_size) orelse return .{ .start_i = 0, .start_j = 0 };
+    const prev_f_ptr = wasmAlloc(row_size) orelse return .{ .start_i = 0, .start_j = 0 };
+    const curr_f_ptr = wasmAlloc(row_size) orelse return .{ .start_i = 0, .start_j = 0 };
 
-    var prev_h: [*]i32 = @alignCast(@ptrCast(prev_h_ptr));
-    var curr_h: [*]i32 = @alignCast(@ptrCast(curr_h_ptr));
-    var prev_e: [*]i32 = @alignCast(@ptrCast(prev_e_ptr));
-    var curr_e: [*]i32 = @alignCast(@ptrCast(curr_e_ptr));
+    var prev_h: [*]i32 = @ptrCast(@alignCast(prev_h_ptr));
+    var curr_h: [*]i32 = @ptrCast(@alignCast(curr_h_ptr));
+    var prev_f: [*]i32 = @ptrCast(@alignCast(prev_f_ptr));
+    var curr_f: [*]i32 = @ptrCast(@alignCast(curr_f_ptr));
 
     // Initialize
     for (0..n + 1) |j| {
         prev_h[j] = 0;
-        prev_e[j] = std.math.minInt(i32) / 2;
+        prev_f[j] = std.math.minInt(i32) / 2;
     }
 
     var max_score_rev: i32 = 0;
     var end_rev_i: usize = 0;
     var end_rev_j: usize = 0;
 
-    // Process in reverse
-    var i: usize = max_i;
-    while (i > 0) : (i -= 1) {
+    for (1..max_i + 1) |i| {
         for (0..n + 1) |j| {
             curr_h[j] = 0;
-            curr_e[j] = std.math.minInt(i32) / 2;
+            curr_f[j] = std.math.minInt(i32) / 2;
         }
-        var f: i32 = std.math.minInt(i32) / 2;
+        var e: i32 = std.math.minInt(i32) / 2;
+        const query_index = max_i - i;
 
-        var j: usize = max_j;
-        while (j > 0) : (j -= 1) {
-            const match_val = scoreMatch(query[i - 1], target[j - 1], match_score, mismatch_score);
+        for (1..max_j + 1) |j| {
+            const target_index = max_j - j;
+            const match_val = scoreMasks(query_masks[query_index], target_masks[target_index], match_score, mismatch_score);
 
-            curr_e[j - 1] = @max(
-                curr_h[j] + gap_open + gap_extend,
-                curr_e[j] + gap_extend,
+            e = @max(
+                curr_h[j - 1] + gap_open + gap_extend,
+                e + gap_extend,
             );
 
-            f = @max(
-                prev_h[j - 1] + gap_open + gap_extend,
-                f + gap_extend,
+            curr_f[j] = @max(
+                prev_h[j] + gap_open + gap_extend,
+                prev_f[j] + gap_extend,
             );
 
-            curr_h[j - 1] = @max(
+            curr_h[j] = @max(
                 0,
                 @max(
-                    prev_h[j] + match_val,
-                    @max(curr_e[j - 1], f),
+                    prev_h[j - 1] + match_val,
+                    @max(e, curr_f[j]),
                 ),
             );
 
-            if (curr_h[j - 1] > max_score_rev) {
-                max_score_rev = curr_h[j - 1];
-                end_rev_i = max_i - i + 1;
-                end_rev_j = max_j - j + 1;
+            if (curr_h[j] > max_score_rev) {
+                max_score_rev = curr_h[j];
+                end_rev_i = i;
+                end_rev_j = j;
             }
         }
 
@@ -274,9 +285,9 @@ fn findStartPointLinearSpace(
         prev_h = curr_h;
         curr_h = tmp_h;
 
-        const tmp_e = prev_e;
-        prev_e = curr_e;
-        curr_e = tmp_e;
+        const tmp_f = prev_f;
+        prev_f = curr_f;
+        curr_f = tmp_f;
     }
 
     return .{
@@ -287,23 +298,25 @@ fn findStartPointLinearSpace(
 
 // Compute last row scores for Hirschberg (global alignment on local region)
 fn computeLastRowScores(
-    query: []const u8,
-    target: []const u8,
+    query_masks: []const u8,
+    target_masks: []const u8,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
     out_scores: [*]i32,
 ) void {
-    const m = query.len;
-    const n = target.len;
+    const m = query_masks.len;
+    const n = target_masks.len;
+    const mark = heapMark();
+    defer resetHeapTo(mark);
 
     const row_size = (n + 1) * @sizeOf(i32);
     const prev_h_ptr = wasmAlloc(row_size) orelse return;
     const curr_h_ptr = wasmAlloc(row_size) orelse return;
 
-    var prev_h: [*]i32 = @alignCast(@ptrCast(prev_h_ptr));
-    var curr_h: [*]i32 = @alignCast(@ptrCast(curr_h_ptr));
+    var prev_h: [*]i32 = @ptrCast(@alignCast(prev_h_ptr));
+    var curr_h: [*]i32 = @ptrCast(@alignCast(curr_h_ptr));
 
     // Initialize for global alignment
     for (0..n + 1) |j| {
@@ -314,7 +327,7 @@ fn computeLastRowScores(
         curr_h[0] = gap_open + @as(i32, @intCast(i)) * gap_extend;
 
         for (1..n + 1) |j| {
-            const match_val = scoreMatch(query[i - 1], target[j - 1], match_score, mismatch_score);
+            const match_val = scoreMasks(query_masks[i - 1], target_masks[j - 1], match_score, mismatch_score);
             const diag = prev_h[j - 1] + match_val;
             const up = prev_h[j] + gap_open + gap_extend;
             const left = curr_h[j - 1] + gap_open + gap_extend;
@@ -334,23 +347,25 @@ fn computeLastRowScores(
 
 // Compute backward scores for Hirschberg
 fn computeBackwardScores(
-    query: []const u8,
-    target: []const u8,
+    query_masks: []const u8,
+    target_masks: []const u8,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
     out_scores: [*]i32,
 ) void {
-    const m = query.len;
-    const n = target.len;
+    const m = query_masks.len;
+    const n = target_masks.len;
+    const mark = heapMark();
+    defer resetHeapTo(mark);
 
     const row_size = (n + 1) * @sizeOf(i32);
     const prev_h_ptr = wasmAlloc(row_size) orelse return;
     const curr_h_ptr = wasmAlloc(row_size) orelse return;
 
-    var prev_h: [*]i32 = @alignCast(@ptrCast(prev_h_ptr));
-    var curr_h: [*]i32 = @alignCast(@ptrCast(curr_h_ptr));
+    var prev_h: [*]i32 = @ptrCast(@alignCast(prev_h_ptr));
+    var curr_h: [*]i32 = @ptrCast(@alignCast(curr_h_ptr));
 
     // Initialize for backward global alignment
     for (0..n + 1) |j| {
@@ -363,7 +378,7 @@ fn computeBackwardScores(
 
         var j: usize = n;
         while (j > 0) : (j -= 1) {
-            const match_val = scoreMatch(query[i - 1], target[j - 1], match_score, mismatch_score);
+            const match_val = scoreMasks(query_masks[i - 1], target_masks[j - 1], match_score, mismatch_score);
             const diag = prev_h[j] + match_val;
             const down = prev_h[j - 1] + gap_open + gap_extend;
             const right = curr_h[j] + gap_open + gap_extend;
@@ -383,8 +398,10 @@ fn computeBackwardScores(
 
 // Hirschberg alignment - writes aligned sequences to output buffers
 fn hirschbergAlign(
-    query: []const u8,
-    target: []const u8,
+    query_text: []const u8,
+    query_masks: []const u8,
+    target_text: []const u8,
+    target_masks: []const u8,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
@@ -393,14 +410,14 @@ fn hirschbergAlign(
     out_target: [*]u8,
     out_len: *usize,
 ) void {
-    const m = query.len;
-    const n = target.len;
+    const m = query_text.len;
+    const n = target_text.len;
 
     // Base cases
     if (m == 0) {
         for (0..n) |j| {
             out_query[out_len.*] = '-';
-            out_target[out_len.*] = target[j];
+            out_target[out_len.*] = target_text[j];
             out_len.* += 1;
         }
         return;
@@ -408,7 +425,7 @@ fn hirschbergAlign(
 
     if (n == 0) {
         for (0..m) |i| {
-            out_query[out_len.*] = query[i];
+            out_query[out_len.*] = query_text[i];
             out_target[out_len.*] = '-';
             out_len.* += 1;
         }
@@ -421,7 +438,7 @@ fn hirschbergAlign(
         var best_j: usize = 0;
 
         for (0..n) |j| {
-            const match_val = scoreMatch(query[0], target[j], match_score, mismatch_score);
+            const match_val = scoreMasks(query_masks[0], target_masks[j], match_score, mismatch_score);
             const gaps_before: i32 = if (j > 0) gap_open + @as(i32, @intCast(j)) * gap_extend else 0;
             const gaps_after: i32 = if (j < n - 1) gap_open + @as(i32, @intCast(n - j - 1)) * gap_extend else 0;
             const score = gaps_before + match_val + gaps_after;
@@ -433,17 +450,17 @@ fn hirschbergAlign(
         }
 
         // Write alignment
-        for (0..best_j) |_| {
+        for (0..best_j) |j| {
             out_query[out_len.*] = '-';
-            out_target[out_len.*] = target[out_len.*];
+            out_target[out_len.*] = target_text[j];
             out_len.* += 1;
         }
-        out_query[out_len.*] = query[0];
-        out_target[out_len.*] = target[best_j];
+        out_query[out_len.*] = query_text[0];
+        out_target[out_len.*] = target_text[best_j];
         out_len.* += 1;
         for (best_j + 1..n) |j| {
             out_query[out_len.*] = '-';
-            out_target[out_len.*] = target[j];
+            out_target[out_len.*] = target_text[j];
             out_len.* += 1;
         }
         return;
@@ -454,7 +471,7 @@ fn hirschbergAlign(
         var best_i: usize = 0;
 
         for (0..m) |i| {
-            const match_val = scoreMatch(query[i], target[0], match_score, mismatch_score);
+            const match_val = scoreMasks(query_masks[i], target_masks[0], match_score, mismatch_score);
             const gaps_before: i32 = if (i > 0) gap_open + @as(i32, @intCast(i)) * gap_extend else 0;
             const gaps_after: i32 = if (i < m - 1) gap_open + @as(i32, @intCast(m - i - 1)) * gap_extend else 0;
             const score = gaps_before + match_val + gaps_after;
@@ -466,15 +483,15 @@ fn hirschbergAlign(
         }
 
         for (0..best_i) |i| {
-            out_query[out_len.*] = query[i];
+            out_query[out_len.*] = query_text[i];
             out_target[out_len.*] = '-';
             out_len.* += 1;
         }
-        out_query[out_len.*] = query[best_i];
-        out_target[out_len.*] = target[0];
+        out_query[out_len.*] = query_text[best_i];
+        out_target[out_len.*] = target_text[0];
         out_len.* += 1;
         for (best_i + 1..m) |i| {
-            out_query[out_len.*] = query[i];
+            out_query[out_len.*] = query_text[i];
             out_target[out_len.*] = '-';
             out_len.* += 1;
         }
@@ -486,14 +503,21 @@ fn hirschbergAlign(
 
     // Allocate score arrays
     const scores_size = (n + 1) * @sizeOf(i32);
-    const forward_ptr = wasmAlloc(scores_size) orelse return;
-    const backward_ptr = wasmAlloc(scores_size) orelse return;
+    const score_mark = heapMark();
+    const forward_ptr = wasmAlloc(scores_size) orelse {
+        resetHeapTo(score_mark);
+        return;
+    };
+    const backward_ptr = wasmAlloc(scores_size) orelse {
+        resetHeapTo(score_mark);
+        return;
+    };
 
-    const forward_scores: [*]i32 = @alignCast(@ptrCast(forward_ptr));
-    const backward_scores: [*]i32 = @alignCast(@ptrCast(backward_ptr));
+    const forward_scores: [*]i32 = @ptrCast(@alignCast(forward_ptr));
+    const backward_scores: [*]i32 = @ptrCast(@alignCast(backward_ptr));
 
-    computeLastRowScores(query[0..mid], target, match_score, mismatch_score, gap_open, gap_extend, forward_scores);
-    computeBackwardScores(query[mid..], target, match_score, mismatch_score, gap_open, gap_extend, backward_scores);
+    computeLastRowScores(query_masks[0..mid], target_masks, match_score, mismatch_score, gap_open, gap_extend, forward_scores);
+    computeBackwardScores(query_masks[mid..], target_masks, match_score, mismatch_score, gap_open, gap_extend, backward_scores);
 
     // Find best split point
     var best_j: usize = 0;
@@ -501,15 +525,17 @@ fn hirschbergAlign(
 
     for (0..n + 1) |j| {
         const score = forward_scores[j] + backward_scores[j];
-        if (score > best_score) {
+        if (score >= best_score) {
             best_score = score;
             best_j = j;
         }
     }
 
+    resetHeapTo(score_mark);
+
     // Recursive alignment
-    hirschbergAlign(query[0..mid], target[0..best_j], match_score, mismatch_score, gap_open, gap_extend, out_query, out_target, out_len);
-    hirschbergAlign(query[mid..], target[best_j..], match_score, mismatch_score, gap_open, gap_extend, out_query, out_target, out_len);
+    hirschbergAlign(query_text[0..mid], query_masks[0..mid], target_text[0..best_j], target_masks[0..best_j], match_score, mismatch_score, gap_open, gap_extend, out_query, out_target, out_len);
+    hirschbergAlign(query_text[mid..], query_masks[mid..], target_text[best_j..], target_masks[best_j..], match_score, mismatch_score, gap_open, gap_extend, out_query, out_target, out_len);
 }
 
 // Main alignment function exported to WASM
@@ -523,9 +549,6 @@ export fn alignSequences(
     gap_open: i32,
     gap_extend: i32,
 ) ?*AlignmentResult {
-    const query = query_ptr[0..query_len];
-    const target = target_ptr[0..target_len];
-
     // NOTE: We do NOT reset the heap here because:
     // 1. The input pointers (query_ptr, target_ptr) may have been allocated from our heap
     // 2. The slices above still reference that memory
@@ -534,7 +557,7 @@ export fn alignSequences(
     // Handle empty sequences
     if (query_len == 0 or target_len == 0) {
         const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-        const result: *AlignmentResult = @alignCast(@ptrCast(result_ptr));
+        const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
         result.* = AlignmentResult{
             .score = 0,
             .query_start = 0,
@@ -550,12 +573,15 @@ export fn alignSequences(
         return result;
     }
 
+    const query = normalizeSequence(query_ptr[0..query_len]) orelse return null;
+    const target = normalizeSequence(target_ptr[0..target_len]) orelse return null;
+
     // Find max score and endpoint
-    const max_result = findMaxScoreLinearSpace(query, target, match_score, mismatch_score, gap_open, gap_extend);
+    const max_result = findMaxScoreLinearSpace(query.masks, target.masks, match_score, mismatch_score, gap_open, gap_extend);
 
     if (max_result.max_score == 0) {
         const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-        const result: *AlignmentResult = @alignCast(@ptrCast(result_ptr));
+        const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
         result.* = AlignmentResult{
             .score = 0,
             .query_start = 0,
@@ -573,8 +599,8 @@ export fn alignSequences(
 
     // Find start point
     const start_result = findStartPointLinearSpace(
-        query,
-        target,
+        query.masks,
+        target.masks,
         max_result.max_i,
         max_result.max_j,
         match_score,
@@ -584,17 +610,21 @@ export fn alignSequences(
     );
 
     // Allocate output buffers (max size is sum of local region lengths)
-    const local_query = query[start_result.start_i..max_result.max_i];
-    const local_target = target[start_result.start_j..max_result.max_j];
-    const max_aligned_len = local_query.len + local_target.len;
+    const local_query_text = query.text[start_result.start_i..max_result.max_i];
+    const local_query_masks = query.masks[start_result.start_i..max_result.max_i];
+    const local_target_text = target.text[start_result.start_j..max_result.max_j];
+    const local_target_masks = target.masks[start_result.start_j..max_result.max_j];
+    const max_aligned_len = local_query_text.len + local_target_text.len;
 
     const query_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
     const target_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
 
     var aligned_len: usize = 0;
     hirschbergAlign(
-        local_query,
-        local_target,
+        local_query_text,
+        local_query_masks,
+        local_target_text,
+        local_target_masks,
         match_score,
         mismatch_score,
         gap_open,
@@ -610,15 +640,7 @@ export fn alignSequences(
     for (0..aligned_len) |i| {
         if (query_aligned_ptr[i] != '-' and target_aligned_ptr[i] != '-') {
             non_gap_positions += 1;
-            const q_upper = if (query_aligned_ptr[i] >= 'a' and query_aligned_ptr[i] <= 'z')
-                query_aligned_ptr[i] - 32
-            else
-                query_aligned_ptr[i];
-            const t_upper = if (target_aligned_ptr[i] >= 'a' and target_aligned_ptr[i] <= 'z')
-                target_aligned_ptr[i] - 32
-            else
-                target_aligned_ptr[i];
-            if (q_upper == t_upper) {
+            if (query_aligned_ptr[i] == target_aligned_ptr[i]) {
                 matches += 1;
             }
         }
@@ -631,7 +653,7 @@ export fn alignSequences(
 
     // Allocate and fill result
     const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-    const result: *AlignmentResult = @alignCast(@ptrCast(result_ptr));
+    const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
 
     result.* = AlignmentResult{
         .score = max_result.max_score,

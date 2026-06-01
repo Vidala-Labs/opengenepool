@@ -23,6 +23,8 @@ import { align as alignJS, scoreMatch } from './alignment-js.js'
 let wasmModule = null
 let wasmLoading = null
 let wasmFailed = false
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
 
 /**
  * Load the WASM module for alignment.
@@ -117,9 +119,8 @@ function alignWasm(query, target, options) {
   wasmModule.reset()
 
   // Encode strings to memory
-  const encoder = new TextEncoder()
-  const queryBytes = encoder.encode(query)
-  const targetBytes = encoder.encode(target)
+  const queryBytes = textEncoder.encode(query)
+  const targetBytes = textEncoder.encode(target)
 
   const queryLen = queryBytes.length
   const targetLen = targetBytes.length
@@ -184,9 +185,8 @@ function readAlignmentResult(ptr) {
   offset += 4  // skip padding
   const identity = view.getFloat64(offset, true)
 
-  const decoder = new TextDecoder()
-  const queryAligned = decoder.decode(memory.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
-  const targetAligned = decoder.decode(memory.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
+  const queryAligned = textDecoder.decode(memory.subarray(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
+  const targetAligned = textDecoder.decode(memory.subarray(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
 
   return {
     score,
