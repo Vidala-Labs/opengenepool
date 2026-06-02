@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'bun:test'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   align,
   scoreMatch,
@@ -936,6 +938,27 @@ describe('banded alignment fast path', () => {
     expect(result.targetAligned).toBe(query)
   })
 
+  it('aligns pUC19 file rotations as 100% circular sequence matches', () => {
+    const offsets = [0, 100, 200, 500, 1000, 1500]
+    const target = readFileSync(join(process.cwd(), 'testfile/pUC19_rot0.txt'), 'utf8').trim()
+
+    for (const offset of offsets) {
+      const query = readFileSync(join(process.cwd(), `testfile/pUC19_rot${offset}.txt`), 'utf8').trim()
+      const result = align(query, target, { circular: true })
+
+      expect(query.length).toBe(target.length)
+      expect(result.score).toBe(query.length * 2)
+      expect(result.identity).toBe(100)
+      expect(result.queryStart).toBe(0)
+      expect(result.queryEnd).toBe(query.length)
+      expect(result.targetOriginOffset ?? 0).toBe(offset)
+      expect(result.targetStart).toBe(offset)
+      expect(result.targetEnd).toBe(offset + target.length)
+      expect(result.queryAligned).toBe(query)
+      expect(result.targetAligned).toBe(query)
+    }
+  })
+
   it('does not rotate target origin unless circular alignment is requested', () => {
     const target = 'AAAACCCCGGGGTTTT'
     const query = 'GGGGTTTTAAAACCCC'
@@ -951,9 +974,10 @@ describe('WASM implementation', () => {
   let wasmModule = null
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
+  const WASM_RESULT_HEADER_SIZE = 40
+  const WASM_STATUS_OK = 0
 
-  function readWasmResult(resultPtr) {
-    // Read result (layout matches AlignmentResult struct with padding)
+  function readWasmResult(resultPtr, queryOutPtr, targetOutPtr) {
     const view = new DataView(wasmModule.memory.buffer)
     let offset = resultPtr
     const score = view.getInt32(offset, true); offset += 4
@@ -961,18 +985,17 @@ describe('WASM implementation', () => {
     const queryEnd = view.getInt32(offset, true); offset += 4
     const targetStart = view.getInt32(offset, true); offset += 4
     const targetEnd = view.getInt32(offset, true); offset += 4
-    const queryAlignedPtr = view.getUint32(offset, true); offset += 4
     const queryAlignedLen = view.getInt32(offset, true); offset += 4
-    const targetAlignedPtr = view.getUint32(offset, true); offset += 4
     const targetAlignedLen = view.getInt32(offset, true); offset += 4
-    offset += 4  // skip padding for f64 alignment
+    const targetOriginOffset = view.getInt32(offset, true)
+    offset += 4
     const identity = view.getFloat64(offset, true)
 
     const memoryBytes = new Uint8Array(wasmModule.memory.buffer)
-    const queryAligned = decoder.decode(memoryBytes.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
-    const targetAligned = decoder.decode(memoryBytes.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
+    const queryAligned = decoder.decode(memoryBytes.slice(queryOutPtr, queryOutPtr + queryAlignedLen))
+    const targetAligned = decoder.decode(memoryBytes.slice(targetOutPtr, targetOutPtr + targetAlignedLen))
 
-    return {
+    const result = {
       score,
       queryStart,
       queryEnd,
@@ -982,6 +1005,10 @@ describe('WASM implementation', () => {
       targetAligned,
       identity
     }
+    if (targetOriginOffset !== 0) {
+      result.targetOriginOffset = targetOriginOffset
+    }
+    return result
   }
 
   function withWasmInputs(query, target, callback) {
@@ -989,24 +1016,35 @@ describe('WASM implementation', () => {
 
     const queryBytes = encoder.encode(query)
     const targetBytes = encoder.encode(target)
+    const outCapacity = queryBytes.length + targetBytes.length
 
     const queryPtr = wasmModule.alloc(queryBytes.length)
     const targetPtr = wasmModule.alloc(targetBytes.length)
+    const queryOutPtr = wasmModule.alloc(outCapacity)
+    const targetOutPtr = wasmModule.alloc(outCapacity)
+    const resultPtr = wasmModule.alloc(WASM_RESULT_HEADER_SIZE)
 
     const memory = new Uint8Array(wasmModule.memory.buffer)
     memory.set(queryBytes, queryPtr)
     memory.set(targetBytes, targetPtr)
 
-    const resultPtr = callback(queryPtr, queryBytes.length, targetPtr, targetBytes.length)
+    const status = callback(
+      queryPtr, queryBytes.length,
+      targetPtr, targetBytes.length,
+      queryOutPtr, targetOutPtr,
+      outCapacity,
+      resultPtr
+    )
 
     wasmModule.free(queryPtr)
     wasmModule.free(targetPtr)
+    wasmModule.free(queryOutPtr)
+    wasmModule.free(targetOutPtr)
+    wasmModule.free(resultPtr)
 
-    if (!resultPtr) return null
+    if (status !== WASM_STATUS_OK) return null
 
-    const result = readWasmResult(resultPtr)
-    wasmModule.freeResult(resultPtr)
-    return result
+    return readWasmResult(resultPtr, queryOutPtr, targetOutPtr)
   }
 
   // Helper to call WASM linear alignment
@@ -1018,10 +1056,13 @@ describe('WASM implementation', () => {
       gapExtend = -1
     } = options
 
-    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen) =>
-      wasmModule.alignSequences(
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen, queryOutPtr, targetOutPtr, outCapacity, resultPtr) =>
+      wasmModule.alignSequencesInto(
         queryPtr, queryLen,
         targetPtr, targetLen,
+        queryOutPtr, targetOutPtr,
+        outCapacity,
+        resultPtr,
         match, mismatch, gapOpen, gapExtend
       )
     )
@@ -1036,12 +1077,41 @@ describe('WASM implementation', () => {
       bandWidth = 128
     } = options
 
-    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen) =>
-      wasmModule.alignSequencesBanded(
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen, queryOutPtr, targetOutPtr, outCapacity, resultPtr) =>
+      wasmModule.alignSequencesBandedInto(
         queryPtr, queryLen,
         targetPtr, targetLen,
+        queryOutPtr, targetOutPtr,
+        outCapacity,
+        resultPtr,
         match, mismatch, gapOpen, gapExtend,
         bandWidth
+      )
+    )
+  }
+
+  function alignWasmCircular(query, target, options = {}) {
+    const {
+      match = 2,
+      mismatch = -1,
+      gapOpen = -3,
+      gapExtend = -1,
+      bandWidth = 128,
+      originKmerSize = 15,
+      originMinVotes = 3
+    } = options
+
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen, queryOutPtr, targetOutPtr, outCapacity, resultPtr) =>
+      wasmModule.alignSequencesBandedCircularInto(
+        queryPtr, queryLen,
+        targetPtr, targetLen,
+        queryOutPtr, targetOutPtr,
+        outCapacity,
+        resultPtr,
+        match, mismatch, gapOpen, gapExtend,
+        bandWidth,
+        originKmerSize,
+        originMinVotes
       )
     )
   }
@@ -1056,8 +1126,9 @@ describe('WASM implementation', () => {
 
   it('loads WASM module successfully', () => {
     expect(wasmModule).not.toBeNull()
-    expect(typeof wasmModule.alignSequences).toBe('function')
-    expect(typeof wasmModule.alignSequencesBanded).toBe('function')
+    expect(typeof wasmModule.alignSequencesInto).toBe('function')
+    expect(typeof wasmModule.alignSequencesBandedInto).toBe('function')
+    expect(typeof wasmModule.alignSequencesBandedCircularInto).toBe('function')
     expect(typeof wasmModule.alloc).toBe('function')
     expect(typeof wasmModule.free).toBe('function')
     expect(typeof wasmModule.memory).toBe('object')
@@ -1220,5 +1291,25 @@ describe('WASM implementation', () => {
     const target = `ATCG${'A'.repeat(10)}ATCG`
 
     expect(alignWasmBanded(query, target, { bandWidth: 4 })).toBeNull()
+  })
+
+  it('circular WASM aligns pUC19 file rotations as 100% sequence matches', () => {
+    const offsets = [0, 100, 200, 500, 1000, 1500]
+    const target = readFileSync(join(process.cwd(), 'testfile/pUC19_rot0.txt'), 'utf8').trim()
+
+    for (const offset of offsets) {
+      const query = readFileSync(join(process.cwd(), `testfile/pUC19_rot${offset}.txt`), 'utf8').trim()
+      const result = alignWasmCircular(query, target)
+
+      expect(result.score).toBe(query.length * 2)
+      expect(result.identity).toBe(100)
+      expect(result.queryStart).toBe(0)
+      expect(result.queryEnd).toBe(query.length)
+      expect(result.targetOriginOffset ?? 0).toBe(offset)
+      expect(result.targetStart).toBe(offset)
+      expect(result.targetEnd).toBe(offset + target.length)
+      expect(result.queryAligned).toBe(query)
+      expect(result.targetAligned).toBe(query)
+    }
   })
 })
