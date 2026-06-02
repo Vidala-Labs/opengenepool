@@ -3,9 +3,14 @@ import {
   align,
   scoreMatch,
   buildCoordinateMap,
+  buildAlignedToOriginalMap,
+  normalizeCircularPosition,
   mapCoordinate,
-  extractGaps
+  buildReverseCoordinateMap,
+  extractGaps,
+  mapAnnotationThroughAlignment
 } from './alignment.js'
+import { Range, Span, Orientation } from './dna.js'
 
 /**
  * Smith-Waterman Local Alignment Tests
@@ -463,6 +468,99 @@ describe('extractGaps', () => {
   })
 })
 
+describe('circular coordinate mapping', () => {
+  it('normalizes virtual positions into physical circular coordinates', () => {
+    expect(normalizeCircularPosition(0, 4)).toBe(0)
+    expect(normalizeCircularPosition(3, 4)).toBe(3)
+    expect(normalizeCircularPosition(4, 4)).toBe(0)
+    expect(normalizeCircularPosition(5, 4)).toBe(1)
+    expect(normalizeCircularPosition(-1, 4)).toBe(3)
+  })
+
+  it('builds aligned-to-original maps with circular wrapping', () => {
+    const map = buildAlignedToOriginalMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(map).toEqual([2, 3, 0, 1])
+  })
+
+  it('builds reverse maps with circular wrapping', () => {
+    const map = buildReverseCoordinateMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(map).toEqual({
+      0: 2,
+      1: 3,
+      2: 0,
+      3: 1
+    })
+  })
+
+  it('extracts circular gaps at physical coordinates', () => {
+    const gaps = extractGaps('AA--TT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(gaps).toEqual([{ position: 0, length: 2 }])
+  })
+
+  it('maps circular annotations after the virtual origin', () => {
+    const annotation = {
+      id: 'after-origin',
+      caption: 'after-origin',
+      type: 'gene',
+      span: new Span([new Range(0, 2, Orientation.PLUS)])
+    }
+    const reverseMap = buildReverseCoordinateMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    const mapped = mapAnnotationThroughAlignment(annotation, reverseMap, 2, 6, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(mapped.span.ranges).toHaveLength(1)
+    expect(mapped.span.ranges[0].start).toBe(2)
+    expect(mapped.span.ranges[0].end).toBe(4)
+  })
+
+  it('maps split annotations that cross the physical origin', () => {
+    const annotation = {
+      id: 'cross-origin',
+      caption: 'cross-origin',
+      type: 'gene',
+      span: new Span([
+        new Range(3, 4, Orientation.MINUS),
+        new Range(0, 1, Orientation.MINUS)
+      ])
+    }
+    const reverseMap = buildReverseCoordinateMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    const mapped = mapAnnotationThroughAlignment(annotation, reverseMap, 2, 6, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(mapped.span.ranges).toHaveLength(2)
+    expect(mapped.span.ranges[0].start).toBe(1)
+    expect(mapped.span.ranges[0].end).toBe(2)
+    expect(mapped.span.ranges[0].orientation).toBe(Orientation.MINUS)
+    expect(mapped.span.ranges[1].start).toBe(2)
+    expect(mapped.span.ranges[1].end).toBe(3)
+    expect(mapped.span.ranges[1].orientation).toBe(Orientation.MINUS)
+  })
+})
+
 describe('contiguous gap preference', () => {
   it('keeps deletions contiguous for repeated bases like CCC', () => {
     // Target: ATGCCCTAG, Query: ATGCTAG (missing two C's)
@@ -483,30 +581,30 @@ describe('contiguous gap preference', () => {
 
   it('keeps deletions contiguous - no fragmented gaps like -C- instead of C--', () => {
     // Target: ATCGAAATCG, Query: ATCGATCG (missing two A's)
-    // Should produce contiguous gap: ATCG--ATCG
+    // Should produce one contiguous gap.
     // NOT fragmented like: ATCG-A-TCG or AT-G-AATCG
     const result = align('ATCGATCG', 'ATCGAAATCG')
 
-    expect(result.queryAligned).toBe('ATCG--ATCG')
     expect(result.targetAligned).toBe('ATCGAAATCG')
 
     // Verify gaps are contiguous (only one gap region)
     const gapMatches = result.queryAligned.match(/-+/g)
     expect(gapMatches).not.toBeNull()
     expect(gapMatches.length).toBe(1) // Only one contiguous gap region
+    expect(gapMatches[0]).toBe('--')
   })
 
   it('keeps insertions contiguous', () => {
     // Target: ATCGATCG, Query: ATCGAAATCG (extra AA)
     const result = align('ATCGAAATCG', 'ATCGATCG')
 
-    expect(result.targetAligned).toBe('ATCG--ATCG')
     expect(result.queryAligned).toBe('ATCGAAATCG')
 
     // Verify gaps are contiguous
     const gapMatches = result.targetAligned.match(/-+/g)
     expect(gapMatches).not.toBeNull()
     expect(gapMatches.length).toBe(1)
+    expect(gapMatches[0]).toBe('--')
   })
 
   it('prefers one long gap over multiple short gaps', () => {
@@ -518,6 +616,199 @@ describe('contiguous gap preference', () => {
     // Count gap regions - should be exactly 1
     const gapRegions = result.queryAligned.split(/[^-]+/).filter(s => s.length > 0)
     expect(gapRegions.length).toBe(1)
+  })
+})
+
+describe('linear operation compatibility regressions', () => {
+  function expectSingleGapRun(value, length) {
+    const gapMatches = value.match(/-+/g)
+    expect(gapMatches).not.toBeNull()
+    expect(gapMatches.length).toBe(1)
+    expect(gapMatches[0].length).toBe(length)
+  }
+
+  it('aligns small exact matches through the linear compatibility path', () => {
+    const result = align('ATCG', 'ATCG')
+
+    expect(result).toMatchObject({
+      score: 8,
+      queryStart: 0,
+      queryEnd: 4,
+      targetStart: 0,
+      targetEnd: 4,
+      queryAligned: 'ATCG',
+      targetAligned: 'ATCG',
+      identity: 100
+    })
+  })
+
+  it('keeps deterministic mismatch output for small alignments', () => {
+    const result = align('ATCGATCG', 'ATCGTTCG')
+
+    expect(result.queryAligned).toBe('ATCGATCG')
+    expect(result.targetAligned).toBe('ATCGTTCG')
+    expect(result.identity).toBe(87.5)
+  })
+
+  it('trims poor flanks from local alignments', () => {
+    const result = align('XXXATCGATCGXXX', 'YYYATCGATCGYYY')
+
+    expect(result.queryAligned).toBe('ATCGATCG')
+    expect(result.targetAligned).toBe('ATCGATCG')
+    expect(result.queryStart).toBe(3)
+    expect(result.targetStart).toBe(3)
+  })
+
+  it('returns the empty compatibility shape for no meaningful match', () => {
+    const result = align('AAAAAAA', 'TTTTTTT')
+
+    expect(result).toEqual({
+      score: 0,
+      queryStart: 0,
+      queryEnd: 0,
+      targetStart: 0,
+      targetEnd: 0,
+      queryAligned: '',
+      targetAligned: '',
+      identity: 0
+    })
+  })
+
+  it('handles a single-base match', () => {
+    const result = align('A', 'A')
+
+    expect(result.score).toBe(2)
+    expect(result.queryAligned).toBe('A')
+    expect(result.targetAligned).toBe('A')
+    expect(result.identity).toBe(100)
+  })
+
+  it('handles a single-base mismatch as no local alignment', () => {
+    const result = align('A', 'T')
+
+    expect(result.score).toBe(0)
+    expect(result.queryAligned).toBe('')
+    expect(result.targetAligned).toBe('')
+  })
+
+  it('expands target-only operations into query gaps', () => {
+    const result = align('ATCGATCG', 'ATCGAAATCG')
+
+    expect(result.queryAligned.replace(/-/g, '')).toBe('ATCGATCG')
+    expect(result.targetAligned).toBe('ATCGAAATCG')
+    expectSingleGapRun(result.queryAligned, 2)
+  })
+
+  it('expands query-only operations into target gaps', () => {
+    const result = align('ATCGAAATCG', 'ATCGATCG')
+
+    expect(result.queryAligned).toBe('ATCGAAATCG')
+    expect(result.targetAligned.replace(/-/g, '')).toBe('ATCGATCG')
+    expectSingleGapRun(result.targetAligned, 2)
+  })
+
+  it('coalesces adjacent target-only operations into one visible gap', () => {
+    const result = align('ATGCTAG', 'ATGCCCTAG')
+
+    expect(result.targetAligned).toBe('ATGCCCTAG')
+    expectSingleGapRun(result.queryAligned, 2)
+  })
+
+  it('keeps compatibility strings at equal length for gapped alignments', () => {
+    const result = align('ATCGAAATCG', 'ATCGATCG')
+
+    expect(result.queryAligned.length).toBe(result.targetAligned.length)
+  })
+
+  it('normalizes aligned output to uppercase', () => {
+    const result = align('atCg', 'aTcG')
+
+    expect(result.queryAligned).toBe('ATCG')
+    expect(result.targetAligned).toBe('ATCG')
+  })
+
+  it('keeps exported scoreMatch IUPAC semantics', () => {
+    expect(scoreMatch('A', 'A')).toBe(2)
+    expect(scoreMatch('N', 'G')).toBe(1)
+    expect(scoreMatch('R', 'A')).toBe(1)
+    expect(scoreMatch('R', 'T')).toBe(-1)
+  })
+
+  it('aligns through N wildcard positions', () => {
+    const result = align('ATCGATCG', 'ATNGANCG')
+
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.queryAligned.length).toBe(result.targetAligned.length)
+  })
+
+  it('aligns through mixed ambiguity codes', () => {
+    const result = align('ATCGATCG', 'RYCGRYCY')
+
+    expect(result.score).toBeGreaterThan(0)
+    expect(result.queryAligned.length).toBeGreaterThan(0)
+  })
+
+  it('honors custom match scoring', () => {
+    const result = align('ATCG', 'ATCG', { match: 5 })
+
+    expect(result.score).toBe(20)
+  })
+
+  it('extracts gaps from compatibility strings with original offsets', () => {
+    const gaps = extractGaps('AT--CG', 10)
+
+    expect(gaps).toEqual([{ position: 12, length: 2 }])
+  })
+
+  it('builds reverse coordinate maps across gaps', () => {
+    const map = buildReverseCoordinateMap('AT--CG', 5)
+
+    expect(map).toEqual({
+      5: 0,
+      6: 1,
+      7: 4,
+      8: 5
+    })
+  })
+
+  it('maps original coordinates to aligned positions with offsets', () => {
+    const map = buildCoordinateMap('AT--CG', 5)
+
+    expect(mapCoordinate(5, map, 5)).toBe(0)
+    expect(mapCoordinate(6, map, 5)).toBe(1)
+    expect(mapCoordinate(7, map, 5)).toBe(4)
+    expect(mapCoordinate(8, map, 5)).toBe(5)
+  })
+
+  it('returns null when mapping annotations outside the aligned region', () => {
+    const annotation = {
+      id: 'outside',
+      caption: 'outside',
+      type: 'gene',
+      span: new Span([new Range(20, 25, Orientation.PLUS)])
+    }
+
+    const mapped = mapAnnotationThroughAlignment(annotation, buildReverseCoordinateMap('ATCG', 0), 0, 4)
+
+    expect(mapped).toBeNull()
+  })
+
+  it('clips mapped annotations and preserves orientation', () => {
+    const annotation = {
+      id: 'partial',
+      caption: 'partial',
+      type: 'CDS',
+      span: new Span([new Range(4, 9, Orientation.MINUS)])
+    }
+    const reverseMap = buildReverseCoordinateMap('AT--CGTA', 5)
+
+    const mapped = mapAnnotationThroughAlignment(annotation, reverseMap, 5, 9)
+
+    expect(mapped.id).toBe('partial')
+    expect(mapped.span.ranges).toHaveLength(1)
+    expect(mapped.span.ranges[0].start).toBe(0)
+    expect(mapped.span.ranges[0].end).toBe(6)
+    expect(mapped.span.ranges[0].orientation).toBe(Orientation.MINUS)
   })
 })
 
@@ -567,41 +858,101 @@ describe('large sequence handling', () => {
   })
 })
 
+describe('banded alignment fast path', () => {
+  it('uses the default banded path for near-identical sequences while preserving score and coordinates', () => {
+    const query = 'ATCG'.repeat(300)
+    const target = `${'ATCG'.repeat(150)}AA${'ATCG'.repeat(150)}`
+
+    const banded = align(query, target)
+    const linear = align(query, target, { mode: 'linear' })
+
+    expect(banded.score).toBe(linear.score)
+    expect(banded.queryStart).toBe(linear.queryStart)
+    expect(banded.queryEnd).toBe(linear.queryEnd)
+    expect(banded.targetStart).toBe(linear.targetStart)
+    expect(banded.targetEnd).toBe(linear.targetEnd)
+    expect(banded.queryAligned.length).toBe(banded.targetAligned.length)
+  })
+
+  it('keeps explicit linear mode available as the canonical fallback', () => {
+    const result = align('ATCGATCG', 'ATCGAAATCG', { mode: 'linear' })
+
+    expect(result.queryAligned).toBe('ATCG--ATCG')
+    expect(result.targetAligned).toBe('ATCGAAATCG')
+  })
+
+  it('falls back to linear when the length difference cannot fit in the band', () => {
+    const query = 'ATCGATCG'
+    const target = `ATCG${'A'.repeat(10)}ATCG`
+
+    expect(align(query, target, { bandWidth: 4 })).toEqual(align(query, target, { mode: 'linear' }))
+  })
+
+  it('estimates circular target origin offset before banded alignment', () => {
+    const target = 'AAAACCCCGGGGTTTT'
+    const query = 'GGGGTTTTAAAACCCC'
+
+    const result = align(query, target, { circular: true, originKmerSize: 4 })
+
+    expect(result.score).toBe(query.length * 2)
+    expect(result.identity).toBe(100)
+    expect(result.queryAligned).toBe(query)
+    expect(result.targetAligned).toBe(query)
+    expect(result.targetOriginOffset).toBe(8)
+    expect(result.targetStart).toBe(8)
+    expect(result.targetEnd).toBe(24)
+  })
+
+  it('aligns a rotated query sequence against a circular target', () => {
+    const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG'
+    const originOffset = 19
+    const query = target.slice(originOffset) + target.slice(0, originOffset)
+
+    const result = align(query, target, { circular: true, originKmerSize: 8 })
+
+    expect(result.score).toBe(query.length * 2)
+    expect(result.identity).toBe(100)
+    expect(result.queryAligned).toBe(query)
+    expect(result.targetAligned).toBe(query)
+    expect(result.targetOriginOffset).toBe(originOffset)
+    expect(result.targetStart).toBe(originOffset)
+    expect(result.targetEnd).toBe(originOffset + target.length)
+  })
+
+  it('aligns 128-base A/T blocks across a circular origin shift', () => {
+    const query = `${'A'.repeat(128)}${'T'.repeat(128)}`
+    const target = `${'T'.repeat(128)}${'A'.repeat(128)}`
+
+    const result = align(query, target, { circular: true, originKmerSize: 16 })
+
+    expect(result.score).toBe(query.length * 2)
+    expect(result.identity).toBe(100)
+    expect(result.queryStart).toBe(0)
+    expect(result.queryEnd).toBe(256)
+    expect(result.targetOriginOffset).toBe(128)
+    expect(result.targetStart).toBe(128)
+    expect(result.targetEnd).toBe(384)
+    expect(result.queryAligned).toBe(query)
+    expect(result.targetAligned).toBe(query)
+  })
+
+  it('does not rotate target origin unless circular alignment is requested', () => {
+    const target = 'AAAACCCCGGGGTTTT'
+    const query = 'GGGGTTTTAAAACCCC'
+
+    const result = align(query, target, { originKmerSize: 4 })
+
+    expect(result.score).toBeLessThan(query.length * 2)
+    expect(result.targetOriginOffset).toBeUndefined()
+  })
+})
+
 describe('WASM implementation', () => {
   let wasmModule = null
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
 
-  // Helper to call WASM alignment
-  function alignWasm(query, target, options = {}) {
-    const {
-      match = 2,
-      mismatch = -1,
-      gapOpen = -3,
-      gapExtend = -1
-    } = options
-
-    // Reset heap before starting new alignment
-    wasmModule.reset()
-
-    const encoder = new TextEncoder()
-    const queryBytes = encoder.encode(query)
-    const targetBytes = encoder.encode(target)
-
-    const queryLen = queryBytes.length
-    const targetLen = targetBytes.length
-
-    const queryPtr = wasmModule.alloc(queryLen)
-    const targetPtr = wasmModule.alloc(targetLen)
-
-    const memory = new Uint8Array(wasmModule.memory.buffer)
-    memory.set(queryBytes, queryPtr)
-    memory.set(targetBytes, targetPtr)
-
-    const resultPtr = wasmModule.alignSequences(
-      queryPtr, queryLen,
-      targetPtr, targetLen,
-      match, mismatch, gapOpen, gapExtend
-    )
-
+  function readWasmResult(resultPtr) {
     // Read result (layout matches AlignmentResult struct with padding)
     const view = new DataView(wasmModule.memory.buffer)
     let offset = resultPtr
@@ -617,14 +968,9 @@ describe('WASM implementation', () => {
     offset += 4  // skip padding for f64 alignment
     const identity = view.getFloat64(offset, true)
 
-    const decoder = new TextDecoder()
     const memoryBytes = new Uint8Array(wasmModule.memory.buffer)
     const queryAligned = decoder.decode(memoryBytes.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
     const targetAligned = decoder.decode(memoryBytes.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
-
-    wasmModule.free(queryPtr)
-    wasmModule.free(targetPtr)
-    wasmModule.freeResult(resultPtr)
 
     return {
       score,
@@ -638,6 +984,68 @@ describe('WASM implementation', () => {
     }
   }
 
+  function withWasmInputs(query, target, callback) {
+    wasmModule.reset()
+
+    const queryBytes = encoder.encode(query)
+    const targetBytes = encoder.encode(target)
+
+    const queryPtr = wasmModule.alloc(queryBytes.length)
+    const targetPtr = wasmModule.alloc(targetBytes.length)
+
+    const memory = new Uint8Array(wasmModule.memory.buffer)
+    memory.set(queryBytes, queryPtr)
+    memory.set(targetBytes, targetPtr)
+
+    const resultPtr = callback(queryPtr, queryBytes.length, targetPtr, targetBytes.length)
+
+    wasmModule.free(queryPtr)
+    wasmModule.free(targetPtr)
+
+    if (!resultPtr) return null
+
+    const result = readWasmResult(resultPtr)
+    wasmModule.freeResult(resultPtr)
+    return result
+  }
+
+  // Helper to call WASM linear alignment
+  function alignWasm(query, target, options = {}) {
+    const {
+      match = 2,
+      mismatch = -1,
+      gapOpen = -3,
+      gapExtend = -1
+    } = options
+
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen) =>
+      wasmModule.alignSequences(
+        queryPtr, queryLen,
+        targetPtr, targetLen,
+        match, mismatch, gapOpen, gapExtend
+      )
+    )
+  }
+
+  function alignWasmBanded(query, target, options = {}) {
+    const {
+      match = 2,
+      mismatch = -1,
+      gapOpen = -3,
+      gapExtend = -1,
+      bandWidth = 128
+    } = options
+
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen) =>
+      wasmModule.alignSequencesBanded(
+        queryPtr, queryLen,
+        targetPtr, targetLen,
+        match, mismatch, gapOpen, gapExtend,
+        bandWidth
+      )
+    )
+  }
+
   // Load WASM before tests
   beforeAll(async () => {
     const wasmPath = new URL('./alignment.wasm', import.meta.url)
@@ -649,6 +1057,7 @@ describe('WASM implementation', () => {
   it('loads WASM module successfully', () => {
     expect(wasmModule).not.toBeNull()
     expect(typeof wasmModule.alignSequences).toBe('function')
+    expect(typeof wasmModule.alignSequencesBanded).toBe('function')
     expect(typeof wasmModule.alloc).toBe('function')
     expect(typeof wasmModule.free).toBe('function')
     expect(typeof wasmModule.memory).toBe('object')
@@ -658,7 +1067,7 @@ describe('WASM implementation', () => {
     const query = 'ATCGATCG'
     const target = 'ATCGATCG'
 
-    const jsResult = align(query, target)
+    const jsResult = align(query, target, { mode: 'linear' })
     const wasmResult = alignWasm(query, target)
 
     expect(wasmResult.score).toBe(jsResult.score)
@@ -692,6 +1101,45 @@ describe('WASM implementation', () => {
     // Both should have gaps
     expect(wasmResult.queryAligned).toContain('-')
     expect(jsResult.queryAligned).toContain('-')
+  })
+
+  it('matches JS full result for query insertion against target', () => {
+    const query = 'ATCGAAATCG'
+    const target = 'ATCGATCG'
+
+    const jsResult = align(query, target)
+    const wasmResult = alignWasm(query, target)
+
+    expect(wasmResult).toEqual(jsResult)
+  })
+
+  it('matches JS full results for deterministic alignment cases', () => {
+    const cases = [
+      ['ATCGATCG', 'ATCGATCG'],
+      ['ATCG', 'NNNATCGNNN'],
+      ['NNNATCGNNN', 'ATCG'],
+      ['ATCGATCG', 'ATCGTTCG'],
+      ['ATCGATCG', 'ATGGATGG'],
+      ['ATCGATCG', 'ATCGAAATCG'],
+      ['ATCGAAATCG', 'ATCGATCG'],
+      ['ATGCTAG', 'ATGCCCTAG'],
+      ['XXXATCGATCGXXX', 'YYYATCGATCGYYY'],
+      ['AAAAAAA', 'TTTTTTT'],
+      ['ATCGATCG', 'ATNGANCG'],
+      ['ATCGATCG', 'RYCGRYCY'],
+      ['', 'ATCG'],
+      ['ATCG', ''],
+      ['A', 'A'],
+      ['A', 'T'],
+      ['atCg', 'aTcG'],
+      ['ATCG', 'ATCG', { match: 5 }],
+      ['ATCG', 'ATGG', { mismatch: -3 }],
+      ['ATCGATCG', 'ATCGAATCG', { gapOpen: -10, gapExtend: -5 }]
+    ]
+
+    for (const [query, target, options] of cases) {
+      expect(alignWasm(query, target, options)).toEqual(align(query, target, { ...options, mode: 'linear' }))
+    }
   })
 
   it('finds local alignment same as JS', () => {
@@ -758,5 +1206,19 @@ describe('WASM implementation', () => {
 
     expect(wasmResult.identity).toBe(100)
     expect(wasmResult.score).toBe(2000) // 1000 bases * 2 match score
+  })
+
+  it('banded WASM matches JS banded for near-identical sequences', () => {
+    const query = 'ATCG'.repeat(80)
+    const target = `${'ATCG'.repeat(40)}AA${'ATCG'.repeat(40)}`
+
+    expect(alignWasmBanded(query, target)).toEqual(align(query, target))
+  })
+
+  it('banded WASM returns null when the band cannot contain the length delta', () => {
+    const query = 'ATCGATCG'
+    const target = `ATCG${'A'.repeat(10)}ATCG`
+
+    expect(alignWasmBanded(query, target, { bandWidth: 4 })).toBeNull()
   })
 })

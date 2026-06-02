@@ -581,8 +581,8 @@ describe('Annotation alignment mapping', () => {
     //   Match:    |||| ||||
     //
     // Target annotation mapping:
-    //   Original positions 4,5 ("AT") map to aligned positions 5,6 (after the gap)
-    //   So original 4..6 -> aligned 5..7
+    //   Original positions 4,5 ("AT") map around the gap.
+    //   So original 4..6 -> aligned 4..7
 
     const { Annotation } = await import('../utils/annotation.js')
 
@@ -608,14 +608,14 @@ describe('Annotation alignment mapping', () => {
 
     // Verify alignment result (target gets the gap when query is longer)
     const result = wrapper.vm.alignmentResult
-    expect(result.targetAligned).toBe('ATCG-ATCG')
+    expect(result.targetAligned).toBe('ATCGA-TCG')
     expect(result.queryAligned).toBe('ATCGAATCG')
 
-    // Verify target annotation (has gap, should shift after position 4)
-    // Original 4..6 should map to aligned 5..7
+    // Verify target annotation (has gap, should span across it)
+    // Original 4..6 should map to aligned 4..7
     const targetAnns = wrapper.vm.alignedTargetAnnotations
     expect(targetAnns.length).toBe(1)
-    expect(targetAnns[0].span.ranges[0].start).toBe(5)
+    expect(targetAnns[0].span.ranges[0].start).toBe(4)
     expect(targetAnns[0].span.ranges[0].end).toBe(7)
 
     // Verify query annotation (no gaps in query, unchanged)
@@ -1430,7 +1430,7 @@ describe('Gap annotation context menu', () => {
     // Target: ATCGATCG  (8 bases)
     // Query:  ATCGAATCG (9 bases)
     // Aligned:
-    //   Target: ATCG-ATCG (gap at position 4)
+    //   Target: ATCGA-TCG (gap at position 5)
     //   Query:  ATCGAATCG
     const targetDoc = createDoc('ATCGATCG')
     const queryDoc = createDoc('ATCGAATCG')
@@ -1442,11 +1442,11 @@ describe('Gap annotation context menu', () => {
     await wrapper.vm.$nextTick()
 
     // Verify alignment
-    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCG-ATCG')
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGA-TCG')
     expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCGAATCG')
 
-    // Position 4 should be an insertion (gap in target)
-    const feature = wrapper.vm.detectAlignmentFeatureAt(4)
+    // Position 5 should be an insertion (gap in target)
+    const feature = wrapper.vm.detectAlignmentFeatureAt(5)
     expect(feature).not.toBeNull()
     expect(feature.type).toBe('insertion')
     expect(feature.queryBase).toBe('A')
@@ -1517,8 +1517,8 @@ describe('Gap annotation context menu', () => {
     })
     await wrapper.vm.$nextTick()
 
-    // Position 4 has gap in target (insertion in query)
-    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    // Position 5 has gap in target (insertion in query)
+    const items = wrapper.vm.getAlignmentMenuItems(5, 'query')
     expect(items.length).toBeGreaterThan(0)
     expect(items.some(item => item.label === 'Annotate insertion')).toBe(true)
   })
@@ -1626,11 +1626,11 @@ describe('Gap annotation context menu', () => {
     // Target: ATCGATCG  (8 bases)
     // Query:  ATCGAATCG (9 bases)
     // Aligned:
-    //   Target: ATCG-ATCG (gap at position 4)
+    //   Target: ATCGA-TCG (gap at position 5)
     //   Query:  ATCGAATCG
-    // Insertion at aligned position 4 - inserted base 'A'
+    // Insertion at aligned position 5 - inserted base 'A'
     // Caption: +A (the inserted sequence)
-    // Span: 4..5 (the inserted base in original query coordinates)
+    // Span: 5..6 (the inserted base in original query coordinates)
     // Should store sequence in attributes
     const targetDoc = createDoc('ATCGATCG')
     const queryDoc = createDoc('ATCGAATCG')
@@ -1644,8 +1644,8 @@ describe('Gap annotation context menu', () => {
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
 
-    // Create insertion annotation at position 4
-    wrapper.vm.createInsertionAnnotation(4, 5)
+    // Create insertion annotation at position 5
+    wrapper.vm.createInsertionAnnotation(5, 6)
     await wrapper.vm.$nextTick()
 
     // Should have created annotation on query document
@@ -1653,9 +1653,9 @@ describe('Gap annotation context menu', () => {
     const ann = queryDoc.annotations[0]
     expect(ann.type).toBe('insertion')
     expect(ann.caption).toBe('+A')
-    // Span should cover the inserted base (position 4 in original query)
-    expect(ann.span.ranges[0].start).toBe(4)
-    expect(ann.span.ranges[0].end).toBe(5)
+    // Span should cover the inserted base (position 5 in original query)
+    expect(ann.span.ranges[0].start).toBe(5)
+    expect(ann.span.ranges[0].end).toBe(6)
     // Sequence should be stored in attributes
     expect(ann.attributes.sequence).toBe('A')
   })
@@ -1666,7 +1666,7 @@ describe('Gap annotation context menu', () => {
     // Aligned:
     //   Target: ATCG--ATCG (gaps at positions 4-5)
     //   Query:  ATCGAAATCG
-    // Insertion of 'AA' at aligned positions 4-6
+    // Insertion of 'AA' at aligned positions 5-7
     const targetDoc = createDoc('ATCGATCG')
     const queryDoc = createDoc('ATCGAAATCG')
 
@@ -1677,11 +1677,11 @@ describe('Gap annotation context menu', () => {
     await wrapper.vm.$nextTick()
 
     // Verify alignment
-    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCG--ATCG')
+    expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGA--TCG')
     expect(wrapper.vm.alignmentResult.queryAligned).toBe('ATCGAAATCG')
 
-    // Create insertion annotation for the entire insertion (positions 4-6)
-    wrapper.vm.createInsertionAnnotation(4, 6)
+    // Create insertion annotation for the entire insertion (positions 5-7)
+    wrapper.vm.createInsertionAnnotation(5, 7)
     await wrapper.vm.$nextTick()
 
     expect(queryDoc.annotations.length).toBe(1)
@@ -1788,7 +1788,7 @@ describe('Gap annotation context menu', () => {
     await wrapper.vm.$nextTick()
 
     // Get menu items for insertion position
-    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const items = wrapper.vm.getAlignmentMenuItems(5, 'query')
     const insertItem = items.find(item => item.label === 'Annotate insertion')
     expect(insertItem).toBeDefined()
 
@@ -1858,7 +1858,7 @@ describe('Gap annotation context menu', () => {
     // Target: ATCGATCG   (8 bases)
     // Query:  ATCGAAATCG (10 bases)
     // Aligned:
-    //   Target: ATCG--ATCG (gaps at positions 4-5)
+    //   Target: ATCGA--TCG (gaps at positions 5-6)
     //   Query:  ATCGAAATCG
     const targetDoc = createDoc('ATCGATCG')
     const queryDoc = createDoc('ATCGAAATCG')
@@ -1869,10 +1869,10 @@ describe('Gap annotation context menu', () => {
     })
     await wrapper.vm.$nextTick()
 
-    // Clicking on position 4 should find the full insertion region 4-6
-    const region = wrapper.vm.findContiguousFeatureRegion(4, 'insertion')
-    expect(region.start).toBe(4)
-    expect(region.end).toBe(6)
+    // Clicking on position 5 should find the full insertion region 5-7
+    const region = wrapper.vm.findContiguousFeatureRegion(5, 'insertion')
+    expect(region.start).toBe(5)
+    expect(region.end).toBe(7)
   })
 })
 
@@ -1930,7 +1930,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
     // Target: ATCGATCG  (8 bases)
     // Query:  ATCGAATCG (9 bases)
     // Aligned:
-    //   Target: ATCG-ATCG (gap at position 4)
+    //   Target: ATCGA-TCG (gap at position 5)
     //   Query:  ATCGAATCG
     const targetDoc = createDoc('ATCGATCG')
     const queryDoc = createDoc('ATCGAATCG')
@@ -1946,8 +1946,8 @@ describe('AlignmentTicksLayer context menu integration', () => {
     const matchOverlay = wrapper.find('rect.alignment-match-overlay')
     expect(matchOverlay.exists()).toBe(true)
 
-    // Verify menu items for position 4 (the insertion)
-    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    // Verify menu items for position 5 (the insertion)
+    const items = wrapper.vm.getAlignmentMenuItems(5, 'query')
     expect(items.length).toBeGreaterThan(0)
     expect(items.some(item => item.label === 'Annotate insertion')).toBe(true)
 
@@ -2052,7 +2052,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
     expect(queryDoc.annotations.length).toBe(0)
 
     // Get menu items and execute the insertion action
-    const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
+    const items = wrapper.vm.getAlignmentMenuItems(5, 'query')
     const insertItem = items.find(item => item.label === 'Annotate insertion')
     expect(insertItem).toBeDefined()
 
@@ -2525,8 +2525,8 @@ describe('Copy annotation to target/query', () => {
     // Target has gap - query annotation at 4..6 covers "AA" which is an insertion
     // Target: ATCGATCG (8 bases)
     // Query: ATCGAATCG (9 bases) - extra 'A' at position 4
-    // Aligned: Target: ATCG-ATCG, Query: ATCGAATCG
-    // Query annotation 4..6 ("AA") maps to: position 4 in target (only one 'A' exists)
+    // Aligned: Target: ATCGA-TCG, Query: ATCGAATCG
+    // Query annotation 4..6 ("AA") maps across the matched A and inserted A.
     const targetDoc = createDoc('ATCGATCG', [])
     const queryDoc = createDoc('ATCGAATCG', [
       new Annotation({ span: ezSpan(4, 6), type: 'CDS', caption: 'AA region' })
@@ -2594,13 +2594,13 @@ describe('Copy annotation to target/query', () => {
   it('does not show copy option when annotation is entirely in a gap', async () => {
     const { Annotation } = await import('../utils/annotation.js')
 
-    // Target has a deletion - query position 4 corresponds to a gap in target
+    // Target has a deletion - query position 5 corresponds to a gap in target
     // Target: ATCGATCG (8 bases)
-    // Query: ATCGAATCG (9 bases) - extra 'A' at position 4
-    // Annotation covers ONLY the extra 'A' (4..5) which is a gap in target
+    // Query: ATCGAATCG (9 bases) - extra 'A' at position 5
+    // Annotation covers ONLY the extra 'A' (5..6) which is a gap in target
     const targetDoc = createDoc('ATCGATCG', [])
     const queryDoc = createDoc('ATCGAATCG', [
-      new Annotation({ span: ezSpan(4, 5), type: 'CDS', caption: 'Single insertion' })
+      new Annotation({ span: ezSpan(5, 6), type: 'CDS', caption: 'Single insertion' })
     ])
 
     const wrapper = mount(AlignmentEditor, {
@@ -2614,9 +2614,9 @@ describe('Copy annotation to target/query', () => {
 
     // Verify alignment result shows the gap
     // Query aligned: ATCGAATCG
-    // Target aligned: ATCG-ATCG (gap at position 4)
+    // Target aligned: ATCGA-TCG (gap at position 5)
     expect(wrapper.vm.alignedQuerySequence).toBe('ATCGAATCG')
-    expect(wrapper.vm.alignedTargetSequence).toBe('ATCG-ATCG')
+    expect(wrapper.vm.alignedTargetSequence).toBe('ATCGA-TCG')
 
     // Build context menu for query annotation
     const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
@@ -3288,6 +3288,47 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     const queryPosMap = wrapper.vm.queryPositionMap
     expect(queryPosMap[0]).toBe(0)
     expect(queryPosMap[8]).toBe(8)
+  })
+
+  it('maps circular target alignment positions back to physical coordinates', async () => {
+    const targetDoc = createDoc('AAAACCCCGGGGTTTTACGTACGT', [], true)
+    const queryDoc = createDoc('GGGGTTTTACGTACGTAAAACCCC')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.alignmentResult.targetOriginOffset).toBe(8)
+    expect(wrapper.vm.alignmentResult.targetStart).toBe(8)
+    expect(wrapper.vm.alignedTargetSequence).toBe('GGGGTTTTACGTACGTAAAACCCC')
+    expect(wrapper.vm.alignedQuerySequence).toBe('GGGGTTTTACGTACGTAAAACCCC')
+    expect(wrapper.vm.targetPositionMap).toEqual([
+      8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7
+    ])
+    expect(wrapper.vm.alignmentLines[0].targetPosition).toBe(9)
+  })
+
+  it('maps circular target annotations into wrapped aligned columns', async () => {
+    const annotation = {
+      id: 'origin-feature',
+      caption: 'origin-feature',
+      type: 'gene',
+      span: new Span([new Range(0, 4, Orientation.PLUS)])
+    }
+    const targetDoc = createDoc('AAAACCCCGGGGTTTTACGTACGT', [annotation], true)
+    const queryDoc = createDoc('GGGGTTTTACGTACGTAAAACCCC')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.alignedTargetAnnotations).toHaveLength(1)
+    expect(wrapper.vm.alignedTargetAnnotations[0].span.ranges[0].start).toBe(16)
+    expect(wrapper.vm.alignedTargetAnnotations[0].span.ranges[0].end).toBe(20)
   })
 
   it('handleSelectionChange does not double-convert original coordinates', async () => {
