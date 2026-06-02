@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     lib.rdynamic = true;
     lib.export_memory = true;
     lib.initial_memory = 1024 * 65536; // 64MB initial (must be > heap + stack + code)
-    lib.max_memory = 2048 * 65536; // 128MB max
+    lib.max_memory = 1024 * 65536; // 64MB max
 
     // Install to parent utils directory
     // Note: The path is relative to zig-out, so we need to go up more levels

@@ -26,6 +26,9 @@ let wasmLoading = null
 let wasmFailed = false
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
+const WASM_RESULT_HEADER_SIZE = 40
+const WASM_STATUS_OK = 0
+const WASM_STATUS_BAND_UNSAFE = 2
 
 /**
  * Load the WASM module for alignment.
@@ -85,8 +88,8 @@ export function isWasmReady() {
 /**
  * Perform Smith-Waterman local alignment.
  * Uses the WASM banded fast path by default when available. Explicit
- * `mode: 'linear'` uses WASM linear alignment when available. Circular origin
- * offset handling currently uses the JavaScript path.
+ * `mode: 'linear'` uses WASM linear alignment when available. Circular target
+ * origin offset handling uses WASM when the circular export is available.
  *
  * @param {string} query - Query sequence
  * @param {string} target - Target sequence
@@ -98,9 +101,18 @@ export function isWasmReady() {
  * @returns {AlignmentResult}
  */
 export function align(query, target, options = {}) {
-  if (wasmModule && !options.circular && !options.circularTarget) {
+  if (wasmModule) {
+    if (options.circular || options.circularTarget) {
+      const result = alignWasmCircular(query, target, options)
+      if (result) {
+        return result
+      }
+
+      return alignJS(query, target, options)
+    }
+
     if (options.mode === 'linear') {
-      return alignWasmLinear(query, target, options)
+      return alignWasmLinear(query, target, options) || alignJS(query, target, options)
     }
 
     const result = alignWasmBanded(query, target, options)
@@ -108,7 +120,7 @@ export function align(query, target, options = {}) {
       return result
     }
 
-    return alignWasmLinear(query, target, options)
+    return alignWasmLinear(query, target, options) || alignJS(query, target, options)
   }
 
   // Fall back to JavaScript implementation
@@ -126,48 +138,23 @@ function alignWasmLinear(query, target, options) {
     gapExtend = -1
   } = options
 
-  // Reset heap before starting new alignment
-  wasmModule.reset()
-
-  // Encode strings to memory
-  const queryBytes = textEncoder.encode(query)
-  const targetBytes = textEncoder.encode(target)
-
-  const queryLen = queryBytes.length
-  const targetLen = targetBytes.length
-
-  // Allocate memory in WASM
-  const queryPtr = wasmModule.alloc(queryLen)
-  const targetPtr = wasmModule.alloc(targetLen)
-
-  // Copy strings to WASM memory
-  const memory = new Uint8Array(wasmModule.memory.buffer)
-  memory.set(queryBytes, queryPtr)
-  memory.set(targetBytes, targetPtr)
-
-  // Call WASM alignment function
-  const resultPtr = wasmModule.alignSequences(
-    queryPtr, queryLen,
-    targetPtr, targetLen,
-    match, mismatch, gapOpen, gapExtend
+  return callWasmAlignmentInto(query, target, (ptrs) =>
+    wasmModule.alignSequencesInto(
+      ptrs.queryPtr, ptrs.queryLen,
+      ptrs.targetPtr, ptrs.targetLen,
+      ptrs.queryOutPtr, ptrs.targetOutPtr,
+      ptrs.outCapacity,
+      ptrs.resultPtr,
+      match, mismatch, gapOpen, gapExtend
+    )
   )
-
-  // Read result from WASM memory
-  const result = readAlignmentResult(resultPtr)
-
-  // Free allocated memory
-  wasmModule.free(queryPtr)
-  wasmModule.free(targetPtr)
-  wasmModule.freeResult(resultPtr)
-
-  return result
 }
 
 /**
  * Perform banded alignment using WASM module.
  */
 function alignWasmBanded(query, target, options) {
-  if (typeof wasmModule.alignSequencesBanded !== 'function') {
+  if (typeof wasmModule.alignSequencesBandedInto !== 'function') {
     return null
   }
 
@@ -183,48 +170,114 @@ function alignWasmBanded(query, target, options) {
     return null
   }
 
-  // Reset heap before starting new alignment
+  const callResult = callWasmAlignmentInto(query, target, (ptrs) =>
+    wasmModule.alignSequencesBandedInto(
+      ptrs.queryPtr, ptrs.queryLen,
+      ptrs.targetPtr, ptrs.targetLen,
+      ptrs.queryOutPtr, ptrs.targetOutPtr,
+      ptrs.outCapacity,
+      ptrs.resultPtr,
+      match, mismatch, gapOpen, gapExtend,
+      bandWidth
+    )
+  )
+
+  if (callResult?.status === WASM_STATUS_BAND_UNSAFE) {
+    return null
+  }
+
+  return callResult
+}
+
+/**
+ * Perform circular target alignment using WASM module.
+ */
+function alignWasmCircular(query, target, options) {
+  if (typeof wasmModule.alignSequencesBandedCircularInto !== 'function') {
+    return null
+  }
+
+  const {
+    match = 2,
+    mismatch = -1,
+    gapOpen = -3,
+    gapExtend = -1,
+    bandWidth = 128,
+    originKmerSize = 15,
+    originMinVotes = 3
+  } = options
+
+  return callWasmAlignmentInto(query, target, (ptrs) =>
+    wasmModule.alignSequencesBandedCircularInto(
+      ptrs.queryPtr, ptrs.queryLen,
+      ptrs.targetPtr, ptrs.targetLen,
+      ptrs.queryOutPtr, ptrs.targetOutPtr,
+      ptrs.outCapacity,
+      ptrs.resultPtr,
+      match, mismatch, gapOpen, gapExtend,
+      bandWidth,
+      originKmerSize,
+      originMinVotes
+    )
+  )
+}
+
+/**
+ * Run a WASM alignment export that writes into caller-owned output buffers.
+ */
+function callWasmAlignmentInto(query, target, invoke) {
   wasmModule.reset()
 
   const queryBytes = textEncoder.encode(query)
   const targetBytes = textEncoder.encode(target)
+  const outCapacity = queryBytes.length + targetBytes.length
 
-  const queryLen = queryBytes.length
-  const targetLen = targetBytes.length
-
-  const queryPtr = wasmModule.alloc(queryLen)
-  const targetPtr = wasmModule.alloc(targetLen)
+  const queryPtr = wasmModule.alloc(queryBytes.length)
+  const targetPtr = wasmModule.alloc(targetBytes.length)
+  const queryOutPtr = wasmModule.alloc(outCapacity)
+  const targetOutPtr = wasmModule.alloc(outCapacity)
+  const resultPtr = wasmModule.alloc(WASM_RESULT_HEADER_SIZE)
 
   const memory = new Uint8Array(wasmModule.memory.buffer)
   memory.set(queryBytes, queryPtr)
   memory.set(targetBytes, targetPtr)
 
-  const resultPtr = wasmModule.alignSequencesBanded(
-    queryPtr, queryLen,
-    targetPtr, targetLen,
-    match, mismatch, gapOpen, gapExtend,
-    bandWidth
-  )
+  const status = invoke({
+    queryPtr,
+    queryLen: queryBytes.length,
+    targetPtr,
+    targetLen: targetBytes.length,
+    queryOutPtr,
+    targetOutPtr,
+    outCapacity,
+    resultPtr
+  })
 
-  if (!resultPtr) {
+  if (status !== WASM_STATUS_OK) {
     wasmModule.free(queryPtr)
     wasmModule.free(targetPtr)
-    return null
+    wasmModule.free(queryOutPtr)
+    wasmModule.free(targetOutPtr)
+    wasmModule.free(resultPtr)
+
+    return { status }
   }
 
-  const result = readAlignmentResult(resultPtr)
+  const result = readAlignmentResultHeader(resultPtr, queryOutPtr, targetOutPtr)
 
   wasmModule.free(queryPtr)
   wasmModule.free(targetPtr)
-  wasmModule.freeResult(resultPtr)
+  wasmModule.free(queryOutPtr)
+  wasmModule.free(targetOutPtr)
+  wasmModule.free(resultPtr)
 
   return result
 }
 
 /**
- * Read alignment result from WASM memory.
+ * Read scalar alignment metadata and caller-owned output buffers.
  */
-function readAlignmentResult(ptr) {
+function readAlignmentResultHeader(ptr, queryOutPtr, targetOutPtr) {
   const memory = new Uint8Array(wasmModule.memory.buffer)
   const view = new DataView(wasmModule.memory.buffer)
 
@@ -234,12 +287,10 @@ function readAlignmentResult(ptr) {
   // i32 queryEnd           (offset 8)
   // i32 targetStart        (offset 12)
   // i32 targetEnd          (offset 16)
-  // u32 queryAlignedPtr    (offset 20)
-  // i32 queryAlignedLen    (offset 24)
-  // u32 targetAlignedPtr   (offset 28)
-  // i32 targetAlignedLen   (offset 32)
-  // u32 _padding           (offset 36) - for f64 alignment
-  // f64 identity           (offset 40)
+  // i32 queryAlignedLen    (offset 20)
+  // i32 targetAlignedLen   (offset 24)
+  // u32 targetOriginOffset (offset 28)
+  // f64 identity           (offset 32)
 
   let offset = ptr
   const score = view.getInt32(offset, true); offset += 4
@@ -247,17 +298,15 @@ function readAlignmentResult(ptr) {
   const queryEnd = view.getInt32(offset, true); offset += 4
   const targetStart = view.getInt32(offset, true); offset += 4
   const targetEnd = view.getInt32(offset, true); offset += 4
-  const queryAlignedPtr = view.getUint32(offset, true); offset += 4
   const queryAlignedLen = view.getInt32(offset, true); offset += 4
-  const targetAlignedPtr = view.getUint32(offset, true); offset += 4
   const targetAlignedLen = view.getInt32(offset, true); offset += 4
-  offset += 4  // skip padding
+  const targetOriginOffset = view.getInt32(offset, true); offset += 4
   const identity = view.getFloat64(offset, true)
 
-  const queryAligned = textDecoder.decode(memory.subarray(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
-  const targetAligned = textDecoder.decode(memory.subarray(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
+  const queryAligned = textDecoder.decode(memory.subarray(queryOutPtr, queryOutPtr + queryAlignedLen))
+  const targetAligned = textDecoder.decode(memory.subarray(targetOutPtr, targetOutPtr + targetAlignedLen))
 
-  return {
+  const result = {
     score,
     queryStart,
     queryEnd,
@@ -267,6 +316,12 @@ function readAlignmentResult(ptr) {
     targetAligned,
     identity
   }
+
+  if (targetOriginOffset !== 0) {
+    result.targetOriginOffset = targetOriginOffset
+  }
+
+  return result
 }
 
 /**

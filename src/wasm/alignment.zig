@@ -8,7 +8,7 @@ const std = @import("std");
 
 // WASM allocator using a simple bump allocator
 // Keep heap small - we reset it on each align call anyway
-var heap: [32 * 1024 * 1024]u8 = undefined; // 32MB heap
+var heap: [32 * 1024 * 1024]u8 align(8) = undefined; // 32MB heap
 var heap_offset: usize = 0;
 
 fn wasmAlloc(size: usize) ?[*]u8 {
@@ -42,6 +42,8 @@ const MASK_C: u8 = 2;
 const MASK_G: u8 = 4;
 const MASK_T: u8 = 8;
 const DEFAULT_BAND_WIDTH: usize = 128;
+const DEFAULT_ORIGIN_KMER_SIZE: usize = 15;
+const DEFAULT_ORIGIN_MIN_VOTES: u32 = 3;
 const NEGATIVE_INFINITY: i32 = -1_000_000_000;
 
 const TRACE_STOP: u8 = 0;
@@ -82,6 +84,111 @@ fn maskForUpperBase(base: u8) u8 {
 
 fn isSingleBaseMask(mask: u8) bool {
     return mask == MASK_A or mask == MASK_C or mask == MASK_G or mask == MASK_T;
+}
+
+fn concreteBaseBits(base: u8) ?u64 {
+    return switch (base) {
+        'A' => 0,
+        'C' => 1,
+        'G' => 2,
+        'T' => 3,
+        else => null,
+    };
+}
+
+fn kmerKeyCircular(text: []const u8, start: usize, kmer_size: usize) ?u64 {
+    var key: u64 = 0;
+    for (0..kmer_size) |i| {
+        const bits = concreteBaseBits(text[(start + i) % text.len]) orelse return null;
+        key = (key << 2) | bits;
+    }
+    return key;
+}
+
+fn kmerKeyLinear(text: []const u8, start: usize, kmer_size: usize) ?u64 {
+    var key: u64 = 0;
+    for (0..kmer_size) |i| {
+        const bits = concreteBaseBits(text[start + i]) orelse return null;
+        key = (key << 2) | bits;
+    }
+    return key;
+}
+
+fn estimateCircularTargetOffset(query_text: []const u8, target_text: []const u8, requested_kmer_size: usize, requested_min_votes: u32) usize {
+    const n = target_text.len;
+    if (query_text.len == 0 or n == 0) return 0;
+
+    const kmer_size = @min(if (requested_kmer_size == 0) DEFAULT_ORIGIN_KMER_SIZE else requested_kmer_size, @min(query_text.len, n));
+    if (kmer_size < 4) return 0;
+
+    const query_limit = query_text.len - kmer_size;
+    const target_keys_ptr = wasmAlloc(n * @sizeOf(u64)) orelse return 0;
+    const target_key_valid_ptr = wasmAlloc(n * @sizeOf(u8)) orelse return 0;
+    const target_keys: [*]u64 = @ptrCast(@alignCast(target_keys_ptr));
+    const target_key_valid = target_key_valid_ptr[0..n];
+    for (0..n) |i| {
+        if (kmerKeyCircular(target_text, i, kmer_size)) |key| {
+            target_keys[i] = key;
+            target_key_valid[i] = 1;
+        } else {
+            target_keys[i] = 0;
+            target_key_valid[i] = 0;
+        }
+    }
+
+    const votes_ptr = wasmAlloc(n * @sizeOf(u32)) orelse return 0;
+    const votes: [*]u32 = @ptrCast(@alignCast(votes_ptr));
+    for (0..n) |i| {
+        votes[i] = 0;
+    }
+
+    for (0..query_limit + 1) |i| {
+        const key = kmerKeyLinear(query_text, i, kmer_size) orelse continue;
+        for (0..n) |target_pos| {
+            if (target_key_valid[target_pos] == 0 or target_keys[target_pos] != key) continue;
+            const offset = (target_pos + n - (i % n)) % n;
+            votes[offset] += 1;
+        }
+    }
+
+    var best_offset: usize = 0;
+    var best_votes: u32 = 0;
+    var second_best_votes: u32 = 0;
+    for (0..n) |offset| {
+        const count = votes[offset];
+        if (count > best_votes) {
+            second_best_votes = best_votes;
+            best_votes = count;
+            best_offset = offset;
+        } else if (count > second_best_votes) {
+            second_best_votes = count;
+        }
+    }
+
+    const min_votes = if (requested_min_votes == 0) DEFAULT_ORIGIN_MIN_VOTES else requested_min_votes;
+    if (best_votes < min_votes) return 0;
+    if (second_best_votes > 0 and best_votes * 2 < second_best_votes * 3) return 0;
+
+    return best_offset;
+}
+
+fn rotateBytes(sequence: []const u8, offset: usize) ?[*]u8 {
+    const ptr = wasmAlloc(sequence.len) orelse return null;
+    const out = ptr[0..sequence.len];
+    const normalized_offset = if (sequence.len == 0) 0 else offset % sequence.len;
+    const right_len = sequence.len - normalized_offset;
+    @memcpy(out[0..right_len], sequence[normalized_offset..]);
+    if (normalized_offset > 0) {
+        @memcpy(out[right_len..], sequence[0..normalized_offset]);
+    }
+    return ptr;
+}
+
+fn applyTargetOriginOffset(result: *AlignmentResultHeader, offset: usize) void {
+    if (offset == 0 or result.score == 0) return;
+    result.target_start += @intCast(offset);
+    result.target_end += @intCast(offset);
+    result.target_origin_offset = @intCast(offset);
 }
 
 fn scoreMasks(mask1: u8, mask2: u8, match_score: i32, mismatch_score: i32) i32 {
@@ -142,21 +249,38 @@ fn normalizeSequenceScalar(sequence: []const u8) ?NormalizedSequence {
     return .{ .text = text, .masks = masks };
 }
 
-// Result structure for alignment
-// Layout must match JS reader expectations (all i32s packed, then f64 at 8-byte aligned offset)
-pub const AlignmentResult = extern struct {
+const STATUS_OK: i32 = 0;
+const STATUS_BAND_UNSAFE: i32 = 2;
+const STATUS_OUT_OF_MEMORY: i32 = 3;
+const STATUS_OUTPUT_TOO_SMALL: i32 = 4;
+
+// Scalar result metadata. Aligned sequence bytes are written to caller-owned
+// output buffers and are not represented by pointers in this struct.
+pub const AlignmentResultHeader = extern struct {
     score: i32, // offset 0
     query_start: i32, // offset 4
     query_end: i32, // offset 8
     target_start: i32, // offset 12
     target_end: i32, // offset 16
-    query_aligned_ptr: u32, // offset 20 (using u32 instead of pointer for explicit 4-byte size)
-    query_aligned_len: i32, // offset 24
-    target_aligned_ptr: u32, // offset 28
-    target_aligned_len: i32, // offset 32
-    _padding: u32 = 0, // offset 36 (padding for f64 alignment)
-    identity: f64, // offset 40
+    query_aligned_len: i32, // offset 20
+    target_aligned_len: i32, // offset 24
+    target_origin_offset: u32 = 0, // offset 28
+    identity: f64, // offset 32
 };
+
+fn writeEmptyResult(result: *AlignmentResultHeader) void {
+    result.* = AlignmentResultHeader{
+        .score = 0,
+        .query_start = 0,
+        .query_end = 0,
+        .target_start = 0,
+        .target_end = 0,
+        .query_aligned_len = 0,
+        .target_aligned_len = 0,
+        .target_origin_offset = 0,
+        .identity = 0,
+    };
+}
 
 // Find max score and endpoint using linear space
 fn findMaxScoreLinearSpace(
@@ -577,17 +701,22 @@ fn hirschbergAlign(
     hirschbergAlign(query_text[mid..], query_masks[mid..], target_text[best_j..], target_masks[best_j..], match_score, mismatch_score, gap_open, gap_extend, out_query, out_target, out_len);
 }
 
-// Main alignment function exported to WASM
-export fn alignSequences(
+// Main linear-space alignment function. Writes aligned strings into caller-owned
+// output buffers and scalar metadata into result.
+export fn alignSequencesInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
     target_len: usize,
+    query_out_ptr: [*]u8,
+    target_out_ptr: [*]u8,
+    out_capacity: usize,
+    result: *AlignmentResultHeader,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
-) ?*AlignmentResult {
+) i32 {
     // NOTE: We do NOT reset the heap here because:
     // 1. The input pointers (query_ptr, target_ptr) may have been allocated from our heap
     // 2. The slices above still reference that memory
@@ -595,45 +724,19 @@ export fn alignSequences(
 
     // Handle empty sequences
     if (query_len == 0 or target_len == 0) {
-        const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-        const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
-        result.* = AlignmentResult{
-            .score = 0,
-            .query_start = 0,
-            .query_end = 0,
-            .target_start = 0,
-            .target_end = 0,
-            .query_aligned_ptr = 0,
-            .query_aligned_len = 0,
-            .target_aligned_ptr = 0,
-            .target_aligned_len = 0,
-            .identity = 0,
-        };
-        return result;
+        writeEmptyResult(result);
+        return STATUS_OK;
     }
 
-    const query = normalizeSequence(query_ptr[0..query_len]) orelse return null;
-    const target = normalizeSequence(target_ptr[0..target_len]) orelse return null;
+    const query = normalizeSequence(query_ptr[0..query_len]) orelse return STATUS_OUT_OF_MEMORY;
+    const target = normalizeSequence(target_ptr[0..target_len]) orelse return STATUS_OUT_OF_MEMORY;
 
     // Find max score and endpoint
     const max_result = findMaxScoreLinearSpace(query.masks, target.masks, match_score, mismatch_score, gap_open, gap_extend);
 
     if (max_result.max_score == 0) {
-        const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-        const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
-        result.* = AlignmentResult{
-            .score = 0,
-            .query_start = 0,
-            .query_end = 0,
-            .target_start = 0,
-            .target_end = 0,
-            .query_aligned_ptr = 0,
-            .query_aligned_len = 0,
-            .target_aligned_ptr = 0,
-            .target_aligned_len = 0,
-            .identity = 0,
-        };
-        return result;
+        writeEmptyResult(result);
+        return STATUS_OK;
     }
 
     // Find start point
@@ -654,9 +757,9 @@ export fn alignSequences(
     const local_target_text = target.text[start_result.start_j..max_result.max_j];
     const local_target_masks = target.masks[start_result.start_j..max_result.max_j];
     const max_aligned_len = local_query_text.len + local_target_text.len;
-
-    const query_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
-    const target_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
+    if (max_aligned_len > out_capacity) {
+        return STATUS_OUTPUT_TOO_SMALL;
+    }
 
     var aligned_len: usize = 0;
     hirschbergAlign(
@@ -668,8 +771,8 @@ export fn alignSequences(
         mismatch_score,
         gap_open,
         gap_extend,
-        query_aligned_ptr,
-        target_aligned_ptr,
+        query_out_ptr,
+        target_out_ptr,
         &aligned_len,
     );
 
@@ -677,9 +780,9 @@ export fn alignSequences(
     var matches: usize = 0;
     var non_gap_positions: usize = 0;
     for (0..aligned_len) |i| {
-        if (query_aligned_ptr[i] != '-' and target_aligned_ptr[i] != '-') {
+        if (query_out_ptr[i] != '-' and target_out_ptr[i] != '-') {
             non_gap_positions += 1;
-            if (query_aligned_ptr[i] == target_aligned_ptr[i]) {
+            if (query_out_ptr[i] == target_out_ptr[i]) {
                 matches += 1;
             }
         }
@@ -690,24 +793,19 @@ export fn alignSequences(
     else
         0;
 
-    // Allocate and fill result
-    const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-    const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
-
-    result.* = AlignmentResult{
+    result.* = AlignmentResultHeader{
         .score = max_result.max_score,
         .query_start = @intCast(start_result.start_i),
         .query_end = @intCast(max_result.max_i),
         .target_start = @intCast(start_result.start_j),
         .target_end = @intCast(max_result.max_j),
-        .query_aligned_ptr = @intFromPtr(query_aligned_ptr),
         .query_aligned_len = @intCast(aligned_len),
-        .target_aligned_ptr = @intFromPtr(target_aligned_ptr),
         .target_aligned_len = @intCast(aligned_len),
+        .target_origin_offset = 0,
         .identity = identity,
     };
 
-    return result;
+    return STATUS_OK;
 }
 
 fn absDiff(a: usize, b: usize) usize {
@@ -718,22 +816,14 @@ fn maxAlignedLenFor(query_len: usize, target_len: usize) usize {
     return query_len + target_len;
 }
 
-fn makeEmptyResult() ?*AlignmentResult {
-    const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-    const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
-    result.* = AlignmentResult{
-        .score = 0,
-        .query_start = 0,
-        .query_end = 0,
-        .target_start = 0,
-        .target_end = 0,
-        .query_aligned_ptr = 0,
-        .query_aligned_len = 0,
-        .target_aligned_ptr = 0,
-        .target_aligned_len = 0,
-        .identity = 0,
-    };
-    return result;
+fn bandIndex(i: usize, j: usize, band_width: usize) ?usize {
+    if (j >= i) {
+        return band_width + (j - i);
+    }
+
+    const delta = i - j;
+    if (delta > band_width) return null;
+    return band_width - delta;
 }
 
 fn reverseBytes(bytes: []u8) void {
@@ -751,28 +841,33 @@ fn reverseBytes(bytes: []u8) void {
 
 // Banded Smith-Waterman local alignment. Returns null when the band is unsafe,
 // allowing JS to retry with the canonical linear implementation.
-export fn alignSequencesBanded(
+export fn alignSequencesBandedInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
     target_len: usize,
+    query_out_ptr: [*]u8,
+    target_out_ptr: [*]u8,
+    out_capacity: usize,
+    result: *AlignmentResultHeader,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
     requested_band_width: usize,
-) ?*AlignmentResult {
+) i32 {
     if (query_len == 0 or target_len == 0) {
-        return makeEmptyResult();
+        writeEmptyResult(result);
+        return STATUS_OK;
     }
 
     const band_width = if (requested_band_width == 0) DEFAULT_BAND_WIDTH else requested_band_width;
     if (absDiff(query_len, target_len) > band_width) {
-        return null;
+        return STATUS_BAND_UNSAFE;
     }
 
-    const query = normalizeSequence(query_ptr[0..query_len]) orelse return null;
-    const target = normalizeSequence(target_ptr[0..target_len]) orelse return null;
+    const query = normalizeSequence(query_ptr[0..query_len]) orelse return STATUS_OUT_OF_MEMORY;
+    const target = normalizeSequence(target_ptr[0..target_len]) orelse return STATUS_OUT_OF_MEMORY;
     const m = query.masks.len;
     const n = target.masks.len;
     const width = band_width * 2 + 1;
@@ -781,15 +876,15 @@ export fn alignSequencesBanded(
     const row_size = width * @sizeOf(i32);
     const trace_size = total_cells * @sizeOf(u8);
 
-    const trace_h_ptr = wasmAlloc(trace_size) orelse return null;
-    const trace_e_ptr = wasmAlloc(trace_size) orelse return null;
-    const trace_f_ptr = wasmAlloc(trace_size) orelse return null;
-    const prev_h_ptr = wasmAlloc(row_size) orelse return null;
-    const curr_h_ptr = wasmAlloc(row_size) orelse return null;
-    const prev_e_ptr = wasmAlloc(row_size) orelse return null;
-    const curr_e_ptr = wasmAlloc(row_size) orelse return null;
-    const prev_f_ptr = wasmAlloc(row_size) orelse return null;
-    const curr_f_ptr = wasmAlloc(row_size) orelse return null;
+    const trace_h_ptr = wasmAlloc(trace_size) orelse return STATUS_OUT_OF_MEMORY;
+    const trace_e_ptr = wasmAlloc(trace_size) orelse return STATUS_OUT_OF_MEMORY;
+    const trace_f_ptr = wasmAlloc(trace_size) orelse return STATUS_OUT_OF_MEMORY;
+    const prev_h_ptr = wasmAlloc(row_size) orelse return STATUS_OUT_OF_MEMORY;
+    const curr_h_ptr = wasmAlloc(row_size) orelse return STATUS_OUT_OF_MEMORY;
+    const prev_e_ptr = wasmAlloc(row_size) orelse return STATUS_OUT_OF_MEMORY;
+    const curr_e_ptr = wasmAlloc(row_size) orelse return STATUS_OUT_OF_MEMORY;
+    const prev_f_ptr = wasmAlloc(row_size) orelse return STATUS_OUT_OF_MEMORY;
+    const curr_f_ptr = wasmAlloc(row_size) orelse return STATUS_OUT_OF_MEMORY;
 
     const trace_h = trace_h_ptr[0..trace_size];
     const trace_e = trace_e_ptr[0..trace_size];
@@ -835,7 +930,7 @@ export fn alignSequencesBanded(
 
         var j = j_start;
         while (j <= j_end) : (j += 1) {
-            const k = j - i + band_width;
+            const k = bandIndex(i, j, band_width) orelse return STATUS_BAND_UNSAFE;
             const flat = i * width + k;
 
             const from_left_h = if (k > 0) curr_h[k - 1] + gap_open + gap_extend else NEGATIVE_INFINITY;
@@ -899,12 +994,14 @@ export fn alignSequencesBanded(
     }
 
     if (max_score == 0) {
-        return makeEmptyResult();
+        writeEmptyResult(result);
+        return STATUS_OK;
     }
 
     const max_aligned_len = maxAlignedLenFor(m, n);
-    const query_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
-    const target_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
+    if (max_aligned_len > out_capacity) {
+        return STATUS_OUTPUT_TOO_SMALL;
+    }
 
     var aligned_len: usize = 0;
     var matches: usize = 0;
@@ -915,8 +1012,8 @@ export fn alignSequencesBanded(
     var touched_band_edge = false;
 
     while (i > 0 and j > 0) {
-        const k = j - i + band_width;
-        if (k >= width) return null;
+        const k = bandIndex(i, j, band_width) orelse return STATUS_BAND_UNSAFE;
+        if (k >= width) return STATUS_BAND_UNSAFE;
         if (k == 0 or k == width - 1) {
             touched_band_edge = true;
         }
@@ -933,8 +1030,8 @@ export fn alignSequencesBanded(
         if (state == TRACE_DIAG) {
             const query_base = query.text[i - 1];
             const target_base = target.text[j - 1];
-            query_aligned_ptr[aligned_len] = query_base;
-            target_aligned_ptr[aligned_len] = target_base;
+            query_out_ptr[aligned_len] = query_base;
+            target_out_ptr[aligned_len] = target_base;
             aligned_len += 1;
             non_gap_positions += 1;
             if (query_base == target_base) {
@@ -947,8 +1044,8 @@ export fn alignSequencesBanded(
         }
 
         if (state == TRACE_E) {
-            query_aligned_ptr[aligned_len] = '-';
-            target_aligned_ptr[aligned_len] = target.text[j - 1];
+            query_out_ptr[aligned_len] = '-';
+            target_out_ptr[aligned_len] = target.text[j - 1];
             aligned_len += 1;
             state = trace_e[flat];
             j -= 1;
@@ -956,45 +1053,115 @@ export fn alignSequencesBanded(
         }
 
         if (state == TRACE_F) {
-            query_aligned_ptr[aligned_len] = query.text[i - 1];
-            target_aligned_ptr[aligned_len] = '-';
+            query_out_ptr[aligned_len] = query.text[i - 1];
+            target_out_ptr[aligned_len] = '-';
             aligned_len += 1;
             state = trace_f[flat];
             i -= 1;
             continue;
         }
 
-        return null;
+        return STATUS_BAND_UNSAFE;
     }
 
     if (touched_band_edge) {
-        return null;
+        return STATUS_BAND_UNSAFE;
     }
 
-    reverseBytes(query_aligned_ptr[0..aligned_len]);
-    reverseBytes(target_aligned_ptr[0..aligned_len]);
+    reverseBytes(query_out_ptr[0..aligned_len]);
+    reverseBytes(target_out_ptr[0..aligned_len]);
 
     const identity: f64 = if (non_gap_positions > 0)
         @round(@as(f64, @floatFromInt(matches)) / @as(f64, @floatFromInt(non_gap_positions)) * 1000.0) / 10.0
     else
         0;
 
-    const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
-    const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
-    result.* = AlignmentResult{
+    result.* = AlignmentResultHeader{
         .score = max_score,
         .query_start = @intCast(i),
         .query_end = @intCast(max_i),
         .target_start = @intCast(j),
         .target_end = @intCast(max_j),
-        .query_aligned_ptr = @intFromPtr(query_aligned_ptr),
         .query_aligned_len = @intCast(aligned_len),
-        .target_aligned_ptr = @intFromPtr(target_aligned_ptr),
         .target_aligned_len = @intCast(aligned_len),
+        .target_origin_offset = 0,
         .identity = identity,
     };
 
-    return result;
+    return STATUS_OK;
+}
+
+// Circular target alignment. Estimates the target origin offset, virtually
+// rotates the target, then uses the banded path with linear fallback.
+export fn alignSequencesBandedCircularInto(
+    query_ptr: [*]const u8,
+    query_len: usize,
+    target_ptr: [*]const u8,
+    target_len: usize,
+    query_out_ptr: [*]u8,
+    target_out_ptr: [*]u8,
+    out_capacity: usize,
+    result: *AlignmentResultHeader,
+    match_score: i32,
+    mismatch_score: i32,
+    gap_open: i32,
+    gap_extend: i32,
+    requested_band_width: usize,
+    requested_kmer_size: usize,
+    requested_min_votes: u32,
+) i32 {
+    if (query_len == 0 or target_len == 0) {
+        writeEmptyResult(result);
+        return STATUS_OK;
+    }
+
+    const query = normalizeSequence(query_ptr[0..query_len]) orelse return STATUS_OUT_OF_MEMORY;
+    const target = normalizeSequence(target_ptr[0..target_len]) orelse return STATUS_OUT_OF_MEMORY;
+    const offset = estimateCircularTargetOffset(query.text, target.text, requested_kmer_size, requested_min_votes);
+
+    const rotated_target_ptr = if (offset == 0)
+        target_ptr
+    else
+        (rotateBytes(target.text, offset) orelse return STATUS_OUT_OF_MEMORY);
+
+    var status = alignSequencesBandedInto(
+        query_ptr,
+        query_len,
+        rotated_target_ptr,
+        target_len,
+        query_out_ptr,
+        target_out_ptr,
+        out_capacity,
+        result,
+        match_score,
+        mismatch_score,
+        gap_open,
+        gap_extend,
+        requested_band_width,
+    );
+
+    if (status == STATUS_BAND_UNSAFE) {
+        status = alignSequencesInto(
+            query_ptr,
+            query_len,
+            rotated_target_ptr,
+            target_len,
+            query_out_ptr,
+            target_out_ptr,
+            out_capacity,
+            result,
+            match_score,
+            mismatch_score,
+            gap_open,
+            gap_extend,
+        );
+    }
+
+    if (status == STATUS_OK) {
+        applyTargetOriginOffset(result, offset);
+    }
+
+    return status;
 }
 
 // Memory management exports for JS
@@ -1009,9 +1176,4 @@ export fn alloc(size: usize) ?[*]u8 {
 export fn free(ptr: [*]u8) void {
     _ = ptr;
     // No-op for bump allocator
-}
-
-export fn freeResult(ptr: *AlignmentResult) void {
-    _ = ptr;
-    // No-op for bump allocator - heap is reset on next align call
 }
