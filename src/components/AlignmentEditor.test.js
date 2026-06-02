@@ -3290,6 +3290,47 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     expect(queryPosMap[8]).toBe(8)
   })
 
+  it('maps circular target alignment positions back to physical coordinates', async () => {
+    const targetDoc = createDoc('AAAACCCCGGGGTTTTACGTACGT', [], true)
+    const queryDoc = createDoc('GGGGTTTTACGTACGTAAAACCCC')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.alignmentResult.targetOriginOffset).toBe(8)
+    expect(wrapper.vm.alignmentResult.targetStart).toBe(8)
+    expect(wrapper.vm.alignedTargetSequence).toBe('GGGGTTTTACGTACGTAAAACCCC')
+    expect(wrapper.vm.alignedQuerySequence).toBe('GGGGTTTTACGTACGTAAAACCCC')
+    expect(wrapper.vm.targetPositionMap).toEqual([
+      8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7
+    ])
+    expect(wrapper.vm.alignmentLines[0].targetPosition).toBe(9)
+  })
+
+  it('maps circular target annotations into wrapped aligned columns', async () => {
+    const annotation = {
+      id: 'origin-feature',
+      caption: 'origin-feature',
+      type: 'gene',
+      span: new Span([new Range(0, 4, Orientation.PLUS)])
+    }
+    const targetDoc = createDoc('AAAACCCCGGGGTTTTACGTACGT', [annotation], true)
+    const queryDoc = createDoc('GGGGTTTTACGTACGTAAAACCCC')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.alignedTargetAnnotations).toHaveLength(1)
+    expect(wrapper.vm.alignedTargetAnnotations[0].span.ranges[0].start).toBe(16)
+    expect(wrapper.vm.alignedTargetAnnotations[0].span.ranges[0].end).toBe(20)
+  })
+
   it('handleSelectionChange does not double-convert original coordinates', async () => {
     // This tests the bug: when SequenceLayer sends original coordinates,
     // handleSelectionChange should NOT try to convert them again.

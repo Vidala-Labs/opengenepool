@@ -10,6 +10,15 @@ const MASK_A = 1
 const MASK_C = 2
 const MASK_G = 4
 const MASK_T = 8
+const DEFAULT_BAND_WIDTH = 128
+const DEFAULT_ORIGIN_KMER_SIZE = 15
+const NEGATIVE_INFINITY = -1_000_000_000
+
+const TRACE_STOP = 0
+const TRACE_DIAG = 1
+const TRACE_E = 2
+const TRACE_F = 3
+const TRACE_H = 4
 
 const BASE_MASKS = new Uint8Array(128)
 const SINGLE_BASE_MASKS = new Uint8Array(16)
@@ -62,6 +71,26 @@ export function align(query, target, options = {}) {
     return emptyAlignmentResult()
   }
 
+  const bandWidth = options.bandWidth ?? DEFAULT_BAND_WIDTH
+  if (options.mode !== 'linear' && bandWidth > 0) {
+    const bandedTarget = maybeRotateCircularTarget(normalizedQuery, normalizedTarget, options)
+    const bandedResult = Math.abs(m - bandedTarget.sequence.masks.length) <= bandWidth
+      ? alignBanded(normalizedQuery, bandedTarget.sequence, options, bandWidth)
+      : null
+    if (bandedResult && (options.fallback === false || bandedResult.confident)) {
+      delete bandedResult.confident
+      applyTargetOriginOffset(bandedResult, bandedTarget.offset, normalizedTarget.masks.length)
+      return bandedResult
+    }
+  }
+
+  return alignLinear(normalizedQuery, normalizedTarget, options)
+}
+
+function alignLinear(normalizedQuery, normalizedTarget, options) {
+  const m = normalizedQuery.masks.length
+  const n = normalizedTarget.masks.length
+
   const { maxScore, maxI, maxJ } = findMaxScoreLinearSpace(
     normalizedQuery.masks,
     normalizedTarget.masks,
@@ -107,6 +136,301 @@ export function align(query, target, options = {}) {
     queryAligned,
     targetAligned,
     identity: calculateIdentity(operations)
+  }
+}
+
+function maybeRotateCircularTarget(query, target, options) {
+  if (!options.circular && !options.circularTarget) {
+    return { sequence: target, offset: 0 }
+  }
+
+  const offset = estimateCircularTargetOffset(query.text, target.text, options)
+  if (!offset) {
+    return { sequence: target, offset: 0 }
+  }
+
+  return {
+    sequence: rotateNormalizedSequence(target, offset),
+    offset
+  }
+}
+
+function estimateCircularTargetOffset(queryText, targetText, options) {
+  const n = targetText.length
+  if (queryText.length === 0 || n === 0) return 0
+
+  const kmerSize = Math.min(
+    options.originKmerSize ?? DEFAULT_ORIGIN_KMER_SIZE,
+    queryText.length,
+    n
+  )
+  if (kmerSize < 4) return 0
+
+  const targetIndex = new Map()
+  const circularTargetText = targetText + targetText.slice(0, kmerSize - 1)
+
+  for (let i = 0; i < n; i++) {
+    const kmer = circularTargetText.slice(i, i + kmerSize)
+    if (!isConcreteDna(kmer)) continue
+
+    let positions = targetIndex.get(kmer)
+    if (!positions) {
+      positions = []
+      targetIndex.set(kmer, positions)
+    }
+    if (positions.length < 8) {
+      positions.push(i)
+    }
+  }
+
+  const votes = new Map()
+  const queryLimit = queryText.length - kmerSize
+  for (let i = 0; i <= queryLimit; i++) {
+    const kmer = queryText.slice(i, i + kmerSize)
+    const positions = targetIndex.get(kmer)
+    if (!positions) continue
+
+    for (const targetPos of positions) {
+      const offset = (targetPos - i + n) % n
+      votes.set(offset, (votes.get(offset) || 0) + 1)
+    }
+  }
+
+  let bestOffset = 0
+  let bestVotes = 0
+  let secondBestVotes = 0
+  for (const [offset, count] of votes) {
+    if (count > bestVotes) {
+      secondBestVotes = bestVotes
+      bestVotes = count
+      bestOffset = offset
+    } else if (count > secondBestVotes) {
+      secondBestVotes = count
+    }
+  }
+
+  const minVotes = options.originMinVotes ?? 3
+  if (bestVotes < minVotes) return 0
+  if (secondBestVotes > 0 && bestVotes < secondBestVotes * 1.5) return 0
+
+  return bestOffset
+}
+
+function isConcreteDna(sequence) {
+  for (let i = 0; i < sequence.length; i++) {
+    const char = sequence[i]
+    if (char !== 'A' && char !== 'C' && char !== 'G' && char !== 'T') {
+      return false
+    }
+  }
+  return true
+}
+
+function rotateNormalizedSequence(sequence, offset) {
+  return {
+    text: sequence.text.slice(offset) + sequence.text.slice(0, offset),
+    masks: concatMasks(sequence.masks.subarray(offset), sequence.masks.subarray(0, offset))
+  }
+}
+
+function concatMasks(left, right) {
+  const result = new Uint8Array(left.length + right.length)
+  result.set(left, 0)
+  result.set(right, left.length)
+  return result
+}
+
+function applyTargetOriginOffset(result, offset, targetLength) {
+  if (!offset || targetLength === 0 || result.score === 0) return
+
+  result.targetOriginOffset = offset
+  result.targetStart += offset
+  result.targetEnd += offset
+}
+
+function alignBanded(query, target, options, bandWidth) {
+  const { match = 2, mismatch = -1, gapOpen = -3, gapExtend = -1 } = options
+  const m = query.masks.length
+  const n = target.masks.length
+  const width = bandWidth * 2 + 1
+  const totalCells = (m + 1) * width
+
+  const traceH = new Uint8Array(totalCells)
+  const traceE = new Uint8Array(totalCells)
+  const traceF = new Uint8Array(totalCells)
+
+  let prevH = new Int32Array(width)
+  let currH = new Int32Array(width)
+  let prevE = new Int32Array(width)
+  let currE = new Int32Array(width)
+  let prevF = new Int32Array(width)
+  let currF = new Int32Array(width)
+
+  prevH.fill(NEGATIVE_INFINITY)
+  prevE.fill(NEGATIVE_INFINITY)
+  prevF.fill(NEGATIVE_INFINITY)
+  for (let j = 0; j <= Math.min(n, bandWidth); j++) {
+    prevH[j + bandWidth] = 0
+  }
+
+  let maxScore = 0
+  let maxI = 0
+  let maxJ = 0
+
+  for (let i = 1; i <= m; i++) {
+    currH.fill(NEGATIVE_INFINITY)
+    currE.fill(NEGATIVE_INFINITY)
+    currF.fill(NEGATIVE_INFINITY)
+
+    if (i <= bandWidth) {
+      currH[bandWidth - i] = 0
+    }
+
+    const jStart = Math.max(1, i - bandWidth)
+    const jEnd = Math.min(n, i + bandWidth)
+    const queryMask = query.masks[i - 1]
+
+    for (let j = jStart; j <= jEnd; j++) {
+      const k = j - i + bandWidth
+      const flat = i * width + k
+      const leftK = k - 1
+      const upK = k + 1
+
+      const fromLeftH = leftK >= 0 ? currH[leftK] + gapOpen + gapExtend : NEGATIVE_INFINITY
+      const fromLeftE = leftK >= 0 ? currE[leftK] + gapExtend : NEGATIVE_INFINITY
+      if (fromLeftH >= fromLeftE) {
+        currE[k] = fromLeftH
+        traceE[flat] = TRACE_H
+      } else {
+        currE[k] = fromLeftE
+        traceE[flat] = TRACE_E
+      }
+
+      const fromUpH = upK < width ? prevH[upK] + gapOpen + gapExtend : NEGATIVE_INFINITY
+      const fromUpF = upK < width ? prevF[upK] + gapExtend : NEGATIVE_INFINITY
+      if (fromUpH >= fromUpF) {
+        currF[k] = fromUpH
+        traceF[flat] = TRACE_H
+      } else {
+        currF[k] = fromUpF
+        traceF[flat] = TRACE_F
+      }
+
+      const diag = prevH[k] + scoreMasks(queryMask, target.masks[j - 1], match, 1, mismatch)
+      let score = 0
+      let trace = TRACE_STOP
+
+      if (diag > score) {
+        score = diag
+        trace = TRACE_DIAG
+      }
+      if (currE[k] > score) {
+        score = currE[k]
+        trace = TRACE_E
+      }
+      if (currF[k] >= score) {
+        score = currF[k]
+        trace = TRACE_F
+      }
+
+      currH[k] = score
+      traceH[flat] = trace
+
+      if (score > maxScore) {
+        maxScore = score
+        maxI = i
+        maxJ = j
+      }
+    }
+
+    ;[prevH, currH] = [currH, prevH]
+    ;[prevE, currE] = [currE, prevE]
+    ;[prevF, currF] = [currF, prevF]
+  }
+
+  if (maxScore === 0) {
+    return { ...emptyAlignmentResult(), confident: true }
+  }
+
+  return tracebackBanded(query.text, target.text, traceH, traceE, traceF, width, bandWidth, maxScore, maxI, maxJ)
+}
+
+function tracebackBanded(queryText, targetText, traceH, traceE, traceF, width, bandWidth, score, maxI, maxJ) {
+  const queryChunks = []
+  const targetChunks = []
+  let matches = 0
+  let nonGapPositions = 0
+  let i = maxI
+  let j = maxJ
+  let state = TRACE_H
+  let touchedBandEdge = false
+
+  while (i > 0 && j > 0) {
+    const k = j - i + bandWidth
+    if (k < 0 || k >= width) {
+      return null
+    }
+    if (k === 0 || k === width - 1) {
+      touchedBandEdge = true
+    }
+
+    const flat = i * width + k
+
+    if (state === TRACE_H) {
+      const trace = traceH[flat]
+      if (trace === TRACE_STOP) break
+      state = trace
+      continue
+    }
+
+    if (state === TRACE_DIAG) {
+      const queryBase = queryText[i - 1]
+      const targetBase = targetText[j - 1]
+      queryChunks.push(queryBase)
+      targetChunks.push(targetBase)
+      nonGapPositions++
+      if (queryBase === targetBase) matches++
+      i--
+      j--
+      state = TRACE_H
+      continue
+    }
+
+    if (state === TRACE_E) {
+      queryChunks.push('-')
+      targetChunks.push(targetText[j - 1])
+      state = traceE[flat]
+      j--
+      continue
+    }
+
+    if (state === TRACE_F) {
+      queryChunks.push(queryText[i - 1])
+      targetChunks.push('-')
+      state = traceF[flat]
+      i--
+      continue
+    }
+
+    return null
+  }
+
+  const queryStart = i
+  const targetStart = j
+
+  queryChunks.reverse()
+  targetChunks.reverse()
+
+  return {
+    score,
+    queryStart,
+    queryEnd: maxI,
+    targetStart,
+    targetEnd: maxJ,
+    queryAligned: queryChunks.join(''),
+    targetAligned: targetChunks.join(''),
+    identity: nonGapPositions > 0 ? Math.round((matches / nonGapPositions) * 1000) / 10 : 0,
+    confident: !touchedBandEdge
   }
 }
 

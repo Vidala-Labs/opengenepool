@@ -8,7 +8,7 @@ const std = @import("std");
 
 // WASM allocator using a simple bump allocator
 // Keep heap small - we reset it on each align call anyway
-var heap: [4 * 1024 * 1024]u8 = undefined; // 4MB heap
+var heap: [32 * 1024 * 1024]u8 = undefined; // 32MB heap
 var heap_offset: usize = 0;
 
 fn wasmAlloc(size: usize) ?[*]u8 {
@@ -41,6 +41,14 @@ const MASK_A: u8 = 1;
 const MASK_C: u8 = 2;
 const MASK_G: u8 = 4;
 const MASK_T: u8 = 8;
+const DEFAULT_BAND_WIDTH: usize = 128;
+const NEGATIVE_INFINITY: i32 = -1_000_000_000;
+
+const TRACE_STOP: u8 = 0;
+const TRACE_DIAG: u8 = 1;
+const TRACE_E: u8 = 2;
+const TRACE_F: u8 = 3;
+const TRACE_H: u8 = 4;
 
 const NormalizedSequence = struct {
     text: []u8,
@@ -89,6 +97,37 @@ fn scoreMasks(mask1: u8, mask2: u8, match_score: i32, mismatch_score: i32) i32 {
 }
 
 fn normalizeSequence(sequence: []const u8) ?NormalizedSequence {
+    const text_ptr = wasmAlloc(sequence.len) orelse return null;
+    const masks_ptr = wasmAlloc(sequence.len) orelse return null;
+    const text = text_ptr[0..sequence.len];
+    const masks = masks_ptr[0..sequence.len];
+
+    normalizeTextSimd(sequence, text);
+
+    for (text, 0..) |base, i| {
+        masks[i] = maskForUpperBase(base);
+    }
+
+    return .{ .text = text, .masks = masks };
+}
+
+fn normalizeTextSimd(sequence: []const u8, text: []u8) void {
+    const Vec = @Vector(16, u8);
+    var i: usize = 0;
+
+    while (i + 16 <= sequence.len) : (i += 16) {
+        const bytes: Vec = sequence[i..][0..16].*;
+        const is_lower = (bytes >= @as(Vec, @splat('a'))) & (bytes <= @as(Vec, @splat('z')));
+        const upper = @select(u8, is_lower, bytes - @as(Vec, @splat(32)), bytes);
+        text[i..][0..16].* = @as([16]u8, upper);
+    }
+
+    while (i < sequence.len) : (i += 1) {
+        text[i] = toUpper(sequence[i]);
+    }
+}
+
+fn normalizeSequenceScalar(sequence: []const u8) ?NormalizedSequence {
     const text_ptr = wasmAlloc(sequence.len) orelse return null;
     const masks_ptr = wasmAlloc(sequence.len) orelse return null;
     const text = text_ptr[0..sequence.len];
@@ -661,6 +700,293 @@ export fn alignSequences(
         .query_end = @intCast(max_result.max_i),
         .target_start = @intCast(start_result.start_j),
         .target_end = @intCast(max_result.max_j),
+        .query_aligned_ptr = @intFromPtr(query_aligned_ptr),
+        .query_aligned_len = @intCast(aligned_len),
+        .target_aligned_ptr = @intFromPtr(target_aligned_ptr),
+        .target_aligned_len = @intCast(aligned_len),
+        .identity = identity,
+    };
+
+    return result;
+}
+
+fn absDiff(a: usize, b: usize) usize {
+    return if (a > b) a - b else b - a;
+}
+
+fn maxAlignedLenFor(query_len: usize, target_len: usize) usize {
+    return query_len + target_len;
+}
+
+fn makeEmptyResult() ?*AlignmentResult {
+    const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
+    const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
+    result.* = AlignmentResult{
+        .score = 0,
+        .query_start = 0,
+        .query_end = 0,
+        .target_start = 0,
+        .target_end = 0,
+        .query_aligned_ptr = 0,
+        .query_aligned_len = 0,
+        .target_aligned_ptr = 0,
+        .target_aligned_len = 0,
+        .identity = 0,
+    };
+    return result;
+}
+
+fn reverseBytes(bytes: []u8) void {
+    if (bytes.len <= 1) return;
+    var left: usize = 0;
+    var right: usize = bytes.len - 1;
+    while (left < right) {
+        const tmp = bytes[left];
+        bytes[left] = bytes[right];
+        bytes[right] = tmp;
+        left += 1;
+        right -= 1;
+    }
+}
+
+// Banded Smith-Waterman local alignment. Returns null when the band is unsafe,
+// allowing JS to retry with the canonical linear implementation.
+export fn alignSequencesBanded(
+    query_ptr: [*]const u8,
+    query_len: usize,
+    target_ptr: [*]const u8,
+    target_len: usize,
+    match_score: i32,
+    mismatch_score: i32,
+    gap_open: i32,
+    gap_extend: i32,
+    requested_band_width: usize,
+) ?*AlignmentResult {
+    if (query_len == 0 or target_len == 0) {
+        return makeEmptyResult();
+    }
+
+    const band_width = if (requested_band_width == 0) DEFAULT_BAND_WIDTH else requested_band_width;
+    if (absDiff(query_len, target_len) > band_width) {
+        return null;
+    }
+
+    const query = normalizeSequence(query_ptr[0..query_len]) orelse return null;
+    const target = normalizeSequence(target_ptr[0..target_len]) orelse return null;
+    const m = query.masks.len;
+    const n = target.masks.len;
+    const width = band_width * 2 + 1;
+    const total_cells = (m + 1) * width;
+
+    const row_size = width * @sizeOf(i32);
+    const trace_size = total_cells * @sizeOf(u8);
+
+    const trace_h_ptr = wasmAlloc(trace_size) orelse return null;
+    const trace_e_ptr = wasmAlloc(trace_size) orelse return null;
+    const trace_f_ptr = wasmAlloc(trace_size) orelse return null;
+    const prev_h_ptr = wasmAlloc(row_size) orelse return null;
+    const curr_h_ptr = wasmAlloc(row_size) orelse return null;
+    const prev_e_ptr = wasmAlloc(row_size) orelse return null;
+    const curr_e_ptr = wasmAlloc(row_size) orelse return null;
+    const prev_f_ptr = wasmAlloc(row_size) orelse return null;
+    const curr_f_ptr = wasmAlloc(row_size) orelse return null;
+
+    const trace_h = trace_h_ptr[0..trace_size];
+    const trace_e = trace_e_ptr[0..trace_size];
+    const trace_f = trace_f_ptr[0..trace_size];
+    @memset(trace_h, TRACE_STOP);
+    @memset(trace_e, TRACE_STOP);
+    @memset(trace_f, TRACE_STOP);
+
+    var prev_h: [*]i32 = @ptrCast(@alignCast(prev_h_ptr));
+    var curr_h: [*]i32 = @ptrCast(@alignCast(curr_h_ptr));
+    var prev_e: [*]i32 = @ptrCast(@alignCast(prev_e_ptr));
+    var curr_e: [*]i32 = @ptrCast(@alignCast(curr_e_ptr));
+    var prev_f: [*]i32 = @ptrCast(@alignCast(prev_f_ptr));
+    var curr_f: [*]i32 = @ptrCast(@alignCast(curr_f_ptr));
+
+    for (0..width) |k| {
+        prev_h[k] = NEGATIVE_INFINITY;
+        prev_e[k] = NEGATIVE_INFINITY;
+        prev_f[k] = NEGATIVE_INFINITY;
+    }
+    for (0..@min(n, band_width) + 1) |j| {
+        prev_h[j + band_width] = 0;
+    }
+
+    var max_score: i32 = 0;
+    var max_i: usize = 0;
+    var max_j: usize = 0;
+
+    for (1..m + 1) |i| {
+        for (0..width) |k| {
+            curr_h[k] = NEGATIVE_INFINITY;
+            curr_e[k] = NEGATIVE_INFINITY;
+            curr_f[k] = NEGATIVE_INFINITY;
+        }
+
+        if (i <= band_width) {
+            curr_h[band_width - i] = 0;
+        }
+
+        const j_start = @max(@as(usize, 1), i -| band_width);
+        const j_end = @min(n, i + band_width);
+        const query_mask = query.masks[i - 1];
+
+        var j = j_start;
+        while (j <= j_end) : (j += 1) {
+            const k = j - i + band_width;
+            const flat = i * width + k;
+
+            const from_left_h = if (k > 0) curr_h[k - 1] + gap_open + gap_extend else NEGATIVE_INFINITY;
+            const from_left_e = if (k > 0) curr_e[k - 1] + gap_extend else NEGATIVE_INFINITY;
+            if (from_left_h >= from_left_e) {
+                curr_e[k] = from_left_h;
+                trace_e[flat] = TRACE_H;
+            } else {
+                curr_e[k] = from_left_e;
+                trace_e[flat] = TRACE_E;
+            }
+
+            const from_up_h = if (k + 1 < width) prev_h[k + 1] + gap_open + gap_extend else NEGATIVE_INFINITY;
+            const from_up_f = if (k + 1 < width) prev_f[k + 1] + gap_extend else NEGATIVE_INFINITY;
+            if (from_up_h >= from_up_f) {
+                curr_f[k] = from_up_h;
+                trace_f[flat] = TRACE_H;
+            } else {
+                curr_f[k] = from_up_f;
+                trace_f[flat] = TRACE_F;
+            }
+
+            const diag = prev_h[k] + scoreMasks(query_mask, target.masks[j - 1], match_score, mismatch_score);
+            var score: i32 = 0;
+            var trace: u8 = TRACE_STOP;
+
+            if (diag > score) {
+                score = diag;
+                trace = TRACE_DIAG;
+            }
+            if (curr_e[k] > score) {
+                score = curr_e[k];
+                trace = TRACE_E;
+            }
+            if (curr_f[k] >= score) {
+                score = curr_f[k];
+                trace = TRACE_F;
+            }
+
+            curr_h[k] = score;
+            trace_h[flat] = trace;
+
+            if (score > max_score) {
+                max_score = score;
+                max_i = i;
+                max_j = j;
+            }
+        }
+
+        const tmp_h = prev_h;
+        prev_h = curr_h;
+        curr_h = tmp_h;
+
+        const tmp_e = prev_e;
+        prev_e = curr_e;
+        curr_e = tmp_e;
+
+        const tmp_f = prev_f;
+        prev_f = curr_f;
+        curr_f = tmp_f;
+    }
+
+    if (max_score == 0) {
+        return makeEmptyResult();
+    }
+
+    const max_aligned_len = maxAlignedLenFor(m, n);
+    const query_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
+    const target_aligned_ptr = wasmAlloc(max_aligned_len) orelse return null;
+
+    var aligned_len: usize = 0;
+    var matches: usize = 0;
+    var non_gap_positions: usize = 0;
+    var i = max_i;
+    var j = max_j;
+    var state: u8 = TRACE_H;
+    var touched_band_edge = false;
+
+    while (i > 0 and j > 0) {
+        const k = j - i + band_width;
+        if (k >= width) return null;
+        if (k == 0 or k == width - 1) {
+            touched_band_edge = true;
+        }
+
+        const flat = i * width + k;
+
+        if (state == TRACE_H) {
+            const trace = trace_h[flat];
+            if (trace == TRACE_STOP) break;
+            state = trace;
+            continue;
+        }
+
+        if (state == TRACE_DIAG) {
+            const query_base = query.text[i - 1];
+            const target_base = target.text[j - 1];
+            query_aligned_ptr[aligned_len] = query_base;
+            target_aligned_ptr[aligned_len] = target_base;
+            aligned_len += 1;
+            non_gap_positions += 1;
+            if (query_base == target_base) {
+                matches += 1;
+            }
+            i -= 1;
+            j -= 1;
+            state = TRACE_H;
+            continue;
+        }
+
+        if (state == TRACE_E) {
+            query_aligned_ptr[aligned_len] = '-';
+            target_aligned_ptr[aligned_len] = target.text[j - 1];
+            aligned_len += 1;
+            state = trace_e[flat];
+            j -= 1;
+            continue;
+        }
+
+        if (state == TRACE_F) {
+            query_aligned_ptr[aligned_len] = query.text[i - 1];
+            target_aligned_ptr[aligned_len] = '-';
+            aligned_len += 1;
+            state = trace_f[flat];
+            i -= 1;
+            continue;
+        }
+
+        return null;
+    }
+
+    if (touched_band_edge) {
+        return null;
+    }
+
+    reverseBytes(query_aligned_ptr[0..aligned_len]);
+    reverseBytes(target_aligned_ptr[0..aligned_len]);
+
+    const identity: f64 = if (non_gap_positions > 0)
+        @round(@as(f64, @floatFromInt(matches)) / @as(f64, @floatFromInt(non_gap_positions)) * 1000.0) / 10.0
+    else
+        0;
+
+    const result_ptr = wasmAlloc(@sizeOf(AlignmentResult)) orelse return null;
+    const result: *AlignmentResult = @ptrCast(@alignCast(result_ptr));
+    result.* = AlignmentResult{
+        .score = max_score,
+        .query_start = @intCast(i),
+        .query_end = @intCast(max_i),
+        .target_start = @intCast(j),
+        .target_end = @intCast(max_j),
         .query_aligned_ptr = @intFromPtr(query_aligned_ptr),
         .query_aligned_len = @intCast(aligned_len),
         .target_aligned_ptr = @intFromPtr(target_aligned_ptr),

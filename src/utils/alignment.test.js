@@ -3,6 +3,8 @@ import {
   align,
   scoreMatch,
   buildCoordinateMap,
+  buildAlignedToOriginalMap,
+  normalizeCircularPosition,
   mapCoordinate,
   buildReverseCoordinateMap,
   extractGaps,
@@ -466,6 +468,99 @@ describe('extractGaps', () => {
   })
 })
 
+describe('circular coordinate mapping', () => {
+  it('normalizes virtual positions into physical circular coordinates', () => {
+    expect(normalizeCircularPosition(0, 4)).toBe(0)
+    expect(normalizeCircularPosition(3, 4)).toBe(3)
+    expect(normalizeCircularPosition(4, 4)).toBe(0)
+    expect(normalizeCircularPosition(5, 4)).toBe(1)
+    expect(normalizeCircularPosition(-1, 4)).toBe(3)
+  })
+
+  it('builds aligned-to-original maps with circular wrapping', () => {
+    const map = buildAlignedToOriginalMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(map).toEqual([2, 3, 0, 1])
+  })
+
+  it('builds reverse maps with circular wrapping', () => {
+    const map = buildReverseCoordinateMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(map).toEqual({
+      0: 2,
+      1: 3,
+      2: 0,
+      3: 1
+    })
+  })
+
+  it('extracts circular gaps at physical coordinates', () => {
+    const gaps = extractGaps('AA--TT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(gaps).toEqual([{ position: 0, length: 2 }])
+  })
+
+  it('maps circular annotations after the virtual origin', () => {
+    const annotation = {
+      id: 'after-origin',
+      caption: 'after-origin',
+      type: 'gene',
+      span: new Span([new Range(0, 2, Orientation.PLUS)])
+    }
+    const reverseMap = buildReverseCoordinateMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    const mapped = mapAnnotationThroughAlignment(annotation, reverseMap, 2, 6, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(mapped.span.ranges).toHaveLength(1)
+    expect(mapped.span.ranges[0].start).toBe(2)
+    expect(mapped.span.ranges[0].end).toBe(4)
+  })
+
+  it('maps split annotations that cross the physical origin', () => {
+    const annotation = {
+      id: 'cross-origin',
+      caption: 'cross-origin',
+      type: 'gene',
+      span: new Span([
+        new Range(3, 4, Orientation.MINUS),
+        new Range(0, 1, Orientation.MINUS)
+      ])
+    }
+    const reverseMap = buildReverseCoordinateMap('AATT', 2, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    const mapped = mapAnnotationThroughAlignment(annotation, reverseMap, 2, 6, {
+      circular: true,
+      sequenceLength: 4
+    })
+
+    expect(mapped.span.ranges).toHaveLength(2)
+    expect(mapped.span.ranges[0].start).toBe(1)
+    expect(mapped.span.ranges[0].end).toBe(2)
+    expect(mapped.span.ranges[0].orientation).toBe(Orientation.MINUS)
+    expect(mapped.span.ranges[1].start).toBe(2)
+    expect(mapped.span.ranges[1].end).toBe(3)
+    expect(mapped.span.ranges[1].orientation).toBe(Orientation.MINUS)
+  })
+})
+
 describe('contiguous gap preference', () => {
   it('keeps deletions contiguous for repeated bases like CCC', () => {
     // Target: ATGCCCTAG, Query: ATGCTAG (missing two C's)
@@ -486,17 +581,17 @@ describe('contiguous gap preference', () => {
 
   it('keeps deletions contiguous - no fragmented gaps like -C- instead of C--', () => {
     // Target: ATCGAAATCG, Query: ATCGATCG (missing two A's)
-    // Should produce contiguous gap: ATCG--ATCG
+    // Should produce one contiguous gap.
     // NOT fragmented like: ATCG-A-TCG or AT-G-AATCG
     const result = align('ATCGATCG', 'ATCGAAATCG')
 
-    expect(result.queryAligned).toBe('ATCG--ATCG')
     expect(result.targetAligned).toBe('ATCGAAATCG')
 
     // Verify gaps are contiguous (only one gap region)
     const gapMatches = result.queryAligned.match(/-+/g)
     expect(gapMatches).not.toBeNull()
     expect(gapMatches.length).toBe(1) // Only one contiguous gap region
+    expect(gapMatches[0]).toBe('--')
   })
 
   it('keeps insertions contiguous', () => {
@@ -763,41 +858,101 @@ describe('large sequence handling', () => {
   })
 })
 
+describe('banded alignment fast path', () => {
+  it('uses the default banded path for near-identical sequences while preserving score and coordinates', () => {
+    const query = 'ATCG'.repeat(300)
+    const target = `${'ATCG'.repeat(150)}AA${'ATCG'.repeat(150)}`
+
+    const banded = align(query, target)
+    const linear = align(query, target, { mode: 'linear' })
+
+    expect(banded.score).toBe(linear.score)
+    expect(banded.queryStart).toBe(linear.queryStart)
+    expect(banded.queryEnd).toBe(linear.queryEnd)
+    expect(banded.targetStart).toBe(linear.targetStart)
+    expect(banded.targetEnd).toBe(linear.targetEnd)
+    expect(banded.queryAligned.length).toBe(banded.targetAligned.length)
+  })
+
+  it('keeps explicit linear mode available as the canonical fallback', () => {
+    const result = align('ATCGATCG', 'ATCGAAATCG', { mode: 'linear' })
+
+    expect(result.queryAligned).toBe('ATCG--ATCG')
+    expect(result.targetAligned).toBe('ATCGAAATCG')
+  })
+
+  it('falls back to linear when the length difference cannot fit in the band', () => {
+    const query = 'ATCGATCG'
+    const target = `ATCG${'A'.repeat(10)}ATCG`
+
+    expect(align(query, target, { bandWidth: 4 })).toEqual(align(query, target, { mode: 'linear' }))
+  })
+
+  it('estimates circular target origin offset before banded alignment', () => {
+    const target = 'AAAACCCCGGGGTTTT'
+    const query = 'GGGGTTTTAAAACCCC'
+
+    const result = align(query, target, { circular: true, originKmerSize: 4 })
+
+    expect(result.score).toBe(query.length * 2)
+    expect(result.identity).toBe(100)
+    expect(result.queryAligned).toBe(query)
+    expect(result.targetAligned).toBe(query)
+    expect(result.targetOriginOffset).toBe(8)
+    expect(result.targetStart).toBe(8)
+    expect(result.targetEnd).toBe(24)
+  })
+
+  it('aligns a rotated query sequence against a circular target', () => {
+    const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG'
+    const originOffset = 19
+    const query = target.slice(originOffset) + target.slice(0, originOffset)
+
+    const result = align(query, target, { circular: true, originKmerSize: 8 })
+
+    expect(result.score).toBe(query.length * 2)
+    expect(result.identity).toBe(100)
+    expect(result.queryAligned).toBe(query)
+    expect(result.targetAligned).toBe(query)
+    expect(result.targetOriginOffset).toBe(originOffset)
+    expect(result.targetStart).toBe(originOffset)
+    expect(result.targetEnd).toBe(originOffset + target.length)
+  })
+
+  it('aligns 128-base A/T blocks across a circular origin shift', () => {
+    const query = `${'A'.repeat(128)}${'T'.repeat(128)}`
+    const target = `${'T'.repeat(128)}${'A'.repeat(128)}`
+
+    const result = align(query, target, { circular: true, originKmerSize: 16 })
+
+    expect(result.score).toBe(query.length * 2)
+    expect(result.identity).toBe(100)
+    expect(result.queryStart).toBe(0)
+    expect(result.queryEnd).toBe(256)
+    expect(result.targetOriginOffset).toBe(128)
+    expect(result.targetStart).toBe(128)
+    expect(result.targetEnd).toBe(384)
+    expect(result.queryAligned).toBe(query)
+    expect(result.targetAligned).toBe(query)
+  })
+
+  it('does not rotate target origin unless circular alignment is requested', () => {
+    const target = 'AAAACCCCGGGGTTTT'
+    const query = 'GGGGTTTTAAAACCCC'
+
+    const result = align(query, target, { originKmerSize: 4 })
+
+    expect(result.score).toBeLessThan(query.length * 2)
+    expect(result.targetOriginOffset).toBeUndefined()
+  })
+})
+
 describe('WASM implementation', () => {
   let wasmModule = null
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
 
-  // Helper to call WASM alignment
-  function alignWasm(query, target, options = {}) {
-    const {
-      match = 2,
-      mismatch = -1,
-      gapOpen = -3,
-      gapExtend = -1
-    } = options
-
-    // Reset heap before starting new alignment
-    wasmModule.reset()
-
-    const encoder = new TextEncoder()
-    const queryBytes = encoder.encode(query)
-    const targetBytes = encoder.encode(target)
-
-    const queryLen = queryBytes.length
-    const targetLen = targetBytes.length
-
-    const queryPtr = wasmModule.alloc(queryLen)
-    const targetPtr = wasmModule.alloc(targetLen)
-
-    const memory = new Uint8Array(wasmModule.memory.buffer)
-    memory.set(queryBytes, queryPtr)
-    memory.set(targetBytes, targetPtr)
-
-    const resultPtr = wasmModule.alignSequences(
-      queryPtr, queryLen,
-      targetPtr, targetLen,
-      match, mismatch, gapOpen, gapExtend
-    )
-
+  function readWasmResult(resultPtr) {
     // Read result (layout matches AlignmentResult struct with padding)
     const view = new DataView(wasmModule.memory.buffer)
     let offset = resultPtr
@@ -813,14 +968,9 @@ describe('WASM implementation', () => {
     offset += 4  // skip padding for f64 alignment
     const identity = view.getFloat64(offset, true)
 
-    const decoder = new TextDecoder()
     const memoryBytes = new Uint8Array(wasmModule.memory.buffer)
     const queryAligned = decoder.decode(memoryBytes.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
     const targetAligned = decoder.decode(memoryBytes.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
-
-    wasmModule.free(queryPtr)
-    wasmModule.free(targetPtr)
-    wasmModule.freeResult(resultPtr)
 
     return {
       score,
@@ -834,6 +984,68 @@ describe('WASM implementation', () => {
     }
   }
 
+  function withWasmInputs(query, target, callback) {
+    wasmModule.reset()
+
+    const queryBytes = encoder.encode(query)
+    const targetBytes = encoder.encode(target)
+
+    const queryPtr = wasmModule.alloc(queryBytes.length)
+    const targetPtr = wasmModule.alloc(targetBytes.length)
+
+    const memory = new Uint8Array(wasmModule.memory.buffer)
+    memory.set(queryBytes, queryPtr)
+    memory.set(targetBytes, targetPtr)
+
+    const resultPtr = callback(queryPtr, queryBytes.length, targetPtr, targetBytes.length)
+
+    wasmModule.free(queryPtr)
+    wasmModule.free(targetPtr)
+
+    if (!resultPtr) return null
+
+    const result = readWasmResult(resultPtr)
+    wasmModule.freeResult(resultPtr)
+    return result
+  }
+
+  // Helper to call WASM linear alignment
+  function alignWasm(query, target, options = {}) {
+    const {
+      match = 2,
+      mismatch = -1,
+      gapOpen = -3,
+      gapExtend = -1
+    } = options
+
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen) =>
+      wasmModule.alignSequences(
+        queryPtr, queryLen,
+        targetPtr, targetLen,
+        match, mismatch, gapOpen, gapExtend
+      )
+    )
+  }
+
+  function alignWasmBanded(query, target, options = {}) {
+    const {
+      match = 2,
+      mismatch = -1,
+      gapOpen = -3,
+      gapExtend = -1,
+      bandWidth = 128
+    } = options
+
+    return withWasmInputs(query, target, (queryPtr, queryLen, targetPtr, targetLen) =>
+      wasmModule.alignSequencesBanded(
+        queryPtr, queryLen,
+        targetPtr, targetLen,
+        match, mismatch, gapOpen, gapExtend,
+        bandWidth
+      )
+    )
+  }
+
   // Load WASM before tests
   beforeAll(async () => {
     const wasmPath = new URL('./alignment.wasm', import.meta.url)
@@ -845,6 +1057,7 @@ describe('WASM implementation', () => {
   it('loads WASM module successfully', () => {
     expect(wasmModule).not.toBeNull()
     expect(typeof wasmModule.alignSequences).toBe('function')
+    expect(typeof wasmModule.alignSequencesBanded).toBe('function')
     expect(typeof wasmModule.alloc).toBe('function')
     expect(typeof wasmModule.free).toBe('function')
     expect(typeof wasmModule.memory).toBe('object')
@@ -854,7 +1067,7 @@ describe('WASM implementation', () => {
     const query = 'ATCGATCG'
     const target = 'ATCGATCG'
 
-    const jsResult = align(query, target)
+    const jsResult = align(query, target, { mode: 'linear' })
     const wasmResult = alignWasm(query, target)
 
     expect(wasmResult.score).toBe(jsResult.score)
@@ -925,7 +1138,7 @@ describe('WASM implementation', () => {
     ]
 
     for (const [query, target, options] of cases) {
-      expect(alignWasm(query, target, options)).toEqual(align(query, target, options))
+      expect(alignWasm(query, target, options)).toEqual(align(query, target, { ...options, mode: 'linear' }))
     }
   })
 
@@ -993,5 +1206,19 @@ describe('WASM implementation', () => {
 
     expect(wasmResult.identity).toBe(100)
     expect(wasmResult.score).toBe(2000) // 1000 bases * 2 match score
+  })
+
+  it('banded WASM matches JS banded for near-identical sequences', () => {
+    const query = 'ATCG'.repeat(80)
+    const target = `${'ATCG'.repeat(40)}AA${'ATCG'.repeat(40)}`
+
+    expect(alignWasmBanded(query, target)).toEqual(align(query, target))
+  })
+
+  it('banded WASM returns null when the band cannot contain the length delta', () => {
+    const query = 'ATCGATCG'
+    const target = `ATCG${'A'.repeat(10)}ATCG`
+
+    expect(alignWasmBanded(query, target, { bandWidth: 4 })).toBeNull()
   })
 })
