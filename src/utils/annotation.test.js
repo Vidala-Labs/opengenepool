@@ -1,6 +1,6 @@
 import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect } from 'bun:test'
-import { Annotation, AnnotationFragment, ANNOTATION_COLORS, getAnnotationColor } from './annotation.js'
+import { Annotation, AnnotationFragment, ANNOTATION_COLORS, getAnnotationColor, OGP_ATTR_PREFIX, OGP_HIDDEN_ATTR, isOgpAttr, isAnnotationHidden } from './annotation.js'
 
 /**
  * Annotation tests use FENCED coordinates (0-based, half-open).
@@ -390,5 +390,41 @@ describe('getAnnotationColor', () => {
 
   it('returns default for unknown type', () => {
     expect(getAnnotationColor('unknown_type')).toBe('#607D8B')
+  })
+})
+
+describe('ogp: namespace helpers', () => {
+  it('exposes the namespace constants', () => {
+    expect(OGP_ATTR_PREFIX).toBe('ogp:')
+    expect(OGP_HIDDEN_ATTR).toBe('ogp:hidden')
+  })
+
+  describe('isOgpAttr', () => {
+    it('is true for keys in the ogp: namespace', () => {
+      expect(isOgpAttr('ogp:hidden')).toBe(true)
+      expect(isOgpAttr('ogp:anything')).toBe(true)
+    })
+
+    it('is false for normal and underscore keys', () => {
+      expect(isOgpAttr('note')).toBe(false)
+      expect(isOgpAttr('gene')).toBe(false)
+      expect(isOgpAttr('_originalAnnotation')).toBe(false)
+      expect(isOgpAttr('ogp')).toBe(false)  // no colon
+    })
+  })
+
+  describe('isAnnotationHidden', () => {
+    it('is true only when ogp:hidden === true', () => {
+      expect(isAnnotationHidden({ attributes: { 'ogp:hidden': true } })).toBe(true)
+    })
+
+    it('is false when absent, false, or truthy-but-not-true', () => {
+      expect(isAnnotationHidden({ attributes: {} })).toBe(false)
+      expect(isAnnotationHidden({ attributes: { 'ogp:hidden': false } })).toBe(false)
+      expect(isAnnotationHidden({ attributes: { 'ogp:hidden': 'true' } })).toBe(false)
+      expect(isAnnotationHidden({})).toBe(false)
+      expect(isAnnotationHidden(null)).toBe(false)
+      expect(isAnnotationHidden(undefined)).toBe(false)
+    })
   })
 })

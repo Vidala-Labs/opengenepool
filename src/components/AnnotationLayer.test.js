@@ -717,12 +717,14 @@ describe('coordination with TranslationLayer', () => {
       await nextTick()
 
       const configItems = wrapper.vm.configItems
-      expect(configItems.length).toBe(2)
+      expect(configItems.length).toBe(3)
       expect(configItems[0].type).toBe('toggle')
       expect(configItems[0].label).toBe('Annotations')
       expect(configItems[1].type).toBe('type-filter')
       expect(configItems[1].types).toContain('CDS')
       expect(configItems[1].types).toContain('gene')
+      expect(configItems[2].type).toBe('toggle')
+      expect(configItems[2].label).toBe('Show hidden annotations')
     })
 
     it('includes type-filter when multiple instances exist (alignment mode)', async () => {
@@ -753,11 +755,12 @@ describe('coordination with TranslationLayer', () => {
 
       // First instance should publish configItems with type-filter
       const configItems = wrapper1.vm.configItems
-      expect(configItems.length).toBe(2)
+      expect(configItems.length).toBe(3)
       expect(configItems[0].type).toBe('toggle')
       expect(configItems[1].type).toBe('type-filter')
       expect(configItems[1].types).toContain('CDS')
       expect(configItems[1].types).toContain('promoter')
+      expect(configItems[2].label).toBe('Show hidden annotations')
 
       // Second instance should return empty (only first publishes)
       expect(wrapper2.vm.configItems).toHaveLength(0)
@@ -765,6 +768,53 @@ describe('coordination with TranslationLayer', () => {
       // Cleanup
       wrapper1.unmount()
       wrapper2.unmount()
+    })
+
+    it('includes a "Show hidden annotations" toggle', async () => {
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'CDS', span: ezSpan(10, 50) })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      await nextTick()
+
+      const toggle = wrapper.vm.configItems.find(
+        item => item.type === 'toggle' && item.label === 'Show hidden annotations'
+      )
+      expect(toggle).toBeTruthy()
+      expect(toggle.value).toBe(false)
+    })
+  })
+
+  describe('ogp:hidden per-annotation visibility', () => {
+    it('does not render an annotation with ogp:hidden true', () => {
+      const annotations = [
+        new Annotation({ id: 'shown', type: 'gene', span: ezSpan(10, 50) }),
+        new Annotation({ id: 'hidden', type: 'gene', span: ezSpan(60, 100), attributes: { 'ogp:hidden': true } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      const fragments = wrapper.findAll('.annotation-fragment')
+      expect(fragments).toHaveLength(1)
+    })
+
+    it('still renders an annotation with ogp:hidden false', () => {
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50), attributes: { 'ogp:hidden': false } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(1)
+    })
+
+    it('reveals hidden annotations when showHiddenAnnotations is on', async () => {
+      const { showHiddenAnnotations } = await import('./AnnotationLayer.vue')
+      const annotations = [
+        new Annotation({ id: 'hidden', type: 'gene', span: ezSpan(60, 100), attributes: { 'ogp:hidden': true } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(0)
+
+      showHiddenAnnotations.value = true
+      await nextTick()
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(1)
     })
   })
 

@@ -48,6 +48,99 @@ describe('AnnotationModal', () => {
     })
   })
 
+  describe('ogp:hidden control', () => {
+    const hiddenToggle = '[data-role="annotation-hidden-toggle"] input[type="checkbox"]'
+
+    it('renders a hidden checkbox, unchecked by default in create mode', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: ezSpan(0, 10) }
+      })
+      const cb = wrapper.find(hiddenToggle)
+      expect(cb.exists()).toBe(true)
+      expect(cb.element.checked).toBe(false)
+    })
+
+    it('checks the box when editing an annotation with ogp:hidden true', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 10),
+          annotation: { caption: 'Gene', type: 'gene', span: ezSpan(0, 10), attributes: { 'ogp:hidden': true } }
+        }
+      })
+      expect(wrapper.find(hiddenToggle).element.checked).toBe(true)
+    })
+
+    it('writes ogp:hidden true into attributes when checked (create)', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: ezSpan(0, 10) }
+      })
+      await wrapper.find('#annotation-caption').setValue('Test')
+      await wrapper.find('#annotation-type').setValue('gene')
+      await wrapper.find(hiddenToggle).setValue(true)
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('create')[0][0]
+      expect(emitted.attributes['ogp:hidden']).toBe(true)
+    })
+
+    it('omits ogp:hidden entirely when unchecked (edit from hidden -> shown)', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 10),
+          annotation: { caption: 'Gene', type: 'gene', span: ezSpan(0, 10), attributes: { 'ogp:hidden': true } }
+        }
+      })
+      // Uncheck it
+      await wrapper.find(hiddenToggle).setValue(false)
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('update')[0][0]
+      expect('ogp:hidden' in emitted.attributes).toBe(false)
+    })
+
+    it('treats explicit ogp:hidden false as unchecked (backends that cannot drop keys)', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 10),
+          annotation: { caption: 'Gene', type: 'gene', span: ezSpan(0, 10), attributes: { 'ogp:hidden': false } }
+        }
+      })
+      expect(wrapper.find(hiddenToggle).element.checked).toBe(false)
+    })
+
+    it('drops a pre-existing ogp:hidden false on submit when left unchecked', async () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 10),
+          annotation: { caption: 'Gene', type: 'gene', span: ezSpan(0, 10), attributes: { 'ogp:hidden': false } }
+        }
+      })
+      // Submit without touching the (already unchecked) checkbox
+      await wrapper.find('.annotation-form').trigger('submit')
+
+      const emitted = wrapper.emitted('update')[0][0]
+      expect('ogp:hidden' in emitted.attributes).toBe(false)
+    })
+
+    it('does not list ogp:* keys as editable optional fields', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 10),
+          annotation: { caption: 'Gene', type: 'gene', span: ezSpan(0, 10), attributes: { 'ogp:hidden': true, note: 'visible' } }
+        }
+      })
+      // The generic optional-field rows are keyed by attribute; ogp:* must not appear
+      expect(wrapper.find('#annotation-attr-ogp\\:hidden').exists()).toBe(false)
+      // but a normal attribute still shows
+      expect(wrapper.find('#annotation-attr-note').exists()).toBe(true)
+    })
+  })
+
   describe('form fields', () => {
     it('shows caption input', () => {
       const wrapper = mount(AnnotationModal, {

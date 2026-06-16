@@ -122,6 +122,36 @@ describe('CircularAnnotationLayer', () => {
       const layer = wrapper.find('.circular-annotation-layer')
       expect(layer.exists()).toBe(true)
     })
+
+    it('does not render an annotation with ogp:hidden true', () => {
+      const annotations = [
+        new Annotation({ id: 'shown', type: 'gene', span: ezSpan(100, 500) }),
+        new Annotation({ id: 'hidden', type: 'gene', span: ezSpan(600, 1000), attributes: { 'ogp:hidden': true } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation')).toHaveLength(1)
+    })
+
+    it('still renders an annotation with explicit ogp:hidden false', () => {
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(100, 500), attributes: { 'ogp:hidden': false } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation')).toHaveLength(1)
+    })
+
+    it('reveals hidden annotations when showHiddenAnnotations is on', async () => {
+      const { showHiddenAnnotations } = await import('./AnnotationLayer.vue')
+      const annotations = [
+        new Annotation({ id: 'hidden', type: 'gene', span: ezSpan(600, 1000), attributes: { 'ogp:hidden': true } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation')).toHaveLength(0)
+
+      showHiddenAnnotations.value = true
+      await wrapper.vm.$nextTick()
+      expect(wrapper.findAll('.annotation')).toHaveLength(1)
+    })
   })
 
   describe('row stacking', () => {

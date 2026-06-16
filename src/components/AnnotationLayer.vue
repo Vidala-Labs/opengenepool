@@ -3,6 +3,7 @@
 // Module-level state (shared across all instances)
 // ============================================
 import { ref, computed, watch } from 'vue'
+import { isAnnotationHidden } from '../utils/annotation.js'
 
 const HIDDEN_TYPES_STORAGE_KEY = 'ogp-hidden-annotation-types'
 
@@ -28,6 +29,9 @@ function loadHiddenTypes() {
 
 const showAnnotations = ref(true)
 const hiddenTypes = ref(loadHiddenTypes())
+// When true, annotations flagged with ogp:hidden are temporarily revealed so
+// they can be inspected / edited / un-hidden. Not persisted (transient).
+const showHiddenAnnotations = ref(false)
 
 watch(hiddenTypes, (newSet) => {
   try {
@@ -71,17 +75,22 @@ const moduleConfigItems = computed(() => {
       hiddenTypes: hiddenTypes.value, getColor: getModuleTypeColor,
       onToggle: moduleToggleAnnotationType
     })
+    items.push({
+      type: 'toggle', label: 'Show hidden annotations', value: showHiddenAnnotations.value,
+      onChange: () => { showHiddenAnnotations.value = !showHiddenAnnotations.value }
+    })
   }
   return items
 })
 
 // Export for TranslationLayer coordination and CircularAnnotationLayer sharing
-export { showAnnotations, hiddenTypes, allAnnotationTypes, moduleConfigItems }
+export { showAnnotations, hiddenTypes, showHiddenAnnotations, allAnnotationTypes, moduleConfigItems }
 
 // Reset function for testing - resets module-level state
 export function __resetModuleState() {
   showAnnotations.value = true
   hiddenTypes.value = new Set()
+  showHiddenAnnotations.value = false
   allAnnotationTypes.value = new Set()
   instanceCount = 0
   annotationColorsRef = null
@@ -208,10 +217,13 @@ watch(instanceTypes, (newTypes) => {
   for (const type of newTypes) allAnnotationTypes.value.add(type)
 }, { immediate: true })
 
-// Filter annotations based on hiddenTypes
+// Filter annotations based on hiddenTypes and per-annotation ogp:hidden
 const visibleAnnotations = computed(() => {
   if (!showAnnotations.value) return []
-  return props.annotations.filter(a => !hiddenTypes.value.has(a.type || 'misc_feature'))
+  return props.annotations.filter(a =>
+    !hiddenTypes.value.has(a.type || 'misc_feature') &&
+    (showHiddenAnnotations.value || !isAnnotationHidden(a))
+  )
 })
 
 // Use annotations composable for layout calculations

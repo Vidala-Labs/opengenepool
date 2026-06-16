@@ -1,7 +1,8 @@
 <script setup>
 import { computed, inject, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useCircularAnnotations } from '../composables/useCircularAnnotations.js'
-import { showAnnotations, hiddenTypes, allAnnotationTypes, moduleConfigItems } from './AnnotationLayer.vue'
+import { showAnnotations, hiddenTypes, showHiddenAnnotations, allAnnotationTypes, moduleConfigItems } from './AnnotationLayer.vue'
+import { isAnnotationHidden } from '../utils/annotation.js'
 
 const props = defineProps({
   /** Array of Annotation objects to render */
@@ -56,10 +57,14 @@ function registerAnnotationTypes() {
 // Watch for annotation changes and register new types
 watch(() => props.annotations, registerAnnotationTypes, { deep: true })
 
-// Filter annotations based on hiddenTypes (shared with AnnotationLayer)
+// Filter annotations based on hiddenTypes and per-annotation ogp:hidden
+// (visibility state shared with AnnotationLayer)
 const filteredAnnotations = computed(() => {
   if (!showAnnotations.value) return []
-  return props.annotations.filter(a => !hiddenTypes.value.has(a.type || 'misc_feature'))
+  return props.annotations.filter(a =>
+    !hiddenTypes.value.has(a.type || 'misc_feature') &&
+    (showHiddenAnnotations.value || !isAnnotationHidden(a))
+  )
 })
 
 // Use the circular annotations composable

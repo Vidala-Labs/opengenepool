@@ -7,7 +7,7 @@ import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Annotation, ANNOTATION_COLORS } from '../utils/annotation.js'
+import { Annotation, ANNOTATION_COLORS, isOgpAttr } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
@@ -1671,10 +1671,11 @@ function handleAnnotationHover(data) {
       parts.push(annotation.span.toGenBank())
     }
 
-    // Add attributes (except translation which is too long, and underscore-prefixed internal attrs)
+    // Add attributes (except translation which is too long, underscore-prefixed
+    // internal attrs, and ogp: internal attributes)
     if (annotation.attributes) {
       const entries = Object.entries(annotation.attributes)
-        .filter(([key]) => key !== 'translation' && !key.startsWith('_'))
+        .filter(([key]) => key !== 'translation' && !key.startsWith('_') && !isOgpAttr(key))
       if (entries.length > 0) {
         parts.push('')
         for (const [key, value] of entries) {

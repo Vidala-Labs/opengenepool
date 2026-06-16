@@ -3,7 +3,7 @@ import { ref, shallowRef, computed, watch, onMounted } from 'vue'
 import SequenceEditor from '../src/components/SequenceEditor.vue'
 import AlignmentEditor from '../src/components/AlignmentEditor.vue'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
-import { Span } from '../src/utils/dna.js'
+import { Span, Range } from '../src/utils/dna.js'
 import Sidebar from './Sidebar.vue'
 import { ArrowDownTrayIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
@@ -28,10 +28,22 @@ const editorRef = ref(null)
 // Alignment mode state
 const alignmentSequenceData = ref(null)
 
+// Rehydrate a persisted span (string or plain object) into real Span/Range objects.
+// IndexedDB structured-clone keeps own props but strips prototypes, so span arrives
+// as { ranges: [{start,end,orientation,...}] }; JSON-persisted spans arrive as fenced
+// strings. OGP requires real Span/Range objects across its boundary, so rebuild here.
 function normalizeSpan(span) {
   if (span instanceof Span) return span
   if (typeof span === 'string') return Span.parse(span)
-  if (span?.ranges) return new Span(span.ranges)
+  if (span?.ranges) {
+    return new Span(span.ranges.map(r =>
+      r instanceof Range
+        ? r
+        : (typeof r === 'string'
+            ? Range.parse(r)
+            : new Range(r.start, r.end, r.orientation, r.startIndefinite, r.endIndefinite))
+    ))
+  }
   return new Span()
 }
 
