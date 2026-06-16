@@ -475,7 +475,9 @@ watch(editorState.zoomLevel, (newZoom) => {
 // Watch for document changes to initialize/update the editor
 watch(() => targetDoc.value?.sequence, (newSeq) => {
   if (newSeq !== undefined) {
-    editorState.setSequence(newSeq, '')  // Title is now provided via slot
+    // Seed the title from the document name. Hosts can still override the
+    // displayed title via the #title slot; this provides the data-driven default.
+    editorState.setSequence(newSeq, targetDoc.value?.name ?? '')
     // Re-apply persisted zoom now that sequence is loaded (setZoom clamps based on length)
     editorState.setZoom(getInitialZoom())
   }

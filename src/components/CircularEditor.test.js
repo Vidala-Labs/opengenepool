@@ -82,10 +82,8 @@ describe('CircularEditor', () => {
       expect(indicator.exists()).toBe(true)
     })
 
-    it('renders center title', async () => {
-      const wrapper = createWrapper()
-      // Set title manually as SequenceDocument doesn't have name property
-      wrapper.vm.editorState.title.value = 'My Plasmid'
+    it('renders center title from the document name', async () => {
+      const wrapper = createWrapper({}, { name: 'My Plasmid' })
       await wrapper.vm.$nextTick()
 
       const title = wrapper.find('.center-title')

@@ -124,7 +124,7 @@ watch(() => targetDoc.value, (doc) => {
   }
 
   const sequence = doc.sequence ?? doc.sequenceRef?.value ?? ''
-  editorState.setSequence(sequence)
+  editorState.setSequence(sequence, doc.name ?? '')
 
   // Watch for sequence changes on document
   if (doc.sequenceRef) {

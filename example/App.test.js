@@ -100,6 +100,7 @@ describe('App computed properties', () => {
       if (!currentSequenceData) return null
       return new SequenceDocument({
         sequence: currentSequenceData.sequence,
+        name: currentSequenceData.name,
         annotations: currentSequenceData.annotations || [],
         circular: currentSequenceData.metadata?.circular || false
       })
@@ -108,6 +109,7 @@ describe('App computed properties', () => {
     it('creates SequenceDocument from raw data', () => {
       const data = {
         sequence: 'ATCGATCG',
+        name: 'pUC19',
         annotations: [{ id: '1', span: ezSpan(0, 4), type: 'misc_feature' }],
         metadata: { circular: true }
       }
@@ -118,6 +120,12 @@ describe('App computed properties', () => {
       expect(doc.annotations.length).toBe(1)
       expect(doc.annotations[0].span.toJSON()).toBe('0..4')
       expect(doc.circular).toBe(true)
+    })
+
+    it('passes the sequence name into the document', () => {
+      const data = { sequence: 'ATCGATCG', name: 'pUC19' }
+      const doc = createTargetDoc(data)
+      expect(doc.name).toBe('pUC19')
     })
 
     it('returns null when no data', () => {
@@ -142,6 +150,7 @@ describe('App computed properties', () => {
       if (!alignmentSequenceData) return null
       return new SequenceDocument({
         sequence: alignmentSequenceData.sequence,
+        name: alignmentSequenceData.name,
         annotations: alignmentSequenceData.annotations || [],
         circular: alignmentSequenceData.metadata?.circular || false
       })
