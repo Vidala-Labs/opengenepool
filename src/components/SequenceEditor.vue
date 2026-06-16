@@ -6,8 +6,9 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { useContextMenu } from '../composables/useContextMenu.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Annotation, ANNOTATION_COLORS, isOgpAttr } from '../utils/annotation.js'
+import { Annotation, ANNOTATION_COLORS, isOgpAttr, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
@@ -866,6 +867,92 @@ const extensionAPI = {
 }
 provide('extensionAPI', extensionAPI)
 
+// ============================================
+// Context-menu contributor service
+// ============================================
+// Layers self-register their menu contributors; this editor resolves a rich
+// context on right-click and asks the service to aggregate. See CLICK_CHANGES.md.
+const contextMenu = useContextMenu()
+provide('contextMenu', contextMenu)
+
+// Action handlers injected into the layers' contributors (deps). Menu items call
+// these directly — there are no per-layer context-menu action events.
+function toggleAnnotationHidden(annotation, hidden) {
+  const attributes = { ...(annotation.attributes || {}) }
+  if (hidden) attributes[OGP_HIDDEN_ATTR] = true
+  else delete attributes[OGP_HIDDEN_ATTR]
+  targetDoc.value.updateAnnotation({ id: annotation.id, attributes })
+  emit('annotations-update', localAnnotations.value)
+}
+function clipPrimer(primer, primerBind) {
+  targetDoc.value.updateAnnotation({
+    id: primer.id,
+    attributes: { ...primer.attributes, primer_bind: primerBind }
+  })
+  emit('annotations-update', localAnnotations.value)
+}
+provide('annotationMenuActions', {
+  onEdit: (annotation) => openAnnotationModalForEdit(annotation),
+  onDelete: (annotation) => { targetDoc.value.deleteAnnotation(annotation.id); emit('annotations-update', localAnnotations.value) },
+  onToggleHidden: toggleAnnotationHidden,
+  onSubtract: (annotation) => selection.subtractSpan(annotation.span),
+  onMergeLeft: (annotation, rangeIndex) => mergeAnnotationRanges(annotation, rangeIndex - 1, rangeIndex),
+  onMergeRight: (annotation, rangeIndex) => mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1),
+  onSplit: (annotation, rangeIndex, position) => splitAnnotationAtPosition(annotation, rangeIndex, position),
+  onClipPrimer: clipPrimer
+})
+function openInsertModalAt(position) {
+  insertModalIsReplace.value = false
+  insertModalPosition.value = position
+  insertModalText.value = ''
+  insertModalVisible.value = true
+}
+function openReplaceModal(range) {
+  insertModalIsReplace.value = true
+  insertModalPosition.value = range.start
+  insertModalSelectionEnd.value = range.end
+  insertModalText.value = ''
+  insertModalVisible.value = true
+}
+provide('selectionMenuActions', {
+  onCopy: () => handleCopy(),
+  onSelectNone: () => selection.unselect(),
+  onSelectAll: () => selection.selectAll(),
+  onReplace: (range) => openReplaceModal(range),
+  onDelete: () => handleDelete(),
+  onCreateAnnotation: () => openAnnotationModal(),
+  onFlip: (rangeIndex) => selection.flip(rangeIndex),
+  onSetOrientation: (rangeIndex, orientation) => selection.setOrientation(rangeIndex, orientation),
+  onDeleteRange: (rangeIndex) => selection.deleteRange(rangeIndex),
+  onMoveRange: (from, to) => selection.moveRange(from, to),
+  onExtendHandle: (rangeIndex, range, handleType) => handleHandleContextMenu({ event: { clientX: contextMenuX.value, clientY: contextMenuY.value }, rangeIndex, range, handleType })
+})
+provide('sequenceMenuActions', {
+  onSelectAll: () => selection.selectAll(),
+  onInsert: (position) => openInsertModalAt(position)
+})
+
+// Extensions are contributors too — registered LAST so their items appear after
+// the built-in items. Maps the resolved menu context to the extension ext-context.
+const extensionMenuContributor = {
+  id: 'extensions',
+  getItems: (context) => {
+    let extContext = null
+    if (context.kind === 'annotation' && context.annotation) {
+      const span = context.annotation.span
+      const annSeq = [...iterateSequence(span, editorState.sequence.value)].map(b => b.letter).join('')
+      extContext = { type: 'annotation', data: { annotation: context.annotation, sequence: annSeq, fragment: { rangeIndex: context.rangeIndex } } }
+    } else if (context.kind === 'selection' && selection.isSelected.value && selection.domain.value) {
+      extContext = { type: 'selection', data: { sequence: getSelectedSequenceText(), domain: selection.domain.value } }
+    } else if ((context.kind === 'sequence' || context.kind === 'background') && context.pos !== undefined) {
+      extContext = { type: 'sequence', data: { position: context.pos } }
+    }
+    return extContext ? getExtensionContextMenuItems(extContext) : []
+  }
+}
+onMounted(() => contextMenu.register(extensionMenuContributor))
+onUnmounted(() => contextMenu.unregister(extensionMenuContributor))
+
 // Watch selection changes and notify extension handlers
 // Use deep: true to detect mutations to range properties (e.g., during handle dragging)
 watch(() => selection.domain.value, () => {
@@ -1571,54 +1658,34 @@ function handleExtendCancel() {
 }
 
 function handleAnnotationContextMenu(data) {
-  // Handle direct actions from AnnotationLayer (merge/split)
-  if (data.action) {
-    const { annotation, rangeIndex, action } = data
-
-    if (action === 'merge-left' && rangeIndex > 0) {
-      mergeAnnotationRanges(annotation, rangeIndex - 1, rangeIndex)
-      return
-    }
-    if (action === 'merge-right' && rangeIndex < annotation.span.ranges.length - 1) {
-      mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1)
-      return
-    }
-    if (action === 'split' && data.splitPosition !== undefined) {
-      splitAnnotationAtPosition(annotation, rangeIndex, data.splitPosition)
-      return
-    }
-    // Unknown action - fall through to show context menu
-  }
-
-  // Show the same context menu as selection
-  const items = buildContextMenuItems({
-    source: 'annotation',
+  // Resolve the rich context for the clicked annotation. The annotation layer
+  // hands us the (effective) annotation directly. Contributors registered by the
+  // layers supply the items; their actions call the provided action bundles.
+  const context = {
+    kind: 'annotation',
+    mode: 'linear',
     annotation: data.annotation,
-    fragment: data.fragment
-  })
-
-  // Also get layer-specific items from AnnotationLayer (e.g., clip primer binding)
-  // Only when not readonly - these are edit actions
-  if (!props.readonly) {
-    const dataset = {
-      layer: 'annotation',
-      annotationId: String(data.annotation.id),
-      rangeIndex: String(data.fragment?.rangeIndex ?? 0)
-    }
-    const layerItems = annotationLayerRef.value?.getMenuItemsForElement?.(dataset) || []
-    if (layerItems.length > 0) {
-      items.push({ separator: true })
-      items.push(...layerItems)
-    }
+    rangeIndex: data.fragment?.rangeIndex ?? 0,
+    annotations: localAnnotations.value,
+    selection,
+    document: targetDoc.value,
+    readonly: props.readonly
   }
 
-  contextMenuItems.value = items
-  contextMenuX.value = data.event.clientX
-  contextMenuY.value = data.event.clientY
-  contextMenuVisible.value = true
+  showResolvedMenu(context, data.event)
 
   // Also emit for parent components
   emit('annotation-contextmenu', data)
+}
+
+/**
+ * Build + show the aggregated context menu for a resolved context.
+ */
+function showResolvedMenu(context, event) {
+  contextMenuItems.value = contextMenu.buildMenu(context)
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuVisible.value = true
 }
 
 // Annotation click handler - select the annotation's span with its orientation

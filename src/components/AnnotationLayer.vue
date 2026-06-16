@@ -103,6 +103,7 @@ export function __resetModuleState() {
 import { computed, inject, watch, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { useAnnotations, generateArrowPath } from '../composables/useAnnotations.js'
+import { annotationMenuItems } from './menus/annotationMenuContributor.js'
 
 // Height reserved for translation display (must match useAnnotations)
 const TRANSLATION_HEIGHT = 18
@@ -187,6 +188,21 @@ const annotationColors = inject('annotationColors', null)
 const selection = inject('selection', null)
 // Inject alignment line positioning function (provided by AlignmentEditor)
 const getAlignmentLineY = inject('getAlignmentLineY', null)
+// Context-menu service + annotation action handlers (provided by the editor)
+const contextMenu = inject('contextMenu', null)
+const annotationMenuActions = inject('annotationMenuActions', null)
+
+// Register this layer's annotation menu contributor. The id is suffixed with the
+// alignment row mode so the two stacked alignment instances don't collide.
+const annotationContributor = {
+  id: `annotation${props.mode ? ':' + props.mode : ''}`,
+  getItems: (context) => {
+    if (context.kind !== 'annotation') return []
+    return annotationMenuItems(context, annotationMenuActions || {})
+  }
+}
+onMounted(() => contextMenu?.register(annotationContributor))
+onUnmounted(() => contextMenu?.unregister(annotationContributor))
 
 // Default colors used when not provided via inject (e.g., in tests)
 const DEFAULT_COLORS = {
@@ -363,243 +379,6 @@ function handleClickForElement(dataset, event) {
 
   return true
 }
-
-/**
- * Get context menu items for an element with data attributes.
- * Called by parent editor when element is found via elementsFromPoint.
- *
- * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element
- */
-function getMenuItemsForElement(dataset) {
-  if (dataset.layer !== 'annotation') return []
-
-  const annotationId = dataset.annotationId
-  if (!annotationId) return []
-
-  // Find the annotation by ID
-  const annotation = props.annotations.find(a => a.id === annotationId)
-  if (!annotation) return []
-
-  // In alignment mode, use the original annotation (not the aligned coordinates)
-  // The original annotation is stored in _originalAnnotation attribute by mapAnnotationThroughAlignment
-  const originalAnnotation = annotation.attributes?._originalAnnotation
-  const effectiveAnnotation = originalAnnotation ?? annotation
-
-  const items = []
-
-  // Edit annotation
-  items.push({
-    id: 'edit-annotation',
-    label: 'Edit Annotation',
-    action: () => emit('edit-annotation', { annotation: effectiveAnnotation })
-  })
-
-  // Delete annotation
-  items.push({
-    id: 'delete-annotation',
-    label: 'Delete Annotation',
-    action: () => {
-      if (props.document) {
-        props.document.deleteAnnotation(effectiveAnnotation.id)
-      }
-      // Always emit event so parent can respond (e.g., emit annotations-update)
-      emit('delete-annotation', { id: effectiveAnnotation.id })
-    }
-  })
-
-  // Subtract from selection (when annotation overlaps selection)
-  if (selection?.isSelected?.value && selection?.domain?.value) {
-    const annotationSpan = annotation.span
-    const hasOverlap = selection.domain.value.ranges.some(selRange =>
-      annotationSpan?.ranges?.some(annRange => selRange.overlaps?.(annRange))
-    )
-
-    if (hasOverlap) {
-      items.push({
-        id: 'subtract-from-selection',
-        label: 'Subtract from selection',
-        action: () => selection.subtractSpan(annotationSpan)
-      })
-    }
-  }
-
-  // Merge segment options for multi-range annotations
-  // Use effectiveAnnotation's span for merge/split operations
-  const effectiveSpanRanges = effectiveAnnotation.span?.ranges
-  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
-  if (rangeIndex !== undefined && effectiveSpanRanges && effectiveSpanRanges.length > 1) {
-    const currentRange = effectiveSpanRanges[rangeIndex]
-
-    // Check if can merge with left (previous range)
-    if (rangeIndex > 0) {
-      const leftRange = effectiveSpanRanges[rangeIndex - 1]
-      if (leftRange.end === currentRange.start && leftRange.orientation === currentRange.orientation) {
-        items.push({
-          id: 'merge-with-left-segment',
-          label: 'Merge with left segment',
-          action: () => emit('contextmenu', {
-            event: null,
-            annotation: effectiveAnnotation,
-            fragment: { rangeIndex },
-            action: 'merge-left',
-            rangeIndex
-          })
-        })
-      }
-    }
-
-    // Check if can merge with right (next range)
-    if (rangeIndex < effectiveSpanRanges.length - 1) {
-      const rightRange = effectiveSpanRanges[rangeIndex + 1]
-      if (currentRange.end === rightRange.start && currentRange.orientation === rightRange.orientation) {
-        items.push({
-          id: 'merge-with-right-segment',
-          label: 'Merge with right segment',
-          action: () => emit('contextmenu', {
-            event: null,
-            annotation: effectiveAnnotation,
-            fragment: { rangeIndex },
-            action: 'merge-right',
-            rangeIndex
-          })
-        })
-      }
-    }
-  }
-
-  // Split annotation option when cursor is strictly inside a range
-  if (selection?.isSelected?.value && rangeIndex !== undefined) {
-    const selRanges = selection.domain.value?.ranges
-    if (selRanges?.length === 1 && selRanges[0].start === selRanges[0].end) {
-      const cursorPos = selRanges[0].start
-
-      if (effectiveSpanRanges?.[rangeIndex]) {
-        const targetRange = effectiveSpanRanges[rangeIndex]
-
-        // Check if cursor is strictly inside (not at boundaries)
-        if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
-          items.push({
-            id: 'split-annotation',
-            label: 'Split annotation',
-            action: () => emit('contextmenu', {
-              event: null,
-              annotation: effectiveAnnotation,
-              fragment: { rangeIndex },
-              action: 'split',
-              rangeIndex,
-              splitPosition: cursorPos
-            })
-          })
-        }
-      }
-    }
-  }
-
-  // Clip primer binding option
-  // When selection exactly matches a primer's span, and clicked annotation has exactly one end inside
-  if (selection?.isSelected?.value && selection?.domain?.value) {
-    const selRanges = selection.domain.value.ranges
-    if (selRanges?.length === 1) {
-      const selRange = selRanges[0]
-
-      // Find primers whose span exactly matches selection (single-segment, no primer_bind)
-      const matchingPrimers = props.annotations.filter(ann => {
-        if (ann.type !== 'primer') return false
-        if (ann.attributes?.primer_bind !== undefined) return false
-        const ranges = ann.span?.ranges
-        if (!ranges || ranges.length !== 1) return false
-        const r = ranges[0]
-        return r.start === selRange.start && r.end === selRange.end
-      })
-
-      // Check if clicked annotation has exactly one end inside selection
-      const clickedRange = annotation.span?.ranges?.[rangeIndex ?? 0]
-      if (clickedRange && matchingPrimers.length > 0) {
-        const startInside = clickedRange.start > selRange.start && clickedRange.start < selRange.end
-        const endInside = clickedRange.end > selRange.start && clickedRange.end < selRange.end
-
-        if (startInside !== endInside) { // XOR - exactly one end inside
-          const clipPosition = startInside ? clickedRange.start : clickedRange.end
-
-          for (const primer of matchingPrimers) {
-            items.push({
-              label: `Clip primer binding of ${primer.caption}`,
-              action: () => {
-                // Calculate primer_bind based on orientation
-                const primerRange = primer.span.ranges[0]
-                let primerBind
-                if (primerRange.orientation === Orientation.PLUS) {
-                  primerBind = primerRange.end - clipPosition
-                } else {
-                  primerBind = clipPosition - primerRange.start
-                }
-                // Update via document or emit
-                if (props.document) {
-                  props.document.updateAnnotation({
-                    id: primer.id,
-                    attributes: { ...primer.attributes, primer_bind: primerBind }
-                  })
-                }
-              }
-            })
-          }
-        }
-      }
-    }
-  }
-
-  // Reverse operation: Clip this primer with selection
-  // When right-clicking a primer, selection has one terminus inside primer
-  if (selection?.isSelected?.value && selection?.domain?.value) {
-    const selRanges = selection.domain.value.ranges
-    // Only single-range selection
-    if (selRanges?.length === 1) {
-      const selRange = selRanges[0]
-
-      // Check if clicked annotation is an eligible primer
-      if (annotation.type === 'primer' &&
-          annotation.attributes?.primer_bind === undefined) {
-        const primerRanges = annotation.span?.ranges
-        // Only single-segment primers
-        if (primerRanges?.length === 1) {
-          const primerRange = primerRanges[0]
-
-          // Check if exactly one selection terminus is inside primer (exclusive)
-          const selStartInside = selRange.start > primerRange.start && selRange.start < primerRange.end
-          const selEndInside = selRange.end > primerRange.start && selRange.end < primerRange.end
-
-          if (selStartInside !== selEndInside) { // XOR - exactly one terminus inside
-            const clipPosition = selStartInside ? selRange.start : selRange.end
-
-            items.push({
-              label: 'Clip this primer with selection',
-              action: () => {
-                // Calculate primer_bind based on orientation
-                let primerBind
-                if (primerRange.orientation === Orientation.PLUS) {
-                  primerBind = primerRange.end - clipPosition
-                } else {
-                  primerBind = clipPosition - primerRange.start
-                }
-                // Update via document
-                if (props.document) {
-                  props.document.updateAnnotation({
-                    id: annotation.id,
-                    attributes: { ...annotation.attributes, primer_bind: primerBind }
-                  })
-                }
-              }
-            })
-          }
-        }
-      }
-    }
-  }
-
-  return items
-}
-
 // Calculate x position for a fragment
 function getFragmentX(fragment) {
   return graphics.metrics.value.lmargin + fragment.start * graphics.metrics.value.charWidth
@@ -849,7 +628,6 @@ defineExpose({
   deleteAnnotation,
   requestEditAnnotation,
   handleClickForElement,
-  getMenuItemsForElement,
   configItems
 })
 </script>
