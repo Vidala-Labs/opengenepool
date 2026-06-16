@@ -229,3 +229,36 @@ export const ANNOTATION_COLORS = {
 export function getAnnotationColor(type) {
   return ANNOTATION_COLORS[type] || ANNOTATION_COLORS._default
 }
+
+/**
+ * Reserved namespace for OGP-internal annotation attributes.
+ *
+ * Attributes whose key begins with `ogp:` are internal to OpenGenePool and are
+ * not biological GenBank fields or host/extension fields. They are managed via
+ * dedicated controls (not the generic attribute UI) and suppressed from the
+ * attribute list, the custom-field adder, and the hover tooltip — the same way
+ * underscore-prefixed (`_`) keys are.
+ */
+export const OGP_ATTR_PREFIX = 'ogp:'
+
+/** Attribute key controlling per-annotation visibility (boolean `true` = hidden). */
+export const OGP_HIDDEN_ATTR = 'ogp:hidden'
+
+/**
+ * Whether an attribute key is in the OGP-internal namespace.
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function isOgpAttr(key) {
+  return typeof key === 'string' && key.startsWith(OGP_ATTR_PREFIX)
+}
+
+/**
+ * Whether an annotation is hidden via `ogp:hidden`.
+ * Hidden only when the attribute is strictly the boolean `true`.
+ * @param {{attributes?: Object}|null|undefined} annotation
+ * @returns {boolean}
+ */
+export function isAnnotationHidden(annotation) {
+  return annotation?.attributes?.[OGP_HIDDEN_ATTR] === true
+}

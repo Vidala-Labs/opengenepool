@@ -2171,6 +2171,7 @@ describe('SequenceEditor annotations', () => {
           product: 'Test Product',
           _internal: 'should not show',
           _metadata: 'also hidden',
+          'ogp:hidden': true,
           note: 'visible note'
         }
       }
@@ -2208,6 +2209,9 @@ describe('SequenceEditor annotations', () => {
       expect(tooltipText).not.toContain('should not show')
       expect(tooltipText).not.toContain('_metadata')
       expect(tooltipText).not.toContain('also hidden')
+
+      // Should NOT contain ogp: internal attributes
+      expect(tooltipText).not.toContain('ogp:hidden')
     })
 
     it('shows tooltip without attributes section when all attributes are underscore-prefixed', async () => {
