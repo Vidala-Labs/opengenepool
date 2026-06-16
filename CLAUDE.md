@@ -24,6 +24,12 @@ To run the example app:
 cd example && bun install && bun run dev
 ```
 
+## Git Practice
+
+For the near future, development is **local-dev only**: do feature work on local
+branches and merge them into `master` locally. Do **not** push branches or open PRs
+to the remote unless explicitly asked. (This policy will be amended in the future.)
+
 ## Directory Structure
 
 ```
