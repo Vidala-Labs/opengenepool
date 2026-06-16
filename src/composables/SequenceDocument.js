@@ -26,13 +26,15 @@ export class SequenceDocument {
    * Create a new SequenceDocument.
    * @param {Object} options
    * @param {string} options.sequence - Initial DNA sequence
+   * @param {string} options.name - Display name for the sequence (e.g. GenBank LOCUS name)
    * @param {Array} options.annotations - Initial annotations (plain objects or Annotation instances)
    * @param {boolean} options.circular - Whether the sequence is circular (plasmid)
    * @param {Object} options.backend - Backend adapter for persistence (insert, delete, annotationCreated, etc.)
    */
-  constructor({ sequence = '', annotations = [], circular = false, gaps = [], backend = null } = {}) {
+  constructor({ sequence = '', name = '', annotations = [], circular = false, gaps = [], backend = null } = {}) {
     // Internal reactive refs
     this._sequence = shallowRef(sequence)
+    this._name = ref(name)
     this._annotations = ref(this._normalizeAnnotations(annotations))
     this._circular = ref(circular)
     this._gaps = shallowRef(gaps)
@@ -90,6 +92,14 @@ export class SequenceDocument {
    */
   get sequence() {
     return this._sequence.value
+  }
+
+  /**
+   * The display name for the sequence (e.g. GenBank LOCUS name).
+   * @returns {string}
+   */
+  get name() {
+    return this._name.value
   }
 
   /**
@@ -485,6 +495,7 @@ export class SequenceDocument {
   toJSON() {
     return {
       sequence: this._sequence.value,
+      name: this._name.value,
       annotations: this._annotations.value.map(annotation => ({
         ...annotation,
         span: annotation.span?.toJSON?.() ?? annotation.span
@@ -502,6 +513,7 @@ export class SequenceDocument {
   static fromJSON(data) {
     return new SequenceDocument({
       sequence: data.sequence || '',
+      name: data.name || '',
       annotations: data.annotations || [],
       circular: data.circular || false,
       gaps: data.gaps || []

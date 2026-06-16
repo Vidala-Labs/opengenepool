@@ -26,6 +26,22 @@ describe('SequenceDocument', () => {
       expect(doc.length).toBe(8)
     })
 
+    it('exposes name from constructor', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG', name: 'pUC19' })
+      expect(doc.name).toBe('pUC19')
+    })
+
+    it('defaults name to empty string', () => {
+      expect(new SequenceDocument({ sequence: 'ATCG' }).name).toBe('')
+    })
+
+    it('round-trips name through toJSON/fromJSON', () => {
+      const doc = SequenceDocument.fromJSON(
+        new SequenceDocument({ sequence: 'ATCG', name: 'pUC19' }).toJSON()
+      )
+      expect(doc.name).toBe('pUC19')
+    })
+
     it('normalizes annotations without id', () => {
       const doc = new SequenceDocument({
         sequence: 'ATCG',

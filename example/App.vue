@@ -69,6 +69,7 @@ watch(
     if (newId !== oldId || !targetDoc.value) {
       targetDoc.value = new SequenceDocument({
         sequence: currentSequenceData.value.sequence,
+        name: currentSequenceData.value.name,
         annotations: currentSequenceData.value.annotations || [],
         circular: currentSequenceData.value.metadata?.circular || false
       })
@@ -89,6 +90,7 @@ watch(
     if (newId !== oldId || !queryDoc.value) {
       queryDoc.value = new SequenceDocument({
         sequence: alignmentSequenceData.value.sequence,
+        name: alignmentSequenceData.value.name,
         annotations: alignmentSequenceData.value.annotations || [],
         circular: alignmentSequenceData.value.metadata?.circular || false
       })
