@@ -98,6 +98,19 @@ const menuStyle = computed(() => ({
   left: `${adjustedX.value}px`,
   top: `${adjustedY.value}px`
 }))
+
+// Convert label to kebab-case for data-action fallback
+function toKebabCase(str) {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')  // Replace non-alphanumeric with dashes
+    .replace(/^-|-$/g, '')         // Trim leading/trailing dashes
+}
+
+// Get data-action value for a menu item
+function getDataAction(item) {
+  return item.id || toKebabCase(item.label)
+}
 </script>
 
 <template>
@@ -130,6 +143,7 @@ const menuStyle = computed(() => ({
         <div
           v-else
           :class="['menu-item', { disabled: item.disabled }]"
+          :data-action="getDataAction(item)"
           @click="handleItemClick(item)"
         >
           {{ item.label }}

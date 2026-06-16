@@ -378,12 +378,14 @@ function getMenuItemsForElement(dataset) {
 
   // Edit annotation
   items.push({
+    id: 'edit-annotation',
     label: 'Edit Annotation',
     action: () => emit('edit-annotation', { annotation: effectiveAnnotation })
   })
 
   // Delete annotation
   items.push({
+    id: 'delete-annotation',
     label: 'Delete Annotation',
     action: () => {
       if (props.document) {
@@ -403,6 +405,7 @@ function getMenuItemsForElement(dataset) {
 
     if (hasOverlap) {
       items.push({
+        id: 'subtract-from-selection',
         label: 'Subtract from selection',
         action: () => selection.subtractSpan(annotationSpan)
       })
@@ -421,6 +424,7 @@ function getMenuItemsForElement(dataset) {
       const leftRange = effectiveSpanRanges[rangeIndex - 1]
       if (leftRange.end === currentRange.start && leftRange.orientation === currentRange.orientation) {
         items.push({
+          id: 'merge-with-left-segment',
           label: 'Merge with left segment',
           action: () => emit('contextmenu', {
             event: null,
@@ -438,6 +442,7 @@ function getMenuItemsForElement(dataset) {
       const rightRange = effectiveSpanRanges[rangeIndex + 1]
       if (currentRange.end === rightRange.start && currentRange.orientation === rightRange.orientation) {
         items.push({
+          id: 'merge-with-right-segment',
           label: 'Merge with right segment',
           action: () => emit('contextmenu', {
             event: null,
@@ -463,6 +468,7 @@ function getMenuItemsForElement(dataset) {
         // Check if cursor is strictly inside (not at boundaries)
         if (cursorPos > targetRange.start && cursorPos < targetRange.end) {
           items.push({
+            id: 'split-annotation',
             label: 'Split annotation',
             action: () => emit('contextmenu', {
               event: null,

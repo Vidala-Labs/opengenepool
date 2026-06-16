@@ -138,6 +138,34 @@ describe('ContextMenu', () => {
       const menuItem = wrapper.find('.menu-item')
       expect(menuItem.classes()).toContain('disabled')
     })
+
+    it('renders data-action attribute from item id', () => {
+      const items = [
+        { label: 'Select All', id: 'select-all', action: () => {} },
+        { label: 'Copy', id: 'copy', action: () => {} }
+      ]
+
+      const wrapper = mount(ContextMenu, {
+        props: { visible: true, x: 100, y: 100, items }
+      })
+
+      expect(wrapper.find('[data-action="select-all"]').exists()).toBe(true)
+      expect(wrapper.find('[data-action="copy"]').exists()).toBe(true)
+    })
+
+    it('falls back to kebab-cased label when no id provided', () => {
+      const items = [
+        { label: 'Create Annotation', action: () => {} },
+        { label: 'Replace sequence with...', action: () => {} }
+      ]
+
+      const wrapper = mount(ContextMenu, {
+        props: { visible: true, x: 100, y: 100, items }
+      })
+
+      expect(wrapper.find('[data-action="create-annotation"]').exists()).toBe(true)
+      expect(wrapper.find('[data-action="replace-sequence-with"]').exists()).toBe(true)
+    })
   })
 
   describe('empty state', () => {

@@ -364,7 +364,7 @@ function onOverlayClick() {
 <template>
   <div v-if="open && !readonly" class="modal-overlay" @click="onOverlayClick">
     <div class="modal-content" @click.stop>
-      <div class="modal-header">
+      <div class="modal-header" data-role="annotation-editor">
         <h3>{{ isEditMode ? 'Edit Annotation' : 'Create Annotation' }}</h3>
         <button class="modal-close" @click="close">&times;</button>
       </div>
@@ -555,7 +555,7 @@ function onOverlayClick() {
             </div>
             <div class="form-actions-right">
               <button type="button" class="btn-cancel" @click="close">Cancel</button>
-              <button type="submit" class="btn-create" :disabled="!isValid">{{ isEditMode ? 'Update' : 'Create' }}</button>
+              <button type="submit" class="btn-create" data-action="save-annotation" :disabled="!isValid">{{ isEditMode ? 'Update' : 'Create' }}</button>
             </div>
           </div>
         </form>

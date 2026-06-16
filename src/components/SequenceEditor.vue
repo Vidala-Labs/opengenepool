@@ -972,6 +972,7 @@ function buildGlobalContextMenuItems() {
   // Special case: no sequence loaded - show Insert sequence option
   if (!hasSequence && !props.readonly) {
     items.push({
+      id: 'insert-sequence',
       label: 'Insert sequence...',
       action: () => {
         insertModalIsReplace.value = false
@@ -986,15 +987,18 @@ function buildGlobalContextMenuItems() {
   // Group 1: Copy / Select none / Select all
   if (isSelected && domain && domain.ranges.length > 0) {
     items.push({
+      id: 'copy-selection',
       label: 'Copy selection',
       action: () => handleCopy()
     })
     items.push({
+      id: 'select-none',
       label: 'Select none',
       action: () => selection.unselect()
     })
   }
   items.push({
+    id: 'select-all',
     label: 'Select all',
     action: () => selection.selectAll()
   })
@@ -1010,6 +1014,7 @@ function buildGlobalContextMenuItems() {
       // Insert sequence option for zero-length selections (cursor position)
       if (isZeroLength) {
         items.push({
+          id: 'insert-sequence',
           label: 'Insert sequence...',
           action: () => {
             insertModalIsReplace.value = false
@@ -1023,6 +1028,7 @@ function buildGlobalContextMenuItems() {
       // Replace sequence option for single non-zero-length selections only
       if (!isZeroLength && domain.ranges.length === 1) {
         items.push({
+          id: 'replace-sequence',
           label: 'Replace sequence with...',
           action: () => {
             insertModalIsReplace.value = true
@@ -1037,6 +1043,7 @@ function buildGlobalContextMenuItems() {
       // Delete sequence option for non-zero-length selections
       if (!isZeroLength) {
         items.push({
+          id: 'delete-sequence',
           label: 'Delete sequence',
           action: () => handleDelete()
         })
@@ -1048,6 +1055,7 @@ function buildGlobalContextMenuItems() {
   if (!props.readonly) {
     items.push({ separator: true })
     items.push({
+      id: 'create-annotation',
       label: 'Create Annotation',
       action: () => openAnnotationModal()
     })
@@ -1126,6 +1134,7 @@ function buildContextMenuItems(context) {
   // Special case: no sequence loaded - show Insert sequence option
   if (!hasSequence && !props.readonly) {
     items.push({
+      id: 'insert-sequence',
       label: 'Insert sequence...',
       action: () => {
         insertModalIsReplace.value = false
@@ -1140,12 +1149,14 @@ function buildContextMenuItems(context) {
   // Group 1: Copy / Select none / Select all
   if (isSelected && domain && domain.ranges.length > 0) {
     items.push({
+      id: 'copy-selection',
       label: 'Copy selection',
       action: () => {
         handleCopy()
       }
     })
     items.push({
+      id: 'select-none',
       label: 'Select none',
       action: () => {
         selection.unselect()
@@ -1153,6 +1164,7 @@ function buildContextMenuItems(context) {
     })
   }
   items.push({
+    id: 'select-all',
     label: 'Select all',
     action: () => {
       selection.selectAll()
@@ -1173,6 +1185,7 @@ function buildContextMenuItems(context) {
     // Insert sequence option for zero-length selections (cursor position)
     if (isZeroLength && !props.readonly) {
       items.push({
+        id: 'insert-sequence',
         label: 'Insert sequence...',
         action: () => {
           insertModalIsReplace.value = false
@@ -1186,6 +1199,7 @@ function buildContextMenuItems(context) {
     // Replace sequence option for single non-zero-length selections only
     if (!isZeroLength && !props.readonly && domain.ranges.length === 1) {
       items.push({
+        id: 'replace-sequence',
         label: 'Replace sequence with...',
         action: () => {
           insertModalIsReplace.value = true
@@ -1200,6 +1214,7 @@ function buildContextMenuItems(context) {
     // Delete sequence option for non-zero-length selections
     if (!isZeroLength && !props.readonly) {
       items.push({
+        id: 'delete-sequence',
         label: 'Delete sequence',
         action: () => {
           handleDelete()
@@ -1220,6 +1235,7 @@ function buildContextMenuItems(context) {
   // If there's a selection with non-zero ranges, use those; otherwise open with blank fields
   if (!props.readonly) {
     items.push({
+      id: 'create-annotation',
       label: 'Create Annotation',
       action: () => {
         openAnnotationModal()

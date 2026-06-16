@@ -74,9 +74,9 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Should have Insert sequence option
-      const menuItems = wrapper.findAll('.menu-item')
-      const insertItem = menuItems.find(item => item.text().includes('Insert sequence'))
-      expect(insertItem).toBeTruthy()
+      const insertItem = wrapper.find('[data-action="insert-sequence"]')
+      expect(insertItem.exists()).toBe(true)
+      expect(insertItem.text()).toContain('Insert sequence')
     })
 
     it('opens insert modal when clicking Insert sequence with no sequence loaded', async () => {
@@ -89,8 +89,9 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Click Insert sequence
-      const menuItems = wrapper.findAll('.menu-item')
-      const insertItem = menuItems.find(item => item.text().includes('Insert sequence'))
+      const insertItem = wrapper.find('[data-action="insert-sequence"]')
+      expect(insertItem.exists()).toBe(true)
+      expect(insertItem.text()).toContain('Insert sequence')
       await insertItem.trigger('click')
       await wrapper.vm.$nextTick()
 
@@ -521,7 +522,9 @@ describe('SequenceEditor', () => {
 
       // Open config and uncheck 'gene'
       await wrapper.find('.config-button').trigger('click')
-      const geneRow = wrapper.findAll('.type-row').find(r => r.text().includes('gene'))
+      const geneRow = wrapper.find('[data-type="gene"]')
+      expect(geneRow.exists()).toBe(true)
+      expect(geneRow.text()).toContain('gene')
       await geneRow.find('input[type="checkbox"]').trigger('change')
 
       await wrapper.vm.$nextTick()
@@ -570,7 +573,9 @@ describe('SequenceEditor', () => {
 
       // Hide gene type
       await wrapper.find('.config-button').trigger('click')
-      const geneRow = wrapper.findAll('.type-row').find(r => r.text().includes('gene'))
+      const geneRow = wrapper.find('[data-type="gene"]')
+      expect(geneRow.exists()).toBe(true)
+      expect(geneRow.text()).toContain('gene')
       await geneRow.find('input[type="checkbox"]').trigger('change')
       await wrapper.vm.$nextTick()
 
@@ -1922,6 +1927,19 @@ describe('SequenceEditor', () => {
 
       const viewModeToggle = wrapper.find('.view-mode-toggle')
       expect(viewModeToggle.exists()).toBe(true)
+    })
+
+    it('emits stable data-view-mode attributes on view toggle buttons', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCG'.repeat(100), [], true),  // circular = true
+          initialZoom: 50
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-view-mode="linear"]').exists()).toBe(true)
+      expect(wrapper.find('[data-view-mode="circular"]').exists()).toBe(true)
     })
 
     it('shows selection status text for selections', async () => {

@@ -21,6 +21,33 @@ describe('AnnotationModal', () => {
     })
   })
 
+  describe('stable test selectors', () => {
+    it('has data-role on modal header for test automation', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: ezSpan(0, 10) }
+      })
+      expect(wrapper.find('[data-role="annotation-editor"]').exists()).toBe(true)
+    })
+
+    it('has data-action on save button for test automation (create mode)', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: { open: true, span: ezSpan(0, 10) }
+      })
+      expect(wrapper.find('[data-action="save-annotation"]').exists()).toBe(true)
+    })
+
+    it('has data-action on save button for test automation (edit mode)', () => {
+      const wrapper = mount(AnnotationModal, {
+        props: {
+          open: true,
+          span: ezSpan(0, 10),
+          annotation: { caption: 'Gene', type: 'gene', span: ezSpan(0, 10), attributes: {} }
+        }
+      })
+      expect(wrapper.find('[data-action="save-annotation"]').exists()).toBe(true)
+    })
+  })
+
   describe('form fields', () => {
     it('shows caption input', () => {
       const wrapper = mount(AnnotationModal, {
