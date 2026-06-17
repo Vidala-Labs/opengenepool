@@ -1121,6 +1121,7 @@ const extensionAPI = {
   // State access
   getSequence: () => targetDoc.value?.sequence ?? '',
   getTitle: () => targetDoc.value?.name ?? '',
+  isCircular: () => isCircular.value,
   getSelectedSequence: () => {
     if (!selection.isSelected.value || !selection.domain.value) return ''
     const seq = targetDoc.value?.sequence ?? ''

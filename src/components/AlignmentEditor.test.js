@@ -1225,6 +1225,102 @@ describe('AlignmentEditor Mouse Interactions', () => {
 
     wrapper.unmount()
   })
+
+  // A drag that begins on a row's sequence text must keep tracking the cursor even
+  // while the cursor is over the whitespace BETWEEN the target and query rows (or in
+  // a row's annotation band) — off the sequence text but inside the editor. The
+  // selection must reflect the projected position, not freeze at the last on-text spot.
+  // Identical sequences → no gaps → positionMap is identity, so projected pos == base.
+  function setupRowDrag() {
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc('ATCGATCGATCGATCGATCGATCG'), // 24 bases, identical → no gaps
+        query: createDoc('ATCGATCGATCGATCGATCGATCG'),
+        initialZoom: 100
+      },
+      attachTo: document.body
+    })
+    return wrapper
+  }
+
+  it('target-row drag keeps tracking while the cursor is in the inter-row whitespace', async () => {
+    const wrapper = setupRowDrag()
+    await settle(wrapper)
+    expect(wrapper.vm.hasAlignment).toBe(true)
+
+    const svg = wrapper.find('.editor-svg')
+    svg.element.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 500, width: 1000, height: 500
+    })
+    const lmargin = wrapper.vm.graphics.metrics.value.lmargin
+    const charWidth = wrapper.vm.graphics.metrics.value.charWidth
+    const lh = wrapper.vm.graphics.lineHeight.value
+    const TOP_PADDING = 30
+
+    const targetLayer = wrapper.findAllComponents({ name: 'SequenceLayer' })
+      .find(l => l.props('mode') === 'target')
+    const overlay = targetLayer.find('.sequence-overlay')
+
+    // Mousedown on the target text at base 5 (Y on the target baseline).
+    const startX = lmargin + 5 * charWidth + charWidth / 2
+    await overlay.trigger('mousedown', { button: 0, clientX: startX, clientY: TOP_PADDING + lh / 2 })
+    expect(wrapper.vm.selection.source.value).toBe('target')
+
+    // Drag to base 15's X, but with Y on the MATCH line — the whitespace between the
+    // target and query text rows (off the target text, inside the row block).
+    const moveX = lmargin + 15 * charWidth + charWidth / 2
+    const interRowY = TOP_PADDING + lh + lh / 2 // mid match-line band → still line 0
+    window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: moveX, clientY: interRowY }))
+    await settle(wrapper)
+
+    const range = wrapper.vm.selection.domain.value.ranges[0]
+    expect(range.end).toBe(15)        // tracked to the projected base under the cursor
+    expect(range.end).not.toBe(5)     // not frozen at the mousedown base
+    expect(wrapper.vm.selection.source.value).toBe('target') // row stays locked
+
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    await settle(wrapper)
+    wrapper.unmount()
+  })
+
+  it('query-row drag keeps tracking while the cursor is in the inter-row whitespace', async () => {
+    const wrapper = setupRowDrag()
+    await settle(wrapper)
+    expect(wrapper.vm.hasAlignment).toBe(true)
+
+    const svg = wrapper.find('.editor-svg')
+    svg.element.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 500, width: 1000, height: 500
+    })
+    const lmargin = wrapper.vm.graphics.metrics.value.lmargin
+    const charWidth = wrapper.vm.graphics.metrics.value.charWidth
+    const lh = wrapper.vm.graphics.lineHeight.value
+    const TOP_PADDING = 30
+
+    const queryLayer = wrapper.findAllComponents({ name: 'SequenceLayer' })
+      .find(l => l.props('mode') === 'query')
+    const overlay = queryLayer.find('.sequence-overlay')
+
+    // Mousedown on the query text at base 5 (query baseline is at TOP_PADDING + 2*lh).
+    const startX = lmargin + 5 * charWidth + charWidth / 2
+    await overlay.trigger('mousedown', { button: 0, clientX: startX, clientY: TOP_PADDING + 2 * lh + lh / 2 })
+    expect(wrapper.vm.selection.source.value).toBe('query')
+
+    // Drag to base 15's X, but Y on the match line (whitespace between the two rows).
+    const moveX = lmargin + 15 * charWidth + charWidth / 2
+    const interRowY = TOP_PADDING + lh + lh / 2
+    window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: moveX, clientY: interRowY }))
+    await settle(wrapper)
+
+    const range = wrapper.vm.selection.domain.value.ranges[0]
+    expect(range.end).toBe(15)
+    expect(range.end).not.toBe(5)
+    expect(wrapper.vm.selection.source.value).toBe('query')
+
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    await settle(wrapper)
+    wrapper.unmount()
+  })
 })
 
 describe('Delete with different sequences (alignment has gaps)', () => {
