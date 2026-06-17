@@ -52,11 +52,13 @@ describe('SequenceDocument', () => {
       expect(typeof doc.annotations[0].id).toBe('string')
     })
 
-    it('throws when annotations ingress string spans', () => {
-      expect(() => new SequenceDocument({
+    it('parses fenced-string annotation spans (the form toJSON emits)', () => {
+      const doc = new SequenceDocument({
         sequence: 'ATCG',
         annotations: [{ id: '1', caption: 'test', type: 'gene', span: '0..4' }]
-      })).toThrow('SequenceDocument requires annotation spans to be Span objects')
+      })
+      expect(doc.annotations[0].span).toBeInstanceOf(Span)
+      expect(doc.annotations[0].span.toFencedString()).toBe('0..4')
     })
   })
 
@@ -388,6 +390,35 @@ describe('SequenceDocument', () => {
       expect(doc.sequence).toBe('')
       expect(doc.annotations).toEqual([])
       expect(doc.circular).toBe(false)
+    })
+
+    it('round-trips through toJSON/fromJSON (annotation spans survive)', () => {
+      const doc = new SequenceDocument({
+        sequence: 'ATCGATCG',
+        name: 'Test Seq',
+        annotations: [
+          { id: '1', caption: 'Gene', type: 'gene', span: ezSpan(0, 4) },
+          { id: '2', caption: 'CDS', type: 'CDS', span: new Span([new Range(2, 6, Orientation.MINUS)]) }
+        ],
+        circular: true,
+        gaps: [{ position: 3, length: 2 }]
+      })
+
+      const json = doc.toJSON()
+      // span is serialized as a fenced string, the contract toJSON produces
+      expect(typeof json.annotations[0].span).toBe('string')
+
+      // fromJSON must accept what toJSON produces — previously threw because
+      // _requireSpan rejected the fenced string.
+      const restored = SequenceDocument.fromJSON(json)
+      expect(restored.sequence).toBe('ATCGATCG')
+      expect(restored.name).toBe('Test Seq')
+      expect(restored.circular).toBe(true)
+      expect(restored.annotations.length).toBe(2)
+      // Spans are Span objects again, with the original coordinates/orientation.
+      expect(restored.annotations[0].span).toBeInstanceOf(Span)
+      expect(restored.annotations[0].span.toFencedString()).toBe('0..4')
+      expect(restored.annotations[1].span.toFencedString()).toBe(doc.annotations[1].span.toFencedString())
     })
   })
 
@@ -732,6 +763,112 @@ describe('SequenceDocument', () => {
       const data = { sequence: 'ATCG' }
       const doc = SequenceDocument.fromJSON(data)
       expect(doc.gaps).toEqual([])
+    })
+  })
+
+  describe('readonly enforcement', () => {
+    it('defaults to not readonly', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG' })
+      expect(doc.readonly).toBe(false)
+    })
+
+    it('exposes readonly via the constructor', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG', readonly: true })
+      expect(doc.readonly).toBe(true)
+    })
+
+    it('insert() is a no-op on a readonly document', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG', readonly: true })
+      const result = doc.insert(2, 'GGG')
+      expect(doc.sequence).toBe('ATCG')
+      expect(result).toBe('')
+    })
+
+    it('delete() is a no-op on a readonly document', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCGATCG', readonly: true })
+      const result = doc.delete([{ start: 0, end: 3 }])
+      expect(doc.sequence).toBe('ATCGATCG')
+      expect(result).toBe('')
+    })
+
+    it('replace() is a no-op on a readonly document', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCGATCG', readonly: true })
+      const result = doc.replace(0, 3, 'TTT')
+      expect(doc.sequence).toBe('ATCGATCG')
+      expect(result).toBe('')
+    })
+
+    it('addAnnotation() is a no-op on a readonly document', async () => {
+      const doc = new SequenceDocument({ sequence: 'ATCGATCG', readonly: true })
+      const id = await doc.addAnnotation({ caption: 'X', type: 'gene', span: ezSpan(0, 4) })
+      expect(doc.annotations.length).toBe(0)
+      expect(id).toBeNull()
+    })
+
+    it('updateAnnotation() is a no-op on a readonly document', () => {
+      const doc = new SequenceDocument({
+        sequence: 'ATCGATCG',
+        annotations: [{ id: '1', caption: 'X', type: 'gene', span: ezSpan(0, 4) }],
+        readonly: true
+      })
+      const ok = doc.updateAnnotation({ id: '1', caption: 'Y' })
+      expect(ok).toBe(false)
+      expect(doc.annotations[0].caption).toBe('X')
+    })
+
+    it('deleteAnnotation() is a no-op on a readonly document', () => {
+      const doc = new SequenceDocument({
+        sequence: 'ATCGATCG',
+        annotations: [{ id: '1', caption: 'X', type: 'gene', span: ezSpan(0, 4) }],
+        readonly: true
+      })
+      const ok = doc.deleteAnnotation('1')
+      expect(ok).toBe(false)
+      expect(doc.annotations.length).toBe(1)
+    })
+
+    it('setAnnotations() is a no-op on a readonly document', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCGATCG', readonly: true })
+      doc.setAnnotations([{ id: '1', caption: 'X', type: 'gene', span: ezSpan(0, 4) }])
+      expect(doc.annotations.length).toBe(0)
+    })
+
+    it('setCircular()/setGaps()/clearGaps() are no-ops on a readonly document', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG', circular: false, readonly: true })
+      doc.setCircular(true)
+      expect(doc.circular).toBe(false)
+      doc.setGaps([{ position: 1, length: 2 }])
+      expect(doc.gaps).toEqual([])
+    })
+
+    it('does not notify the backend for edits on a readonly document', async () => {
+      const calls = []
+      const backend = {
+        insert: () => calls.push('insert'),
+        delete: () => calls.push('delete'),
+        annotationCreated: () => calls.push('annotationCreated'),
+        annotationUpdate: () => calls.push('annotationUpdate'),
+        annotationDeleted: () => calls.push('annotationDeleted')
+      }
+      const doc = new SequenceDocument({
+        sequence: 'ATCGATCG',
+        annotations: [{ id: '1', caption: 'X', type: 'gene', span: ezSpan(0, 4) }],
+        readonly: true,
+        backend
+      })
+      doc.insert(2, 'GGG')
+      doc.delete([{ start: 0, end: 2 }])
+      doc.replace(0, 2, 'TT')
+      await doc.addAnnotation({ caption: 'Y', type: 'gene', span: ezSpan(0, 4) })
+      doc.updateAnnotation({ id: '1', caption: 'Z' })
+      doc.deleteAnnotation('1')
+      expect(calls).toEqual([])
+    })
+
+    it('readonly survives toJSON/fromJSON when set', () => {
+      const doc = new SequenceDocument({ sequence: 'ATCG', readonly: true })
+      const restored = SequenceDocument.fromJSON(doc.toJSON())
+      expect(restored.readonly).toBe(true)
     })
   })
 })
