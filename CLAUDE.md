@@ -24,6 +24,12 @@ To run the example app:
 cd example && bun install && bun run dev
 ```
 
+## Git Practice
+
+For the near future, development is **local-dev only**: do feature work on local
+branches and merge them into `master` locally. Do **not** push branches or open PRs
+to the remote unless explicitly asked. (This policy will be amended in the future.)
+
 ## Directory Structure
 
 ```
@@ -38,6 +44,21 @@ example/             # Working example app with GenBank import/export
 ```
 
 ## Key Architecture Patterns
+
+### Single editor per page (CONSTRAINT)
+
+**Only one editor instance (`SequenceEditor`, `CircularEditor`, or `AlignmentEditor`)
+is supported per page.** Annotation-display state — visibility toggle, hidden types,
+"reveal hidden", the known-types set, and color overrides — lives at **module scope**
+in `src/components/AnnotationLayer.vue` (`showAnnotations`, `hiddenTypes`,
+`showHiddenAnnotations`, `allAnnotationTypes`, `annotationColorsRef`, `instanceCount`).
+`CircularAnnotationLayer.vue` imports those same refs, and first-instance config
+tracking uses `window.__circularAnnotationLayerFirst`. Because this state is shared
+across all instances, mounting two editors on one page makes them interfere (toggling
+hidden types in one affects the other; config items only render for the first
+instance). This is by design — multiple editors per page is not a supported
+configuration. If that ever changes, this state must move to provided editor-scoped
+state (provide/inject) instead of module/`window` globals.
 
 ### Coordinate System (CRITICAL)
 

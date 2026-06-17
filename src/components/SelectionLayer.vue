@@ -1,7 +1,8 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
 import { GraphicsSpan } from '../composables/useGraphics.js'
 import { Orientation } from '../utils/dna.js'
+import { selectionMenuItems } from './menus/selectionMenuContributor.js'
 
 const props = defineProps({
   /** Handle radius in pixels */
@@ -50,6 +51,17 @@ const graphics = inject('graphics')
 
 // Selection is injected from parent (single source of truth)
 const selection = inject('selection')
+
+// Context-menu service + selection action handlers (provided by the editor).
+// The contributor always fires and reads system state + target chain.
+const contextMenu = inject('contextMenu', null)
+const selectionMenuActions = inject('selectionMenuActions', null)
+const selectionContributor = {
+  id: `selection${props.alignmentMode ? ':' + props.alignmentMode : ''}`,
+  getItems: (context) => selectionMenuItems(context, selectionMenuActions || {})
+}
+onMounted(() => contextMenu?.register(selectionContributor))
+onUnmounted(() => contextMenu?.unregister(selectionContributor))
 
 // Alignment mode: inject the positioning function and lines
 const injectedGetAlignmentLineY = inject('getAlignmentLineY', null)
@@ -127,13 +139,10 @@ function convertRangeToAligned(range) {
   const alignedStart = map[range.start]
   const alignedEnd = map[range.end - 1]
 
-  // If positions can't be mapped, use the original range
+  // If positions can't be mapped (e.g. the range touches a gap boundary), fall
+  // back to the original range. This is an expected edge case, not an error, so
+  // it intentionally does not log.
   if (alignedStart === undefined || alignedEnd === undefined) {
-    console.warn('[SelectionLayer] Could not map positions to aligned coordinates', {
-      start: range.start,
-      end: range.end,
-      mapKeys: Object.keys(map).slice(0, 10)
-    })
     return range
   }
 
@@ -321,95 +330,6 @@ function handleClickForElement(dataset, event) {
   }
 
   return true  // Handled - prevent other layers from processing
-}
-
-/**
- * Get context menu items for an element with data attributes.
- * Called by parent editor when element is found via elementsFromPoint.
- *
- * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element
- */
-function getMenuItemsForElement(dataset) {
-  if (dataset.layer !== 'selection') return []
-
-  const items = []
-  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
-  const handleType = dataset.handleType
-  const domain = selection.domain.value
-
-  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return []
-
-  const range = domain.ranges[rangeIndex]
-
-  if (handleType) {
-    // Handle context menu items
-    items.push({
-      label: 'Extend to position...',
-      action: () => emit('handle-contextmenu', {
-        event: null,
-        rangeIndex,
-        range,
-        handleType
-      })
-    })
-  } else {
-    // Selection path context menu items
-
-    // Copy selection
-    items.push({
-      label: 'Copy selection',
-      action: () => emit('contextmenu', {
-        event: null,
-        rangeIndex,
-        range,
-        action: 'copy'
-      })
-    })
-
-    // Strand flip options
-    if (range.orientation === 1 || range.orientation === -1) {
-      items.push({
-        label: 'Flip strand',
-        action: () => selection.flip(rangeIndex)
-      })
-      items.push({
-        label: 'Make undirected',
-        action: () => selection.setOrientation(rangeIndex, 0)
-      })
-    } else {
-      items.push({
-        label: 'Set to plus strand',
-        action: () => selection.setOrientation(rangeIndex, 1)
-      })
-      items.push({
-        label: 'Set to minus strand',
-        action: () => selection.setOrientation(rangeIndex, -1)
-      })
-    }
-
-    // Multi-range operations
-    if (domain.ranges.length > 1) {
-      items.push({
-        label: 'Delete this range',
-        action: () => selection.deleteRange(rangeIndex)
-      })
-      if (rangeIndex > 0) {
-        items.push({
-          label: 'Move range up',
-          action: () => selection.moveRange(rangeIndex, rangeIndex - 1)
-        })
-      }
-      if (rangeIndex < domain.ranges.length - 1) {
-        items.push({
-          label: 'Move range down',
-          action: () => selection.moveRange(rangeIndex, rangeIndex + 1)
-        })
-      }
-    }
-  }
-
-  return items
 }
 
 // Compute merge bubbles for touching range pairs
@@ -830,8 +750,7 @@ function handleHandleContextMenu(event, rangeIndex, handleType) {
 // Expose for parent component, click routing, and context menu integration
 defineExpose({
   selection,
-  handleClickForElement,
-  getMenuItemsForElement
+  handleClickForElement
 })
 </script>
 

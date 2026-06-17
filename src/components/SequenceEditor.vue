@@ -6,10 +6,12 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { useContextMenu } from '../composables/useContextMenu.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Annotation, ANNOTATION_COLORS } from '../utils/annotation.js'
+import { Annotation, ANNOTATION_COLORS, isOgpAttr, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
+import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/safeStorage.js'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import TranslationLayer, { showTranslation } from './TranslationLayer.vue'
 import SelectionLayer from './SelectionLayer.vue'
@@ -475,7 +477,9 @@ watch(editorState.zoomLevel, (newZoom) => {
 // Watch for document changes to initialize/update the editor
 watch(() => targetDoc.value?.sequence, (newSeq) => {
   if (newSeq !== undefined) {
-    editorState.setSequence(newSeq, '')  // Title is now provided via slot
+    // Seed the title from the document name. Hosts can still override the
+    // displayed title via the #title slot; this provides the data-driven default.
+    editorState.setSequence(newSeq, targetDoc.value?.name ?? '')
     // Re-apply persisted zoom now that sequence is loaded (setZoom clamps based on length)
     editorState.setZoom(getInitialZoom())
   }
@@ -488,14 +492,14 @@ const OVERLAY_STORAGE_KEY = 'opengenepool-copy-overlay'
  * Save overlay data for rich paste (annotations with relative positions)
  */
 function saveOverlay(sequence, annotations) {
-  localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify({ sequence, annotations }))
+  setStorageItem(OVERLAY_STORAGE_KEY, JSON.stringify({ sequence, annotations }))
 }
 
 /**
  * Load overlay data from localStorage
  */
 function loadOverlay() {
-  const data = localStorage.getItem(OVERLAY_STORAGE_KEY)
+  const data = getStorageItem(OVERLAY_STORAGE_KEY)
   return data ? JSON.parse(data) : null
 }
 
@@ -503,7 +507,7 @@ function loadOverlay() {
  * Clear overlay from localStorage
  */
 function clearOverlay() {
-  localStorage.removeItem(OVERLAY_STORAGE_KEY)
+  removeStorageItem(OVERLAY_STORAGE_KEY)
 }
 
 /**
@@ -595,19 +599,19 @@ const COLORS_KEY = 'opengenepool-annotation-colors'
 // If no colors are stored, save the defaults to localStorage and return them.
 // This ensures users always have a baseline that can be customized later.
 function loadAnnotationColors() {
-  const stored = localStorage.getItem(COLORS_KEY)
+  const stored = getStorageItem(COLORS_KEY)
   if (stored) {
     try {
       // Merge with defaults to handle any new types added in future versions
       return { ...ANNOTATION_COLORS, ...JSON.parse(stored) }
     } catch {
       // Corrupted data - reset to defaults
-      localStorage.setItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
+      setStorageItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
       return { ...ANNOTATION_COLORS }
     }
   }
   // First load - save defaults to localStorage
-  localStorage.setItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
+  setStorageItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
   return { ...ANNOTATION_COLORS }
 }
 
@@ -637,7 +641,7 @@ const collectedConfigItems = computed(() => {
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
-  localStorage.setItem(COLORS_KEY, JSON.stringify(newColors))
+  setStorageItem(COLORS_KEY, JSON.stringify(newColors))
 }, { deep: true })
 
 // Get color for an annotation type, falling back to default
@@ -785,10 +789,7 @@ function splitAnnotationAtPosition(annotation, rangeIndex, position) {
   emit('annotations-update', localAnnotations.value)
 }
 
-function handleAnnotationCreate(data) {
-  // Generate a new UUID for the annotation
-  const annotationId = crypto.randomUUID()
-
+async function handleAnnotationCreate(data) {
   // For CDS annotations, compute the translation string
   const span = data.span
   let attributes = data.attributes || {}
@@ -801,16 +802,14 @@ function handleAnnotationCreate(data) {
     attributes = { ...attributes, translation: result.aminoAcids }
   }
 
-  const newAnnotation = {
-    id: annotationId,
+  // No id supplied — the document mints one via the injectable id generator (which
+  // may be a host-provided async server-synchronized UUIDv7). Await it.
+  await targetDoc.value.addAnnotation({
     caption: data.caption,
     type: data.type,
     span,
     attributes
-  }
-
-  // Add annotation to document (handles backend notification)
-  targetDoc.value.addAnnotation(newAnnotation)
+  })
   // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 
@@ -842,6 +841,7 @@ const extensionAPI = {
   // State access
   getSequence: () => editorState.sequence.value,
   getTitle: () => editorState.title.value,
+  isCircular: () => isCircular.value,
   getSelectedSequence: getSelectedSequenceText,
   getAnnotations: () => localAnnotations.value,
 
@@ -863,6 +863,105 @@ const extensionAPI = {
   }
 }
 provide('extensionAPI', extensionAPI)
+
+// ============================================
+// Context-menu contributor service
+// ============================================
+// Layers self-register their menu contributors; this editor resolves a rich
+// context on right-click and asks the service to aggregate. See CLICK_CHANGES.md.
+const contextMenu = useContextMenu()
+provide('contextMenu', contextMenu)
+
+// Action handlers injected into the layers' contributors (deps). Menu items call
+// these directly — there are no per-layer context-menu action events.
+function toggleAnnotationHidden(annotation, hidden) {
+  const attributes = { ...(annotation.attributes || {}) }
+  if (hidden) attributes[OGP_HIDDEN_ATTR] = true
+  else delete attributes[OGP_HIDDEN_ATTR]
+  targetDoc.value.updateAnnotation({ id: annotation.id, attributes })
+  emit('annotations-update', localAnnotations.value)
+}
+function clipPrimer(primer, primerBind) {
+  targetDoc.value.updateAnnotation({
+    id: primer.id,
+    attributes: { ...primer.attributes, primer_bind: primerBind }
+  })
+  emit('annotations-update', localAnnotations.value)
+}
+provide('annotationMenuActions', {
+  onCreateAnnotation: () => openAnnotationModal(),
+  onEdit: (annotation) => openAnnotationModalForEdit(annotation),
+  onDelete: (annotation) => { targetDoc.value.deleteAnnotation(annotation.id); emit('annotations-update', localAnnotations.value) },
+  onToggleHidden: toggleAnnotationHidden,
+  onSubtract: (annotation) => selection.subtractSpan(annotation.span),
+  onMergeLeft: (annotation, rangeIndex) => mergeAnnotationRanges(annotation, rangeIndex - 1, rangeIndex),
+  onMergeRight: (annotation, rangeIndex) => mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1),
+  onSplit: (annotation, rangeIndex, position) => splitAnnotationAtPosition(annotation, rangeIndex, position),
+  onClipPrimer: clipPrimer
+})
+function openInsertModalAt(position) {
+  insertModalIsReplace.value = false
+  insertModalPosition.value = position
+  insertModalText.value = ''
+  insertModalVisible.value = true
+}
+function openReplaceModal(range) {
+  insertModalIsReplace.value = true
+  insertModalPosition.value = range.start
+  insertModalSelectionEnd.value = range.end
+  insertModalText.value = ''
+  insertModalVisible.value = true
+}
+provide('selectionMenuActions', {
+  onCopy: () => handleCopy(),
+  onSelectNone: () => selection.unselect(),
+  onSelectAll: () => selection.selectAll(),
+  onReplace: (range) => openReplaceModal(range),
+  onDelete: () => handleDelete(),
+  onFlip: (rangeIndex) => selection.flip(rangeIndex),
+  onSetOrientation: (rangeIndex, orientation) => selection.setOrientation(rangeIndex, orientation),
+  onDeleteRange: (rangeIndex) => selection.deleteRange(rangeIndex),
+  onMoveRange: (from, to) => selection.moveRange(from, to),
+  onExtendHandle: (rangeIndex, range, handleType) => handleHandleContextMenu({ event: { clientX: contextMenuX.value, clientY: contextMenuY.value }, rangeIndex, range, handleType })
+})
+provide('sequenceMenuActions', {
+  onSelectAll: () => selection.selectAll(),
+  onInsert: (position) => openInsertModalAt(position)
+})
+
+// Create Annotation is a single editor-level item (not owned by the annotation
+// layer) so it is never duplicated by multiple annotation layers nor lost when no
+// annotation layer is mounted.
+const createAnnotationContributor = {
+  id: 'create-annotation',
+  getItems: () => props.readonly ? [] : [{ id: 'create-annotation', label: 'Create Annotation', action: () => openAnnotationModal() }]
+}
+onMounted(() => contextMenu.register(createAnnotationContributor))
+onUnmounted(() => contextMenu.unregister(createAnnotationContributor))
+
+// Extensions are contributors too — registered LAST so their items appear after
+// the built-in items. Maps the resolved menu context to the extension ext-context.
+const extensionMenuContributor = {
+  id: 'extensions',
+  getItems: (context) => {
+    const targets = context.targets || []
+    const annTarget = targets.find(t => t.layer === 'annotation')
+    const selTarget = targets.find(t => t.layer === 'selection')
+    let extContext = null
+    if (annTarget?.annotation) {
+      const span = annTarget.annotation.span
+      const annSeq = [...iterateSequence(span, editorState.sequence.value)].map(b => b.letter).join('')
+      extContext = { type: 'annotation', data: { annotation: annTarget.annotation, sequence: annSeq, fragment: { rangeIndex: annTarget.rangeIndex } } }
+    } else if ((selTarget || selection.isSelected.value) && selection.domain.value) {
+      extContext = { type: 'selection', data: { sequence: getSelectedSequenceText(), domain: selection.domain.value } }
+    } else if (context.pos !== undefined && context.pos !== null) {
+      extContext = { type: 'sequence', data: { position: context.pos } }
+    }
+    return extContext ? getExtensionContextMenuItems(extContext) : []
+  }
+}
+onMounted(() => contextMenu.register(extensionMenuContributor))
+onUnmounted(() => contextMenu.unregister(extensionMenuContributor))
 
 // Watch selection changes and notify extension handlers
 // Use deep: true to detect mutations to range properties (e.g., during handle dragging)
@@ -958,370 +1057,28 @@ function getExtensionContextMenuItems(context) {
   }
   return items
 }
-
-/**
- * Build global context menu items that don't depend on which region was clicked.
- * These include: Copy, Select all/none, Insert/Replace/Delete sequence, Create annotation.
- */
-function buildGlobalContextMenuItems() {
-  const items = []
-  const isSelected = selection.isSelected.value
-  const domain = selection.domain.value
-  const hasSequence = editorState.sequenceLength.value > 0
-
-  // Special case: no sequence loaded - show Insert sequence option
-  if (!hasSequence && !props.readonly) {
-    items.push({
-      label: 'Insert sequence...',
-      action: () => {
-        insertModalIsReplace.value = false
-        insertModalPosition.value = 0
-        insertModalText.value = ''
-        insertModalVisible.value = true
-      }
-    })
-    return items
+// Show context menu for the legacy CircularView's emitted context. CircularView
+// passes a context like { source, position, range, rangeIndex, ... }; map it to a
+// target chain and route through the contributor service.
+function showContextMenu(event, context = {}) {
+  const targets = []
+  if (context.source === 'annotation' && context.annotation) {
+    targets.push({ layer: 'annotation', annotation: context.annotation, rangeIndex: context.fragment?.rangeIndex ?? 0 })
+  } else if (context.source === 'selection') {
+    targets.push({ layer: 'selection', rangeIndex: context.rangeIndex, range: context.range })
+  } else {
+    targets.push({ layer: 'sequence', pos: context.position ?? context.pos })
   }
-
-  // Group 1: Copy / Select none / Select all
-  if (isSelected && domain && domain.ranges.length > 0) {
-    items.push({
-      label: 'Copy selection',
-      action: () => handleCopy()
-    })
-    items.push({
-      label: 'Select none',
-      action: () => selection.unselect()
-    })
-  }
-  items.push({
-    label: 'Select all',
-    action: () => selection.selectAll()
-  })
-
-  // Group 2: Insert / Replace / Delete sequence
-  if (isSelected && domain && domain.ranges.length > 0) {
-    const firstRange = domain.ranges[0]
-    const isZeroLength = firstRange.start === firstRange.end
-
-    if (!props.readonly) {
-      items.push({ separator: true })
-
-      // Insert sequence option for zero-length selections (cursor position)
-      if (isZeroLength) {
-        items.push({
-          label: 'Insert sequence...',
-          action: () => {
-            insertModalIsReplace.value = false
-            insertModalPosition.value = firstRange.start
-            insertModalText.value = ''
-            insertModalVisible.value = true
-          }
-        })
-      }
-
-      // Replace sequence option for single non-zero-length selections only
-      if (!isZeroLength && domain.ranges.length === 1) {
-        items.push({
-          label: 'Replace sequence with...',
-          action: () => {
-            insertModalIsReplace.value = true
-            insertModalPosition.value = firstRange.start
-            insertModalSelectionEnd.value = firstRange.end
-            insertModalText.value = ''
-            insertModalVisible.value = true
-          }
-        })
-      }
-
-      // Delete sequence option for non-zero-length selections
-      if (!isZeroLength) {
-        items.push({
-          label: 'Delete sequence',
-          action: () => handleDelete()
-        })
-      }
-    }
-  }
-
-  // Create annotation option - always available when not readonly
-  if (!props.readonly) {
-    items.push({ separator: true })
-    items.push({
-      label: 'Create Annotation',
-      action: () => openAnnotationModal()
-    })
-  }
-
-  return items
-}
-
-/**
- * Build context menu using elementsFromPoint for hit-testing.
- * Combines global items with region-specific items from layers.
- *
- * @param {MouseEvent} event - The contextmenu event
- * @param {Object} context - Additional context (lineIndex, etc.)
- * @returns {Array} Combined menu items
- */
-function buildContextMenuFromRegistry(event, context = {}) {
-  const items = buildGlobalContextMenuItems()
-
-  // Use elementsFromPoint to find all elements at the click position
-  const elements = document.elementsFromPoint(event.clientX, event.clientY)
-  const layerItems = []
-
-  // Collect menu items from all layers
-  for (const el of elements) {
-    if (!el.dataset.layer) continue
-
-    // Check each layer ref for matching items
-    const layerMenuItems = [
-      ...(annotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(selectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(sequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
-    ]
-
-    layerItems.push(...layerMenuItems)
-  }
-
-  // Add layer items with separator
-  if (layerItems.length > 0) {
-    items.push({ separator: true })
-    items.push(...layerItems)
-  }
-
-  // Extension items
-  let extContext = null
-  if (selection.isSelected.value && selection.domain.value) {
-    const selectedSeq = getSelectedSequenceText()
-    extContext = {
-      type: 'selection',
-      data: { sequence: selectedSeq, domain: selection.domain.value }
-    }
-  } else if (context.pos !== undefined) {
-    extContext = {
-      type: 'sequence',
-      data: { position: context.pos }
-    }
-  }
-
-  if (extContext) {
-    const extItems = getExtensionContextMenuItems(extContext)
-    if (extItems.length > 0) {
-      items.push({ separator: true }, ...extItems)
-    }
-  }
-
-  return items
-}
-
-// Build context menu items based on current context
-function buildContextMenuItems(context) {
-  const items = []
-  const isSelected = selection.isSelected.value
-  const domain = selection.domain.value
-  const hasSequence = editorState.sequenceLength.value > 0
-
-  // Special case: no sequence loaded - show Insert sequence option
-  if (!hasSequence && !props.readonly) {
-    items.push({
-      label: 'Insert sequence...',
-      action: () => {
-        insertModalIsReplace.value = false
-        insertModalPosition.value = 0
-        insertModalText.value = ''
-        insertModalVisible.value = true
-      }
-    })
-    return items
-  }
-
-  // Group 1: Copy / Select none / Select all
-  if (isSelected && domain && domain.ranges.length > 0) {
-    items.push({
-      label: 'Copy selection',
-      action: () => {
-        handleCopy()
-      }
-    })
-    items.push({
-      label: 'Select none',
-      action: () => {
-        selection.unselect()
-      }
-    })
-  }
-  items.push({
-    label: 'Select all',
-    action: () => {
-      selection.selectAll()
-    }
-  })
-
-  // Group 2: Insert / Replace / Delete sequence
-  if (isSelected && domain && domain.ranges.length > 0) {
-    const firstRange = domain.ranges[0]
-    const isZeroLength = firstRange.start === firstRange.end
-
-    const hasSequenceActions = (isZeroLength && !props.readonly) ||
-                               (!isZeroLength && !props.readonly)
-    if (hasSequenceActions) {
-      items.push({ separator: true })
-    }
-
-    // Insert sequence option for zero-length selections (cursor position)
-    if (isZeroLength && !props.readonly) {
-      items.push({
-        label: 'Insert sequence...',
-        action: () => {
-          insertModalIsReplace.value = false
-          insertModalPosition.value = firstRange.start
-          insertModalText.value = ''
-          insertModalVisible.value = true
-        }
-      })
-    }
-
-    // Replace sequence option for single non-zero-length selections only
-    if (!isZeroLength && !props.readonly && domain.ranges.length === 1) {
-      items.push({
-        label: 'Replace sequence with...',
-        action: () => {
-          insertModalIsReplace.value = true
-          insertModalPosition.value = firstRange.start
-          insertModalSelectionEnd.value = firstRange.end
-          insertModalText.value = ''
-          insertModalVisible.value = true
-        }
-      })
-    }
-
-    // Delete sequence option for non-zero-length selections
-    if (!isZeroLength && !props.readonly) {
-      items.push({
-        label: 'Delete sequence',
-        action: () => {
-          handleDelete()
-        }
-      })
-    }
-  }
-
-  // Group 3: Create / Edit / Delete Annotation
-  // Show separator before annotation actions if not readonly
-  const hasAnnotationActions = !props.readonly ||
-                               (context.source === 'annotation' && context.annotation && !props.readonly)
-  if (hasAnnotationActions) {
-    items.push({ separator: true })
-  }
-
-  // Create annotation option - always available when not readonly
-  // If there's a selection with non-zero ranges, use those; otherwise open with blank fields
-  if (!props.readonly) {
-    items.push({
-      label: 'Create Annotation',
-      action: () => {
-        openAnnotationModal()
-      }
-    })
-  }
-
-  // Annotation-specific items (Edit, Delete, Subtract, Merge, Split, etc.) are
-  // provided by AnnotationLayer via getMenuItemsForElement() and merged in
-  // handleAnnotationContextMenu(). No annotation items added here.
-
-  // Group 4: Strand and Multi-range operations
-  if (context.source === 'selection' && context.range && isSelected && domain) {
-    const range = context.range
-    const rangeIndex = context.rangeIndex
-
-    items.push({ separator: true })
-
-    // Strand flip options
-    if (range.orientation === 1 || range.orientation === -1) {
-      items.push({
-        label: 'Flip strand',
-        action: () => selection.flip(rangeIndex)
-      })
-      items.push({
-        label: 'Make undirected',
-        action: () => selection.setOrientation(rangeIndex, 0)
-      })
-    } else {
-      items.push({
-        label: 'Set to plus strand',
-        action: () => selection.setOrientation(rangeIndex, 1)
-      })
-      items.push({
-        label: 'Set to minus strand',
-        action: () => selection.setOrientation(rangeIndex, -1)
-      })
-    }
-
-    // Multi-range operations
-    if (domain.ranges.length > 1) {
-      items.push({
-        label: 'Delete this range',
-        action: () => selection.deleteRange(rangeIndex)
-      })
-      if (rangeIndex > 0) {
-        items.push({
-          label: 'Move range up',
-          action: () => selection.moveRange(rangeIndex, rangeIndex - 1)
-        })
-      }
-      if (rangeIndex < domain.ranges.length - 1) {
-        items.push({
-          label: 'Move range down',
-          action: () => selection.moveRange(rangeIndex, rangeIndex + 1)
-        })
-      }
-    }
-  }
-
-  // Extension context menu items
-  let extContext = null
-  if (context.source === 'selection' && isSelected && domain) {
-    const selectedSeq = getSelectedSequenceText()
-    extContext = {
-      type: 'selection',
-      data: { sequence: selectedSeq, domain }
-    }
-  } else if (context.source === 'annotation' && context.annotation) {
-    const ann = context.annotation
-    // Use iterateSequence to handle orientation and multi-part spans correctly
-    const span = ann.span
-    const seq = editorState.sequence.value
-    const annSeq = [...iterateSequence(span, seq)].map(b => b.letter).join('')
-    extContext = {
-      type: 'annotation',
-      data: { annotation: ann, sequence: annSeq, fragment: context.fragment }
-    }
-  } else if (context.pos !== undefined) {
-    // Sequence background right-click
-    extContext = {
-      type: 'sequence',
-      data: { position: context.pos }
-    }
-  }
-
-  if (extContext) {
-    const extItems = getExtensionContextMenuItems(extContext)
-    if (extItems.length > 0) {
-      items.push({ separator: true }, ...extItems)
-    }
-  }
-
-  return items
-}
-
-// Show context menu
-function showContextMenu(event, context) {
-  contextMenuItems.value = buildContextMenuItems(context)
-  contextMenuX.value = event.clientX
-  contextMenuY.value = event.clientY
-  contextMenuVisible.value = true
+  showResolvedMenu({
+    mode: 'linear',
+    targets,
+    annotations: localAnnotations.value,
+    selection,
+    document: targetDoc.value,
+    readonly: props.readonly,
+    sequenceLength: editorState.sequenceLength.value,
+    pos: context.position ?? context.pos
+  }, event)
 }
 
 // Hide context menu
@@ -1384,16 +1141,14 @@ function handleSelectionChange(data) {
 }
 
 function handleSelectionContextMenu(data) {
-  // Add selection-specific context menu items
-  const items = buildContextMenuItems({
-    source: 'selection',
-    rangeIndex: data.rangeIndex,
-    range: data.range
-  })
-  contextMenuItems.value = items
-  contextMenuX.value = data.event.clientX
-  contextMenuY.value = data.event.clientY
-  contextMenuVisible.value = true
+  showResolvedMenu({
+    mode: 'linear',
+    targets: [{ layer: 'selection', rangeIndex: data.rangeIndex, range: data.range }],
+    selection,
+    document: targetDoc.value,
+    readonly: props.readonly,
+    sequenceLength: editorState.sequenceLength.value
+  }, data.event)
 }
 
 function handleSelectionMouseDown(data) {
@@ -1553,54 +1308,34 @@ function handleExtendCancel() {
 }
 
 function handleAnnotationContextMenu(data) {
-  // Handle direct actions from AnnotationLayer (merge/split)
-  if (data.action) {
-    const { annotation, rangeIndex, action } = data
-
-    if (action === 'merge-left' && rangeIndex > 0) {
-      mergeAnnotationRanges(annotation, rangeIndex - 1, rangeIndex)
-      return
-    }
-    if (action === 'merge-right' && rangeIndex < annotation.span.ranges.length - 1) {
-      mergeAnnotationRanges(annotation, rangeIndex, rangeIndex + 1)
-      return
-    }
-    if (action === 'split' && data.splitPosition !== undefined) {
-      splitAnnotationAtPosition(annotation, rangeIndex, data.splitPosition)
-      return
-    }
-    // Unknown action - fall through to show context menu
+  // Resolve the rich context for the clicked annotation. The annotation layer
+  // hands us the (effective) annotation directly. Contributors registered by the
+  // layers supply the items; their actions call the provided action bundles.
+  const context = {
+    mode: 'linear',
+    targets: [{ layer: 'annotation', annotation: data.annotation, rangeIndex: data.fragment?.rangeIndex ?? 0 }],
+    annotations: localAnnotations.value,
+    selection,
+    document: targetDoc.value,
+    readonly: props.readonly,
+    sequenceLength: editorState.sequenceLength.value,
+    pos: data.position
   }
 
-  // Show the same context menu as selection
-  const items = buildContextMenuItems({
-    source: 'annotation',
-    annotation: data.annotation,
-    fragment: data.fragment
-  })
-
-  // Also get layer-specific items from AnnotationLayer (e.g., clip primer binding)
-  // Only when not readonly - these are edit actions
-  if (!props.readonly) {
-    const dataset = {
-      layer: 'annotation',
-      annotationId: String(data.annotation.id),
-      rangeIndex: String(data.fragment?.rangeIndex ?? 0)
-    }
-    const layerItems = annotationLayerRef.value?.getMenuItemsForElement?.(dataset) || []
-    if (layerItems.length > 0) {
-      items.push({ separator: true })
-      items.push(...layerItems)
-    }
-  }
-
-  contextMenuItems.value = items
-  contextMenuX.value = data.event.clientX
-  contextMenuY.value = data.event.clientY
-  contextMenuVisible.value = true
+  showResolvedMenu(context, data.event)
 
   // Also emit for parent components
   emit('annotation-contextmenu', data)
+}
+
+/**
+ * Build + show the aggregated context menu for a resolved context.
+ */
+function showResolvedMenu(context, event) {
+  contextMenuItems.value = contextMenu.buildMenu(context)
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuVisible.value = true
 }
 
 // Annotation click handler - select the annotation's span with its orientation
@@ -1653,10 +1388,11 @@ function handleAnnotationHover(data) {
       parts.push(annotation.span.toGenBank())
     }
 
-    // Add attributes (except translation which is too long, and underscore-prefixed internal attrs)
+    // Add attributes (except translation which is too long, underscore-prefixed
+    // internal attrs, and ogp: internal attributes)
     if (annotation.attributes) {
       const entries = Object.entries(annotation.attributes)
-        .filter(([key]) => key !== 'translation' && !key.startsWith('_'))
+        .filter(([key]) => key !== 'translation' && !key.startsWith('_') && !isOgpAttr(key))
       if (entries.length > 0) {
         parts.push('')
         for (const [key, value] of entries) {
@@ -1772,17 +1508,15 @@ function handleContextMenu(event, lineIndex) {
   event.preventDefault()
 
   const pos = getPositionFromEvent(event, lineIndex)
-  const context = {
-    line: lineIndex,
-    linepos: pos !== null ? editorState.positionInLine(pos) : 0,
-    pos: pos
-  }
 
   // Broadcast contextmenu event (for plugin communication)
-  eventBus.emit('contextmenu', context)
+  eventBus.emit('contextmenu', {
+    line: lineIndex,
+    linepos: pos !== null ? editorState.positionInLine(pos) : 0,
+    pos
+  })
 
-  // Show the context menu
-  showContextMenu(event, context)
+  showResolvedMenu(buildSurfaceContext({ layer: 'sequence', pos }), event)
 
   emit('contextmenu', {
     event,
@@ -1794,10 +1528,25 @@ function handleContextMenu(event, lineIndex) {
 
 function handleBackgroundContextMenu(event) {
   event.preventDefault()
+  showResolvedMenu(buildSurfaceContext({ layer: 'background' }), event)
+}
 
-  // Show context menu (e.g., for empty state with no sequence)
-  const context = { source: 'background' }
-  showContextMenu(event, context)
+/**
+ * Build a sequence/background context (the click did not land on an annotation
+ * or selection element). System state (selection, sequenceLength) lets the
+ * selection/sequence contributors decide what to show.
+ */
+function buildSurfaceContext(target) {
+  return {
+    mode: 'linear',
+    targets: target ? [target] : [],
+    annotations: localAnnotations.value,
+    selection,
+    document: targetDoc.value,
+    readonly: props.readonly,
+    sequenceLength: editorState.sequenceLength.value,
+    pos: target?.pos
+  }
 }
 
 function getPositionFromEvent(event, lineIndex) {
@@ -2483,9 +2232,9 @@ const toolbarHelpText = `Selection Controls:
           No sequence loaded
         </text>
 
-        <!-- Sequence Layer -->
+        <!-- Sequence Layer — always mounted (even for an empty document) so its
+             context-menu contributor registers and "Insert sequence" is available. -->
         <SequenceLayer
-          v-if="editorState.sequenceLength.value > 0"
           ref="sequenceLayerRef"
           :document="targetDoc"
           @select="handleSelectionChange"

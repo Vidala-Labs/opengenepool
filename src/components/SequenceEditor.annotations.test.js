@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import SequenceEditor from './SequenceEditor.vue'
@@ -1191,10 +1191,9 @@ describe('SequenceEditor annotations', () => {
         await overlay.trigger('contextmenu', { clientX: 100, clientY: 20 })
         await wrapper.vm.$nextTick()
 
-        // Should have Create Annotation option
-        const menuItems = wrapper.findAll('.menu-item')
-        const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
-        expect(createItem).toBeTruthy()
+        // Should have Create Annotation option with stable data-action selector
+        const createItem = wrapper.find('[data-action="create-annotation"]')
+        expect(createItem.exists()).toBe(true)
       })
 
       it('opens annotation modal with blank fields when creating without selection', async () => {
@@ -1212,8 +1211,7 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click Create Annotation
-        const menuItems = wrapper.findAll('.menu-item')
-        const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
+        const createItem = wrapper.find('[data-action="create-annotation"]')
         await createItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1242,8 +1240,7 @@ describe('SequenceEditor annotations', () => {
         await overlay.trigger('contextmenu', { clientX: 100, clientY: 20 })
         await wrapper.vm.$nextTick()
 
-        const menuItems = wrapper.findAll('.menu-item')
-        const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
+        const createItem = wrapper.find('[data-action="create-annotation"]')
         await createItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1255,7 +1252,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(10, 50),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         // Should emit annotations-update with the new annotation
         const emitted = wrapper.emitted('annotations-update')
@@ -1280,7 +1277,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(10, 20),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         const emitted = wrapper.emitted('annotations-update')
         expect(emitted[0][0][0].id).toBeTruthy()
@@ -1301,7 +1298,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(0, 9),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         const emitted = wrapper.emitted('annotations-update')
         expect(emitted[0][0][0].attributes.translation).toBe('MMM')
@@ -1323,7 +1320,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(10, 20),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         expect(mockBackend.annotationCreated).toHaveBeenCalledTimes(1)
         const call = mockBackend.annotationCreated.mock.calls[0][0]
@@ -1353,8 +1350,7 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click Edit Annotation
-        const menuItems = wrapper.findAll('.menu-item')
-        const editItem = menuItems.find(item => item.text().includes('Edit Annotation'))
+        const editItem = wrapper.find('[data-action="edit-annotation"]')
         await editItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1399,8 +1395,7 @@ describe('SequenceEditor annotations', () => {
         })
         await wrapper.vm.$nextTick()
 
-        const menuItems = wrapper.findAll('.menu-item')
-        const editItem = menuItems.find(item => item.text().includes('Edit Annotation'))
+        const editItem = wrapper.find('[data-action="edit-annotation"]')
         await editItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1443,8 +1438,7 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click Delete Annotation
-        const menuItems = wrapper.findAll('.menu-item')
-        const deleteItem = menuItems.find(item => item.text().includes('Delete Annotation'))
+        const deleteItem = wrapper.find('[data-action="delete-annotation"]')
         await deleteItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1475,8 +1469,7 @@ describe('SequenceEditor annotations', () => {
         })
         await wrapper.vm.$nextTick()
 
-        const menuItems = wrapper.findAll('.menu-item')
-        const deleteItem = menuItems.find(item => item.text().includes('Delete Annotation'))
+        const deleteItem = wrapper.find('[data-action="delete-annotation"]')
         await deleteItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1669,8 +1662,7 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click "Merge with right segment"
-        const menuItems = wrapper.findAll('.menu-item')
-        const mergeItem = menuItems.find(item => item.text().includes('Merge with right segment'))
+        const mergeItem = wrapper.find('[data-action="merge-with-right-segment"]')
         await mergeItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1837,8 +1829,7 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click "Split annotation"
-        const menuItems = wrapper.findAll('.menu-item')
-        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        const splitItem = wrapper.find('[data-action="split-annotation"]')
         await splitItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1875,8 +1866,7 @@ describe('SequenceEditor annotations', () => {
         })
         await wrapper.vm.$nextTick()
 
-        const menuItems = wrapper.findAll('.menu-item')
-        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        const splitItem = wrapper.find('[data-action="split-annotation"]')
         await splitItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1911,8 +1901,7 @@ describe('SequenceEditor annotations', () => {
         })
         await wrapper.vm.$nextTick()
 
-        const menuItems = wrapper.findAll('.menu-item')
-        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        const splitItem = wrapper.find('[data-action="split-annotation"]')
         await splitItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -1948,8 +1937,7 @@ describe('SequenceEditor annotations', () => {
         })
         await wrapper.vm.$nextTick()
 
-        const menuItems = wrapper.findAll('.menu-item')
-        const splitItem = menuItems.find(item => item.text().includes('Split annotation'))
+        const splitItem = wrapper.find('[data-action="split-annotation"]')
         await splitItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -2018,9 +2006,8 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click "Subtract from selection"
-        const menuItems = wrapper.findAll('.menu-item')
-        const subtractItem = menuItems.find(item => item.text().includes('Subtract from selection'))
-        expect(subtractItem).toBeTruthy()
+        const subtractItem = wrapper.find('[data-action="subtract-from-selection"]')
+        expect(subtractItem.exists()).toBe(true)
         await subtractItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -2061,9 +2048,8 @@ describe('SequenceEditor annotations', () => {
         await wrapper.vm.$nextTick()
 
         // Click "Subtract from selection"
-        const menuItems = wrapper.findAll('.menu-item')
-        const subtractItem = menuItems.find(item => item.text().includes('Subtract from selection'))
-        expect(subtractItem).toBeTruthy()
+        const subtractItem = wrapper.find('[data-action="subtract-from-selection"]')
+        expect(subtractItem.exists()).toBe(true)
         await subtractItem.trigger('click')
         await wrapper.vm.$nextTick()
 
@@ -2100,8 +2086,7 @@ describe('SequenceEditor annotations', () => {
       await background.trigger('contextmenu', { clientX: 100, clientY: 100 })
       await wrapper.vm.$nextTick()
 
-      const menuItems = wrapper.findAll('.menu-item')
-      const createItem = menuItems.find(item => item.text().includes('Create Annotation'))
+      const createItem = wrapper.find('[data-action="create-annotation"]')
       await createItem.trigger('click')
       await wrapper.vm.$nextTick()
 
@@ -2186,6 +2171,7 @@ describe('SequenceEditor annotations', () => {
           product: 'Test Product',
           _internal: 'should not show',
           _metadata: 'also hidden',
+          'ogp:hidden': true,
           note: 'visible note'
         }
       }
@@ -2223,6 +2209,9 @@ describe('SequenceEditor annotations', () => {
       expect(tooltipText).not.toContain('should not show')
       expect(tooltipText).not.toContain('_metadata')
       expect(tooltipText).not.toContain('also hidden')
+
+      // Should NOT contain ogp: internal attributes
+      expect(tooltipText).not.toContain('ogp:hidden')
     })
 
     it('shows tooltip without attributes section when all attributes are underscore-prefixed', async () => {

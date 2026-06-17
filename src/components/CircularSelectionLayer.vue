@@ -1,7 +1,8 @@
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
 import { getArcPath, polarToCartesian } from '../utils/circular.js'
+import { selectionMenuItems } from './menus/selectionMenuContributor.js'
 
 const props = defineProps({
   /** Selection thickness (visual width of the arc) */
@@ -17,6 +18,16 @@ const emit = defineEmits(['select', 'contextmenu', 'merge', 'handle-contextmenu'
 const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const selection = inject('selection')
+
+// Context-menu service + selection actions (provided by CircularEditor)
+const contextMenu = inject('contextMenu', null)
+const selectionMenuActions = inject('selectionMenuActions', null)
+const selectionContributor = {
+  id: 'selection',
+  getItems: (context) => selectionMenuItems(context, selectionMenuActions || {})
+}
+onMounted(() => contextMenu?.register(selectionContributor))
+onUnmounted(() => contextMenu?.unregister(selectionContributor))
 
 // Tab handle dimensions (smaller version)
 const tabWidth = 8
@@ -569,57 +580,9 @@ function handleClickForElement(dataset, event) {
   return true  // Handled - prevent other layers from processing
 }
 
-/**
- * Get context menu items for an element with data attributes.
- * Called by parent editor when element is found via elementsFromPoint.
- *
- * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element
- */
-function getMenuItemsForElement(dataset) {
-  if (dataset.layer !== 'circular-selection') return []
-
-  const items = []
-  const rangeIndex = dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : undefined
-  const handleType = dataset.handleType
-  const domain = selection.domain.value
-
-  if (rangeIndex === undefined || !domain?.ranges[rangeIndex]) return []
-
-  const range = domain.ranges[rangeIndex]
-
-  if (handleType) {
-    // Handle context menu items
-    items.push({
-      label: 'Extend to position...',
-      action: () => emit('handle-contextmenu', {
-        event: null,
-        rangeIndex,
-        range,
-        handleType
-      })
-    })
-  } else {
-    // Selection arc context menu items
-    items.push({
-      label: 'Copy selection',
-      action: () => emit('contextmenu', {
-        event: null,
-        source: 'selection',
-        rangeIndex,
-        range,
-        action: 'copy'
-      })
-    })
-  }
-
-  return items
-}
-
-// Expose for click routing and context menu integration
+// Expose for click routing
 defineExpose({
-  handleClickForElement,
-  getMenuItemsForElement
+  handleClickForElement
 })
 </script>
 

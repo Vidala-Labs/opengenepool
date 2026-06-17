@@ -2,6 +2,12 @@
   "name": "opengenepool",
   "version": "1.0.0",
   "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "test": "bun test",
     "test:watch": "bun test --watch",

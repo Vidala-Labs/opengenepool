@@ -176,11 +176,27 @@ Extensions can add items to context menus by providing a `contextMenuItems` func
 ```javascript
 {
   label: 'Menu Item Text',    // Displayed text
-  action: () => { ... }       // Function called when clicked
+  action: () => { ... },      // Function called when clicked
+  id: 'menu-item-text'        // Optional: stable key for test automation (see below)
 }
 ```
 
 Extension items appear in a separate section at the end of the context menu, separated by a divider.
+
+**Stable test selectors (`id`):**
+
+Each rendered `.menu-item` gets a `data-action` attribute so integration tests can
+locate it by a stable hook instead of its visible label. The value comes from the
+item's optional `id`; if omitted, it falls back to a kebab-cased form of the label
+(e.g. `'Copy link'` → `data-action="copy-link"`). Provide an explicit `id` when you
+want a label-independent selector:
+
+```javascript
+{ label: 'Copy link', id: 'copy-link', action: () => { ... } }
+// renders: <div class="menu-item" data-action="copy-link">Copy link</div>
+```
+
+Tests can then select it with `[data-action="copy-link"]`.
 
 **Example: BLAST Extension**
 

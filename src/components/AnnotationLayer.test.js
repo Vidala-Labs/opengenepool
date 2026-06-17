@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
 import AnnotationLayer, { __resetModuleState, allAnnotationTypes } from './AnnotationLayer.vue'
 import { __resetModuleState as resetTranslationState } from './TranslationLayer.vue'
+import { annotationMenuItems } from './menus/annotationMenuContributor.js'
 import { Annotation } from '../utils/annotation.js'
 import { Orientation, Span, Range } from '../utils/dna.js'
 import { ezSpan } from '../../test/span-helpers.js'
@@ -717,12 +718,14 @@ describe('coordination with TranslationLayer', () => {
       await nextTick()
 
       const configItems = wrapper.vm.configItems
-      expect(configItems.length).toBe(2)
+      expect(configItems.length).toBe(3)
       expect(configItems[0].type).toBe('toggle')
       expect(configItems[0].label).toBe('Annotations')
       expect(configItems[1].type).toBe('type-filter')
       expect(configItems[1].types).toContain('CDS')
       expect(configItems[1].types).toContain('gene')
+      expect(configItems[2].type).toBe('toggle')
+      expect(configItems[2].label).toBe('Show hidden annotations')
     })
 
     it('includes type-filter when multiple instances exist (alignment mode)', async () => {
@@ -753,11 +756,12 @@ describe('coordination with TranslationLayer', () => {
 
       // First instance should publish configItems with type-filter
       const configItems = wrapper1.vm.configItems
-      expect(configItems.length).toBe(2)
+      expect(configItems.length).toBe(3)
       expect(configItems[0].type).toBe('toggle')
       expect(configItems[1].type).toBe('type-filter')
       expect(configItems[1].types).toContain('CDS')
       expect(configItems[1].types).toContain('promoter')
+      expect(configItems[2].label).toBe('Show hidden annotations')
 
       // Second instance should return empty (only first publishes)
       expect(wrapper2.vm.configItems).toHaveLength(0)
@@ -765,6 +769,53 @@ describe('coordination with TranslationLayer', () => {
       // Cleanup
       wrapper1.unmount()
       wrapper2.unmount()
+    })
+
+    it('includes a "Show hidden annotations" toggle', async () => {
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'CDS', span: ezSpan(10, 50) })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      await nextTick()
+
+      const toggle = wrapper.vm.configItems.find(
+        item => item.type === 'toggle' && item.label === 'Show hidden annotations'
+      )
+      expect(toggle).toBeTruthy()
+      expect(toggle.value).toBe(false)
+    })
+  })
+
+  describe('ogp:hidden per-annotation visibility', () => {
+    it('does not render an annotation with ogp:hidden true', () => {
+      const annotations = [
+        new Annotation({ id: 'shown', type: 'gene', span: ezSpan(10, 50) }),
+        new Annotation({ id: 'hidden', type: 'gene', span: ezSpan(60, 100), attributes: { 'ogp:hidden': true } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      const fragments = wrapper.findAll('.annotation-fragment')
+      expect(fragments).toHaveLength(1)
+    })
+
+    it('still renders an annotation with ogp:hidden false', () => {
+      const annotations = [
+        new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(10, 50), attributes: { 'ogp:hidden': false } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(1)
+    })
+
+    it('reveals hidden annotations when showHiddenAnnotations is on', async () => {
+      const { showHiddenAnnotations } = await import('./AnnotationLayer.vue')
+      const annotations = [
+        new Annotation({ id: 'hidden', type: 'gene', span: ezSpan(60, 100), attributes: { 'ogp:hidden': true } })
+      ]
+      const wrapper = mountWithProviders({ annotations })
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(0)
+
+      showHiddenAnnotations.value = true
+      await nextTick()
+      expect(wrapper.findAll('.annotation-fragment')).toHaveLength(1)
     })
   })
 
@@ -880,25 +931,40 @@ describe('coordination with TranslationLayer', () => {
   })
 
   describe('clip primer binding context menu', () => {
-    // Helper to mount with selection provider
-    function mountWithSelection(props = {}, selectionState = {}, options = {}) {
-      const { editorState, graphics } = createMockProviders(options)
-
+    // These scenarios now exercise the shared annotation menu contributor (the
+    // same code AnnotationLayer registers). The shim builds the rich context the
+    // editor would resolve and calls the contributor, so the existing call sites
+    // (wrapper.vm.getMenuItemsForElement({ annotationId, rangeIndex })) keep working.
+    function mountWithSelection(props = {}, selectionState = {}) {
       const selection = {
         isSelected: ref(selectionState.isSelected ?? false),
         domain: ref(selectionState.domain ?? null)
       }
+      const annotations = props.annotations || []
+      const clipCalls = []
+      const deps = { onClipPrimer: (primer, primerBind) => clipCalls.push({ primer, primerBind }) }
 
-      return mount(AnnotationLayer, {
-        props,
-        global: {
-          provide: {
-            editorState,
-            graphics,
-            selection
+      return {
+        vm: {
+          clipCalls,
+          getMenuItemsForElement(dataset) {
+            const annotation = annotations.find(a => a.id === dataset.annotationId)
+            if (!annotation) return []
+            const context = {
+              mode: 'linear',
+              targets: [{
+                layer: 'annotation',
+                annotation,
+                rangeIndex: dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : 0
+              }],
+              annotations,
+              selection,
+              readonly: false
+            }
+            return annotationMenuItems(context, deps)
           }
         }
-      })
+      }
     }
 
     // Helper to create selection domain matching a range
@@ -1259,12 +1325,8 @@ describe('coordination with TranslationLayer', () => {
             span: ezSpan(10, 50, Orientation.PLUS)
           })
 
-          const mockDoc = {
-            updateAnnotation: mock()
-          }
-
           const wrapper = mountWithSelection(
-            { annotations: [primer], document: mockDoc },
+            { annotations: [primer] },
             { isSelected: true, domain: selectionDomainFor(30, 70) }
           )
 
@@ -1277,10 +1339,8 @@ describe('coordination with TranslationLayer', () => {
           const clipItem = items.find(i => i.label === 'Clip this primer with selection')
           clipItem.action()
 
-          expect(mockDoc.updateAnnotation).toHaveBeenCalledWith({
-            id: 'primer1',
-            attributes: { primer_bind: 20 }
-          })
+          // primer_bind should be 50 - 30 = 20 (forward primer, 3' end to clip point)
+          expect(wrapper.vm.clipCalls).toEqual([{ primer, primerBind: 20 }])
         })
 
         it('sets correct primer_bind for reverse primer clipped at selection end', () => {
@@ -1293,12 +1353,8 @@ describe('coordination with TranslationLayer', () => {
             span: ezSpan(10, 50, Orientation.MINUS)
           })
 
-          const mockDoc = {
-            updateAnnotation: mock()
-          }
-
           const wrapper = mountWithSelection(
-            { annotations: [primer], document: mockDoc },
+            { annotations: [primer] },
             { isSelected: true, domain: selectionDomainFor(5, 30) }
           )
 
@@ -1311,10 +1367,8 @@ describe('coordination with TranslationLayer', () => {
           const clipItem = items.find(i => i.label === 'Clip this primer with selection')
           clipItem.action()
 
-          expect(mockDoc.updateAnnotation).toHaveBeenCalledWith({
-            id: 'primer1',
-            attributes: { primer_bind: 20 }
-          })
+          // reverse primer: primer_bind = 30 - 10 = 20
+          expect(wrapper.vm.clipCalls).toEqual([{ primer, primerBind: 20 }])
         })
       })
 

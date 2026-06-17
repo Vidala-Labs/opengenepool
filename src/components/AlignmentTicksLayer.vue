@@ -109,26 +109,13 @@ function getMatchBarSegments(line) {
   return segments.length > 0 ? segments : null
 }
 
-// Handle context menu on match line
+// Handle context menu on match line — the parent (AlignmentEditor) resolves the
+// aligned position and the alignment contributor supplies the gap/mutation items.
 function handleContextMenu(event, lineIndex) {
   event.preventDefault()
   event.stopPropagation()
   emit('contextmenu', { event, lineIndex })
 }
-
-// Get menu items for element (called by parent when building context menu)
-function getMenuItemsForElement(dataset) {
-  // Only provide menu items for the match layer
-  if (dataset.layer !== 'alignment-match') return []
-
-  // getAlignmentMenuItems is called by the parent with the click position
-  // We return empty here since the parent handles computing aligned position
-  return []
-}
-
-defineExpose({
-  getMenuItemsForElement
-})
 </script>
 
 <template>

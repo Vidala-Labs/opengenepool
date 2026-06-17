@@ -1,6 +1,7 @@
 import { shallowRef, ref, computed } from 'vue'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range } from '../utils/dna.js'
+import { generateId, generateIdSync } from '../utils/uuid.js'
 
 /**
  * SequenceDocument encapsulates a DNA sequence with its annotations and metadata.
@@ -26,17 +27,49 @@ export class SequenceDocument {
    * Create a new SequenceDocument.
    * @param {Object} options
    * @param {string} options.sequence - Initial DNA sequence
+   * @param {string} options.name - Display name for the sequence (e.g. GenBank LOCUS name)
    * @param {Array} options.annotations - Initial annotations (plain objects or Annotation instances)
    * @param {boolean} options.circular - Whether the sequence is circular (plasmid)
    * @param {Object} options.backend - Backend adapter for persistence (insert, delete, annotationCreated, etc.)
+   * @param {boolean} options.readonly - When true, all mutating methods are no-ops (source-level readonly enforcement)
    */
-  constructor({ sequence = '', annotations = [], circular = false, gaps = [], backend = null } = {}) {
+  constructor({ sequence = '', name = '', annotations = [], circular = false, gaps = [], backend = null, readonly = false } = {}) {
     // Internal reactive refs
     this._sequence = shallowRef(sequence)
+    this._name = ref(name)
     this._annotations = ref(this._normalizeAnnotations(annotations))
     this._circular = ref(circular)
     this._gaps = shallowRef(gaps)
     this._backend = backend
+    // Source-level readonly: when set, every mutating method returns early before
+    // touching state or notifying the backend. This is the single chokepoint that
+    // makes `readonly` real regardless of the backend or UI gating.
+    this._readonly = !!readonly
+  }
+
+  /**
+   * Whether this document rejects all mutations.
+   * @returns {boolean}
+   */
+  get readonly() {
+    return this._readonly
+  }
+
+  /**
+   * Notify the backend of an edit, fire-and-forget. A backend may return a
+   * promise that rejects on persistence failure (e.g. the IndexedDB backend);
+   * the document deliberately does not surface that here (the backend reports
+   * sync status via its own callback), so we swallow the rejection to avoid an
+   * unhandled-rejection. Callers that need to await persistence should hold the
+   * backend directly.
+   * @private
+   */
+  _notifyBackend(method, payload) {
+    const result = this._backend?.[method]?.(payload)
+    if (result && typeof result.then === 'function') {
+      result.catch(() => {})
+    }
+    return result
   }
 
   /**
@@ -57,7 +90,10 @@ export class SequenceDocument {
       }
       const span = this._requireSpan(ann.span)
       return {
-        id: ann.id || crypto.randomUUID(),
+        // Sync guarded fallback for bulk/load paths (constructor, setAnnotations).
+        // New annotations created via addAnnotation get their id from the async
+        // (overridable) generator before reaching here.
+        id: ann.id || generateIdSync(),
         caption: ann.caption || '',
         type: ann.type || 'misc_feature',
         span,
@@ -77,6 +113,9 @@ export class SequenceDocument {
     if (span instanceof Span) return span
     if (span?.ranges) return new Span(span.ranges)
     if (span == null) return new Span()
+    // Accept the fenced-string form that toJSON() emits, so toJSON/fromJSON
+    // round-trips and any caller can pass the serialized span back in.
+    if (typeof span === 'string') return Span.parse(span)
     throw new TypeError('SequenceDocument requires annotation spans to be Span objects')
   }
 
@@ -90,6 +129,14 @@ export class SequenceDocument {
    */
   get sequence() {
     return this._sequence.value
+  }
+
+  /**
+   * The display name for the sequence (e.g. GenBank LOCUS name).
+   * @returns {string}
+   */
+  get name() {
+    return this._name.value
   }
 
   /**
@@ -148,6 +195,7 @@ export class SequenceDocument {
    * @returns {string} The inserted text
    */
   insert(position, text, { extendStartIds = [], extendEndIds = [] } = {}) {
+    if (this._readonly) return ''
     const seq = this._sequence.value
     position = Math.max(0, Math.min(position, seq.length))
 
@@ -158,7 +206,7 @@ export class SequenceDocument {
     this._adjustAnnotationsForInsert(position, text.length, extendStartIds, extendEndIds)
 
     // 3. Notify backend
-    this._backend?.insert?.({ editId: crypto.randomUUID(), position, text })
+    this._notifyBackend('insert', { editId: generateIdSync(), position, text })
 
     return text
   }
@@ -170,6 +218,7 @@ export class SequenceDocument {
    * @returns {string} The concatenated deleted text
    */
   delete(ranges) {
+    if (this._readonly) return ''
     if (!ranges || ranges.length === 0) return ''
 
     // Sort by start position descending (delete from end first)
@@ -188,7 +237,7 @@ export class SequenceDocument {
         this._adjustAnnotationsForReplace(start, end, 0)
 
         // Notify backend
-        this._backend?.delete?.({ editId: crypto.randomUUID(), start, end })
+        this._notifyBackend('delete', { editId: generateIdSync(), start, end })
       }
     }
 
@@ -206,6 +255,7 @@ export class SequenceDocument {
    * @returns {string} The deleted text
    */
   replace(start, end, text, { adjustAnnotations = true } = {}) {
+    if (this._readonly) return ''
     const seq = this._sequence.value
     start = Math.max(0, start)
     end = Math.min(seq.length, end)
@@ -221,8 +271,8 @@ export class SequenceDocument {
 
     // 3. Notify backend (delete + insert)
     if (this._backend) {
-      this._backend.delete?.({ editId: crypto.randomUUID(), start, end })
-      this._backend.insert?.({ editId: crypto.randomUUID(), position: start, text })
+      this._backend.delete?.({ editId: generateIdSync(), start, end })
+      this._backend.insert?.({ editId: generateIdSync(), position: start, text })
     }
 
     return deleted
@@ -233,6 +283,7 @@ export class SequenceDocument {
    * @param {boolean} circular
    */
   setCircular(circular) {
+    if (this._readonly) return
     this._circular.value = !!circular
   }
 
@@ -241,6 +292,7 @@ export class SequenceDocument {
    * @param {Array<{position: number, length: number}>} gaps
    */
   setGaps(gaps) {
+    if (this._readonly) return
     this._gaps.value = gaps
   }
 
@@ -248,6 +300,7 @@ export class SequenceDocument {
    * Clear all gaps (sets to empty array).
    */
   clearGaps() {
+    if (this._readonly) return
     this._gaps.value = []
   }
 
@@ -260,21 +313,30 @@ export class SequenceDocument {
    * @param {Array} annotations - New annotations array
    */
   setAnnotations(annotations) {
+    if (this._readonly) return
     this._annotations.value = this._normalizeAnnotations(annotations)
   }
 
   /**
    * Add an annotation.
+   *
+   * Async: a NEW annotation (no id supplied) gets its id from the overridable id
+   * generator, which may do an async round-trip (e.g. server-synchronized UUIDv7).
    * @param {Object|Annotation} annotation - Annotation to add
-   * @returns {string} The ID of the added annotation
+   * @returns {Promise<string>} The ID of the added annotation
    */
-  addAnnotation(annotation) {
-    const normalized = this._normalizeAnnotations([annotation])[0]
+  async addAnnotation(annotation) {
+    if (this._readonly) return null
+    // Mint a new id up front (awaited) when the caller didn't supply one, so the
+    // constructor/normalize path never needs to be async.
+    const withId = annotation.id ? annotation : { ...annotation, id: await generateId() }
+
+    const normalized = this._normalizeAnnotations([withId])[0]
     this._annotations.value = [...this._annotations.value, normalized]
 
     // Notify backend (include edit id for acknowledgment round-trip)
-    const editId = `create-${globalThis.crypto?.randomUUID?.() || Date.now()}`
-    this._backend?.annotationCreated?.({ ...normalized, editId })
+    const editId = `create-${generateIdSync()}`
+    this._notifyBackend('annotationCreated', { ...normalized, editId })
 
     return normalized.id
   }
@@ -285,6 +347,7 @@ export class SequenceDocument {
    * @returns {boolean} True if annotation was found and updated
    */
   updateAnnotation(annotation) {
+    if (this._readonly) return false
     const index = this._annotations.value.findIndex(a => a.id === annotation.id)
     if (index === -1) return false
 
@@ -299,8 +362,8 @@ export class SequenceDocument {
     this._annotations.value = newAnnotations
 
     // Notify backend (include edit id for acknowledgment round-trip)
-    const editId = `update-${globalThis.crypto?.randomUUID?.() || Date.now()}`
-    this._backend?.annotationUpdate?.({ ...updated, editId })
+    const editId = `update-${generateIdSync()}`
+    this._notifyBackend('annotationUpdate', { ...updated, editId })
 
     return true
   }
@@ -311,14 +374,15 @@ export class SequenceDocument {
    * @returns {boolean} True if annotation was found and deleted
    */
   deleteAnnotation(id) {
+    if (this._readonly) return false
     const index = this._annotations.value.findIndex(a => a.id === id)
     if (index === -1) return false
 
     this._annotations.value = this._annotations.value.filter(a => a.id !== id)
 
     // Notify backend (include edit id for acknowledgment round-trip)
-    const editId = `del-${globalThis.crypto?.randomUUID?.() || Date.now()}`
-    this._backend?.annotationDeleted?.({ editId, id })
+    const editId = `del-${generateIdSync()}`
+    this._notifyBackend('annotationDeleted', { editId, id })
 
     return true
   }
@@ -361,8 +425,9 @@ export class SequenceDocument {
       const shouldExtendStart = extendStartIds.includes(ann.id)
       const shouldExtendEnd = extendEndIds.includes(ann.id)
 
-      for (let i = 0; i < span.ranges.length; i++) {
-        const range = span.ranges[i]
+      // Build a NEW ranges array (no in-place mutation of the original span/ranges,
+      // which external holders may still reference). Unchanged ranges are reused.
+      const newRanges = span.ranges.map(range => {
         let newStart = range.start
         let newEnd = range.end
 
@@ -394,13 +459,14 @@ export class SequenceDocument {
         }
 
         if (newStart !== range.start || newEnd !== range.end) {
-          span.ranges[i] = new Range(newStart, newEnd, range.orientation)
           modified = true
+          return new Range(newStart, newEnd, range.orientation, range.startIndefinite, range.endIndefinite)
         }
-      }
+        return range
+      })
 
       if (modified) {
-        return { ...ann, span }
+        return { ...ann, span: new Span(newRanges) }
       }
       return ann
     })
@@ -426,8 +492,8 @@ export class SequenceDocument {
       const span = ann.span
       let modified = false
 
-      for (let i = 0; i < span.ranges.length; i++) {
-        const range = span.ranges[i]
+      // Build a NEW ranges array (no in-place mutation; unchanged ranges reused).
+      const newRanges = span.ranges.map(range => {
         let newStart = range.start
         let newEnd = range.end
 
@@ -460,13 +526,14 @@ export class SequenceDocument {
         }
 
         if (newStart !== range.start || newEnd !== range.end) {
-          span.ranges[i] = new Range(newStart, newEnd, range.orientation)
           modified = true
+          return new Range(newStart, newEnd, range.orientation, range.startIndefinite, range.endIndefinite)
         }
-      }
+        return range
+      })
 
       if (modified) {
-        return { ...ann, span }
+        return { ...ann, span: new Span(newRanges) }
       }
       return ann
     })
@@ -485,12 +552,14 @@ export class SequenceDocument {
   toJSON() {
     return {
       sequence: this._sequence.value,
+      name: this._name.value,
       annotations: this._annotations.value.map(annotation => ({
         ...annotation,
         span: annotation.span?.toJSON?.() ?? annotation.span
       })),
       circular: this._circular.value,
-      gaps: this._gaps.value
+      gaps: this._gaps.value,
+      readonly: this._readonly
     }
   }
 
@@ -502,9 +571,11 @@ export class SequenceDocument {
   static fromJSON(data) {
     return new SequenceDocument({
       sequence: data.sequence || '',
+      name: data.name || '',
       annotations: data.annotations || [],
       circular: data.circular || false,
-      gaps: data.gaps || []
+      gaps: data.gaps || [],
+      readonly: data.readonly || false
     })
   }
 }

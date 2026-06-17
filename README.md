@@ -37,12 +37,46 @@ A Vue.js DNA sequence editor component library for viewing, editing, and annotat
 - **Customizable Slots** - Title, toolbar, and config panel customization
 - **Exposed API** - Methods for programmatic control (setSelection, scrollToPosition, etc.)
 - **Event System** - Comprehensive events for selection, editing, and annotation interactions
+- **Pluggable IDs** - `setUuidGenerator(fn)` overrides how new annotation IDs are
+  minted (sync or async, e.g. a server-synchronized UUIDv7 round-trip); defaults to
+  a guarded `crypto.randomUUID()`
 
 ## Installation
 
+OpenGenePool is **not published to npm**. Install it directly from GitHub, pinned
+to a specific commit so your build is reproducible:
+
 ```bash
-npm install opengenepool
+npm install github:vidala-labs/opengenepool#12faa94
 ```
+
+Or pin it in `package.json`:
+
+```json
+{
+  "dependencies": {
+    "opengenepool": "github:vidala-labs/opengenepool#12faa94"
+  }
+}
+```
+
+Replace `12faa94` with the commit hash you want to track. Pin to a full hash (not a
+branch) so upstream changes never silently alter your build.
+
+To run the bundled demo app instead of integrating the library, see
+[Development](#development) / the `example/` directory.
+
+### Requirements
+
+OpenGenePool ships as **raw ESM source** (no precompiled `dist/`). The package
+entrypoint (`opengenepool` → `src/index.js`) re-exports Vue Single-File
+Components (`.vue`), and at runtime it loads a Web Worker and a WASM module via
+`new URL('./…', import.meta.url)`. Consuming it therefore requires a bundler that
+can compile `.vue` files and resolve worker/asset URLs — **Vite** (or an
+equivalent Vue + ESM toolchain such as a suitably configured webpack 5). It is not
+consumable from plain Node without such a build step. The Web Worker and WASM both
+degrade gracefully: if your bundler can't build them, alignment falls back to the
+main thread / the pure-JS implementation.
 
 ## Quick Start
 

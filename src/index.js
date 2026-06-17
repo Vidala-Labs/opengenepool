@@ -14,6 +14,10 @@ export { useEditorState } from './composables/useEditorState.js'
 export { useGraphics } from './composables/useGraphics.js'
 export { SequenceDocument } from './composables/SequenceDocument.js'
 
+// Pluggable id generation — install a host generator (e.g. server-synchronized
+// UUIDv7) for new annotation ids; defaults to guarded crypto.randomUUID().
+export { setUuidGenerator } from './utils/uuid.js'
+
 // Utilities
 export {
   reverseComplement,

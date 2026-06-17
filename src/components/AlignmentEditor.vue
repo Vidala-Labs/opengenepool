@@ -6,11 +6,13 @@ import { createEventBus } from '../composables/useEventBus.js'
 import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
+import { useContextMenu } from '../composables/useContextMenu.js'
+import { useAlignmentRunner } from '../composables/useAlignmentRunner.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
-import { ANNOTATION_COLORS } from '../utils/annotation.js'
-import { align, loadWasm, buildAlignedToOriginalMap, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
+import { ANNOTATION_COLORS, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
+import { loadWasm, buildAlignedToOriginalMap, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -131,19 +133,16 @@ const selection = useSelection(editorState, graphics, eventBus)
 // ============================================
 
 // Alignment computation - use sequenceRef for proper Vue reactivity tracking
-// When the document's sequence changes via doc.delete() or doc.insert(),
-// Vue will see the dependency and recompute alignmentResult
-const alignmentResult = computed(() => {
-  const target = targetDoc.value
-  const query = queryDoc.value
-  // Access sequenceRef (public API) for proper Vue reactivity tracking
-  const targetSeq = target?.sequenceRef?.value
-  const querySeq = query?.sequenceRef?.value
-  if (!targetSeq || !querySeq) return null
-  return align(querySeq, targetSeq, {
-    circular: Boolean(target?.circular || query?.circular)
-  })
-})
+// Alignment runs off the synchronous reactive path (Web Worker in the browser,
+// async main-thread fallback otherwise). `alignmentResult` is a shallowRef whose
+// value is null until the first run settles; `aligning` is true while a run is
+// pending. Downstream computeds already guard on a falsy result. The options getter
+// supplies the circular flag (circular-aware alignment) to the worker/fallback.
+const { result: alignmentResult, pending: aligning, whenSettled } = useAlignmentRunner(
+  () => queryDoc.value?.sequenceRef?.value ?? '',
+  () => targetDoc.value?.sequenceRef?.value ?? '',
+  () => ({ circular: Boolean(targetDoc.value?.circular || queryDoc.value?.circular) })
+)
 
 // Check if alignment found a match
 const hasAlignment = computed(() => {
@@ -463,7 +462,7 @@ function detectAlignmentFeatureAt(alignedPos) {
  * @param {number} alignedStart - Start position of the gap in aligned sequence
  * @param {number} alignedEnd - End position of the gap in aligned sequence (exclusive)
  */
-function createDeletionAnnotation(alignedStart, alignedEnd) {
+async function createDeletionAnnotation(alignedStart, alignedEnd) {
   if (!alignmentResult.value || !queryDoc.value) return
 
   // Find flanking bases in query (for span)
@@ -505,7 +504,7 @@ function createDeletionAnnotation(alignedStart, alignedEnd) {
 
   const span = new Span([new Range(origLeft, origRight + 1)])
 
-  queryDoc.value.addAnnotation({
+  await queryDoc.value.addAnnotation({
     type: 'deletion',
     caption,
     span
@@ -520,7 +519,7 @@ function createDeletionAnnotation(alignedStart, alignedEnd) {
  * @param {number} alignedStart - Start position in aligned sequence
  * @param {number} alignedEnd - End position in aligned sequence
  */
-function createInsertionAnnotation(alignedStart, alignedEnd) {
+async function createInsertionAnnotation(alignedStart, alignedEnd) {
   if (!alignmentResult.value || !queryDoc.value) return
 
   // The inserted bases in query
@@ -535,7 +534,7 @@ function createInsertionAnnotation(alignedStart, alignedEnd) {
   const caption = `+${insertedBases}`
   const span = new Span([new Range(origStart, origEnd + 1)])
 
-  queryDoc.value.addAnnotation({
+  await queryDoc.value.addAnnotation({
     type: 'insertion',
     caption,
     span,
@@ -741,7 +740,7 @@ function formatCdsSuffix(geneName, changes) {
  * @param {number} alignedStart - Start position in aligned sequence
  * @param {number} alignedEnd - End position in aligned sequence
  */
-function createMutationAnnotation(alignedStart, alignedEnd) {
+async function createMutationAnnotation(alignedStart, alignedEnd) {
   if (!alignmentResult.value || !queryDoc.value) return
 
   const targetBases = alignmentResult.value.targetAligned.slice(alignedStart, alignedEnd)
@@ -789,7 +788,7 @@ function createMutationAnnotation(alignedStart, alignedEnd) {
 
   const span = new Span([new Range(origStart, origEnd + 1)])
 
-  queryDoc.value.addAnnotation({
+  await queryDoc.value.addAnnotation({
     type: 'mutation',
     caption,
     span
@@ -934,6 +933,10 @@ const selectionStatusText = computed(() => {
 
   return null
 })
+
+// Indicator text: show "Aligning…" while an alignment run is pending, otherwise the
+// selection status. (While pending, the previous alignment stays rendered.)
+const indicatorText = computed(() => aligning.value ? 'Aligning…' : selectionStatusText.value)
 
 // Set initial zoom from localStorage (fallback to prop)
 const { getInitialZoom, saveZoom } = usePersistedZoom(props.initialZoom)
@@ -1135,6 +1138,7 @@ const extensionAPI = {
   // State access
   getSequence: () => targetDoc.value?.sequence ?? '',
   getTitle: () => targetDoc.value?.name ?? '',
+  isCircular: () => isCircular.value,
   getSelectedSequence: () => {
     if (!selection.isSelected.value || !selection.domain.value) return ''
     const seq = targetDoc.value?.sequence ?? ''
@@ -1165,6 +1169,131 @@ const extensionAPI = {
 provide('extensionAPI', extensionAPI)
 provide('showTranslation', showTranslation)
 provide('showAnnotations', showAnnotations)
+
+// ============================================
+// Context-menu contributor service (alignment)
+// ============================================
+// Layers self-register their contributors; this editor resolves the target chain
+// (with the *effective* annotation + alignment row mode) and aggregates. See
+// CLICK_CHANGES.md. mode is 'target' | 'query' (the two alignment rows).
+const contextMenu = useContextMenu()
+provide('contextMenu', contextMenu)
+
+// Resolve which document an annotation belongs to from its alignment row.
+function docForAnnotation(annotation) {
+  const mode = annotation?.attributes?._alignmentMode || 'target'
+  return mode === 'query' ? props.query : props.target
+}
+
+provide('annotationMenuActions', {
+  onCreateAnnotation: () => openAnnotationModal(),
+  onEdit: (annotation) => openAnnotationModalForEdit(annotation, annotation?.attributes?._alignmentMode || 'target'),
+  onDelete: (annotation) => { docForAnnotation(annotation)?.deleteAnnotation(annotation.id); emit('annotations-update') },
+  onToggleHidden: (annotation, hidden) => {
+    const attributes = { ...(annotation.attributes || {}) }
+    if (hidden) attributes[OGP_HIDDEN_ATTR] = true
+    else delete attributes[OGP_HIDDEN_ATTR]
+    docForAnnotation(annotation)?.updateAnnotation({ id: annotation.id, attributes })
+    emit('annotations-update')
+  },
+  onSubtract: (annotation) => selection.subtractSpan(annotation.span),
+  // Merge/split/clip are not offered in alignment mode (single-segment aligned view);
+  // the contributor only emits them for multi-range/cursor cases that don't arise here.
+  onMergeLeft: () => {}, onMergeRight: () => {}, onSplit: () => {},
+  onClipPrimer: (primer, primerBind) => {
+    docForAnnotation(primer)?.updateAnnotation({ id: primer.id, attributes: { ...primer.attributes, primer_bind: primerBind } })
+    emit('annotations-update')
+  }
+})
+
+// Select the entire sequence for an alignment row, attributing the selection to
+// that row (the old per-layer Select-all behavior).
+function selectAllForMode(mode) {
+  const doc = mode === 'query' ? props.query : props.target
+  const len = doc?.sequence?.length ?? 0
+  if (len <= 0) return
+  selection.select([new Range(0, len)])
+  if (mode) selection.source.value = mode
+}
+
+provide('selectionMenuActions', {
+  onCopy: () => handleCopy(),
+  onSelectNone: () => selection.unselect(),
+  onReplace: (range) => { insertModalIsReplace.value = true; insertModalPosition.value = range.start; insertModalSelectionEnd.value = range.end; insertModalText.value = ''; insertModalVisible.value = true },
+  onDelete: () => handleDelete(),
+  onFlip: (rangeIndex) => selection.flip(rangeIndex),
+  onSetOrientation: (rangeIndex, orientation) => selection.setOrientation(rangeIndex, orientation),
+  onDeleteRange: (rangeIndex) => selection.deleteRange(rangeIndex),
+  onMoveRange: (from, to) => selection.moveRange(from, to)
+  // No onExtendHandle: the alignment editor does not support handle extend, so the
+  // contributor omits the "Extend to position..." item entirely.
+})
+
+provide('sequenceMenuActions', {
+  // Select all attributes the selection to the clicked row (target/query).
+  onSelectAll: (mode) => selectAllForMode(mode),
+  onInsert: (position) => { insertModalIsReplace.value = false; insertModalPosition.value = position; insertModalText.value = ''; insertModalVisible.value = true }
+})
+
+// Single editor-level Create Annotation item — available regardless of whether the
+// (v-if mounted) annotation layers exist, and not duplicated by the two rows.
+const createAnnotationContributor = {
+  id: 'create-annotation',
+  getItems: () => props.readonly ? [] : [{ id: 'create-annotation', label: 'Create Annotation', action: () => openAnnotationModal() }]
+}
+onMounted(() => contextMenu.register(createAnnotationContributor))
+onUnmounted(() => contextMenu.unregister(createAnnotationContributor))
+
+// Alignment-only contributor: "Copy annotation to the other row" (when the
+// annotation maps to non-gap positions) and the gap/mutation items for the match
+// row. Registered by this editor (no dedicated layer owns these).
+const alignmentMenuContributor = {
+  id: 'alignment',
+  getItems: (context) => {
+    const items = []
+    const annTarget = (context.targets || []).find(t => t.layer === 'annotation')
+    if (annTarget?.annotation && !props.readonly) {
+      const annotation = annTarget.annotation
+      const mode = annotation.attributes?._alignmentMode || 'target'
+      const mappedSpan = computeMappedSpanForCopy(annotation, mode)
+      if (mappedSpan) {
+        items.push(mode === 'query'
+          ? { id: 'copy-annotation-to-target', label: 'Copy annotation to target', action: () => copyAnnotationToDocument(annotation, 'target', mappedSpan) }
+          : { id: 'copy-annotation-to-query', label: 'Copy annotation to query', action: () => copyAnnotationToDocument(annotation, 'query', mappedSpan) })
+      }
+    }
+    const matchTarget = (context.targets || []).find(t => t.layer === 'alignment-match')
+    if (matchTarget && matchTarget.alignedPos !== null && matchTarget.alignedPos !== undefined) {
+      items.push(...getAlignmentMenuItems(matchTarget.alignedPos, 'query'))
+    }
+    return items
+  }
+}
+onMounted(() => contextMenu.register(alignmentMenuContributor))
+onUnmounted(() => contextMenu.unregister(alignmentMenuContributor))
+
+// Extensions are contributors too (registered last).
+const extensionMenuContributor = {
+  id: 'extensions',
+  getItems: (context) => {
+    const targets = context.targets || []
+    const annTarget = targets.find(t => t.layer === 'annotation')
+    let extContext = null
+    if (annTarget?.annotation) {
+      const ann = annTarget.annotation
+      const mode = ann.attributes?._alignmentMode || 'target'
+      const seq = mode === 'query' ? queryDoc.value?.sequence : editorState.sequence.value
+      const originalAnn = ann.attributes?._originalAnnotation || ann
+      const annSeq = originalAnn.span ? [...iterateSequence(originalAnn.span, seq)].map(b => b.letter).join('') : ''
+      extContext = { type: 'annotation', data: { annotation: originalAnn, sequence: annSeq, fragment: { rangeIndex: annTarget.rangeIndex } } }
+    } else if (selection.isSelected.value && selection.domain.value) {
+      extContext = { type: 'selection', data: { sequence: getSelectedAlignmentSequenceText(), domain: selection.domain.value } }
+    }
+    return extContext ? getExtensionContextMenuItems(extContext) : []
+  }
+}
+onMounted(() => contextMenu.register(extensionMenuContributor))
+onUnmounted(() => contextMenu.unregister(extensionMenuContributor))
 
 // ============================================
 // Template refs and layout
@@ -1277,173 +1406,6 @@ function getExtensionContextMenuItems(context) {
   return items
 }
 
-// Build context menu items
-function buildContextMenuItems(context) {
-  const items = []
-  const isSelected = selection.isSelected.value
-  const domain = selection.domain.value
-
-  // Group 1: Copy / Select none
-  if (isSelected && domain && domain.ranges.length > 0) {
-    const range = domain.ranges[0]
-    if (range.start !== range.end) {
-      items.push({
-        label: 'Copy selection',
-        action: () => handleCopy()
-      })
-    }
-    items.push({
-      label: 'Select none',
-      action: () => selection.unselect()
-    })
-  }
-
-  // Note: "Select all" is provided by SequenceLayer via getMenuItemsForElement
-  // This ensures it only appears when clicking on a sequence layer (not background)
-
-  // Group 2: Insert / Replace / Delete sequence
-  if (isSelected && domain && domain.ranges.length > 0 && !props.readonly) {
-    const firstRange = domain.ranges[0]
-    const isZeroLength = firstRange.start === firstRange.end
-
-    items.push({ separator: true })
-
-    // Insert sequence option for zero-length selections (cursor position)
-    if (isZeroLength) {
-      items.push({
-        label: 'Insert sequence...',
-        action: () => {
-          insertModalIsReplace.value = false
-          insertModalPosition.value = firstRange.start
-          insertModalText.value = ''
-          insertModalVisible.value = true
-        }
-      })
-    }
-
-    // Replace sequence option for single non-zero-length selections only
-    if (!isZeroLength && domain.ranges.length === 1) {
-      items.push({
-        label: 'Replace sequence with...',
-        action: () => {
-          insertModalIsReplace.value = true
-          insertModalPosition.value = firstRange.start
-          insertModalSelectionEnd.value = firstRange.end
-          insertModalText.value = ''
-          insertModalVisible.value = true
-        }
-      })
-    }
-
-    // Delete sequence option for non-zero-length selections
-    if (!isZeroLength) {
-      items.push({
-        label: 'Delete sequence',
-        action: () => handleDelete()
-      })
-    }
-  }
-
-  // Group 3: Create / Edit / Delete Annotation
-  if (!props.readonly) {
-    // Only add separator if there are preceding items
-    if (items.length > 0) {
-      items.push({ separator: true })
-    }
-
-    // Create annotation option - always available when not readonly
-    items.push({
-      label: 'Create Annotation',
-      action: () => openAnnotationModal()
-    })
-  }
-
-  // Annotation-specific items when right-clicking on an annotation
-  if (context.source === 'annotation' && context.annotation && !props.readonly) {
-    const annotation = context.annotation
-    const mode = annotation.attributes?._alignmentMode || 'target'
-
-    items.push({
-      label: 'Edit Annotation',
-      action: () => openAnnotationModalForEdit(annotation, mode)
-    })
-
-    items.push({
-      label: 'Delete Annotation',
-      action: () => {
-        if (mode === 'query' && props.query) {
-          props.query.deleteAnnotation(annotation.id)
-        } else if (props.target) {
-          props.target.deleteAnnotation(annotation.id)
-        }
-        emit('annotations-update')
-      }
-    })
-
-    // Copy to other document option (only if annotation maps to non-gap positions)
-    const mappedSpan = computeMappedSpanForCopy(annotation, mode)
-    if (mappedSpan) {
-      if (mode === 'query') {
-        items.push({
-          label: 'Copy annotation to target',
-          action: () => copyAnnotationToDocument(annotation, 'target', mappedSpan)
-        })
-      } else {
-        items.push({
-          label: 'Copy annotation to query',
-          action: () => copyAnnotationToDocument(annotation, 'query', mappedSpan)
-        })
-      }
-    }
-
-    // Subtract from selection option when annotation overlaps selection
-    if (isSelected && domain) {
-      const annotationSpan = annotation.span
-      const hasOverlap = annotationSpan?.ranges && domain.ranges.some(selRange =>
-        annotationSpan.ranges.some(annRange => selRange.overlaps?.(annRange))
-      )
-
-      if (hasOverlap) {
-        items.push({
-          label: 'Subtract from selection',
-          action: () => selection.subtractSpan(annotationSpan)
-        })
-      }
-    }
-  }
-
-  // Extension context menu items
-  let extContext = null
-  if (context.source === 'annotation' && context.annotation) {
-    // Annotation right-click - extract annotation sequence
-    const ann = context.annotation
-    const mode = ann.attributes?._alignmentMode || 'target'
-    const seq = mode === 'query' ? queryDoc.value?.sequence : editorState.sequence.value
-    // Use the original annotation's span (not the aligned one) to extract sequence
-    const originalAnn = ann.attributes?._originalAnnotation || ann
-    const annSeq = originalAnn.span ? [...iterateSequence(originalAnn.span, seq)].map(b => b.letter).join('') : ''
-    extContext = {
-      type: 'annotation',
-      data: { annotation: originalAnn, sequence: annSeq, fragment: context.fragment }
-    }
-  } else if (isSelected && domain) {
-    const selectedSeq = getSelectedAlignmentSequenceText()
-    extContext = {
-      type: 'selection',
-      data: { sequence: selectedSeq, domain }
-    }
-  }
-
-  if (extContext) {
-    const extItems = getExtensionContextMenuItems(extContext)
-    if (extItems.length > 0) {
-      items.push({ separator: true }, ...extItems)
-    }
-  }
-
-  return items
-}
-
 /**
  * Calculate the aligned position from click coordinates.
  * @param {MouseEvent} event - The click/contextmenu event
@@ -1464,46 +1426,38 @@ function getAlignedPositionFromEvent(event, lineStart) {
 
 function showContextMenu(event, context = {}) {
   event.preventDefault()
-  const items = buildContextMenuItems(context)
 
-  // Use elementsFromPoint to find all elements at the click position
-  const elements = document.elementsFromPoint(event.clientX, event.clientY)
-  const layerItems = []
+  // Build the target chain (what was clicked) from the source-tagged context.
+  // The selection-state items come from system state regardless of the chain.
+  const targets = []
+  const mode = context.mode || selection.source.value || 'target'
 
-  // Collect menu items from all layers
-  for (const el of elements) {
-    if (!el.dataset.layer) continue
-
-    // Check each layer ref for matching items
-    const layerMenuItems = [
-      ...(targetAnnotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(queryAnnotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(selectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(targetSequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(querySequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
-    ]
-
-    layerItems.push(...layerMenuItems)
-
-    // Add alignment-specific menu items (for gap/mutation annotations) - only from ticks layer
-    if (el.dataset.layer === 'alignment-match' && el.dataset.lineStart !== undefined) {
-      const alignedPos = getAlignedPositionFromEvent(event, parseInt(el.dataset.lineStart))
-      if (alignedPos !== null) {
-        const alignmentItems = getAlignmentMenuItems(alignedPos, 'query')
-        layerItems.push(...alignmentItems)
-      }
-    }
+  if (context.source === 'annotation' && context.annotation) {
+    // The aligned annotation carries _alignmentMode / _originalAnnotation; the
+    // action bundle unwraps mode/doc, so pass it through as the effective target.
+    targets.push({ layer: 'annotation', annotation: context.annotation, rangeIndex: context.fragment?.rangeIndex ?? 0 })
+  } else if (context.source === 'selection' || context.source === 'handle') {
+    targets.push({ layer: 'selection', rangeIndex: context.rangeIndex, range: context.range, handleType: context.handleType })
+  } else if (context.source === 'sequence') {
+    targets.push({ layer: 'sequence', mode })
+  } else if (context.source === 'alignment-ticks' || context.source === 'alignment-match') {
+    const alignedPos = context.lineIndex !== undefined
+      ? getAlignedPositionFromEvent(event, context.lineIndex)
+      : null
+    targets.push({ layer: 'alignment-match', alignedPos })
   }
 
-  // Add layer items with separator
-  if (layerItems.length > 0) {
-    items.push({ separator: true })
-    items.push(...layerItems)
-  }
+  const items = contextMenu.buildMenu({
+    mode,
+    targets,
+    annotations: [...(props.target?.annotations || []), ...(props.query?.annotations || [])],
+    selection,
+    readonly: props.readonly,
+    sequenceLength: (mode === 'query' ? props.query : props.target)?.sequence?.length ?? 0
+  })
 
+  if (items.length === 0) return
   contextMenuItems.value = items
-  if (contextMenuItems.value.length === 0) return
-
   contextMenuX.value = event.clientX
   contextMenuY.value = event.clientY
   contextMenuVisible.value = true
@@ -1544,12 +1498,12 @@ function openAnnotationModalForEdit(annotation, mode = 'target') {
   annotationModalOpen.value = true
 }
 
-function handleAnnotationCreate(data) {
+async function handleAnnotationCreate(data) {
   const doc = annotationModalMode.value === 'query' ? props.query : props.target
   if (!doc) return
 
-  // Add annotation to the appropriate document
-  doc.addAnnotation({
+  // Add annotation to the appropriate document (id minted via injectable generator)
+  await doc.addAnnotation({
     span: data.span,
     type: data.type,
     caption: data.caption,
@@ -1644,15 +1598,16 @@ function computeMappedSpanForCopy(annotation, sourceMode) {
  * @param {string} destMode - The destination: 'query' or 'target'
  * @param {Span} mappedSpan - The pre-computed mapped span for the destination
  */
-function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
+async function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
   const doc = destMode === 'query' ? props.query : props.target
   if (!doc || !mappedSpan) return
 
   // Get the original annotation for other properties
   const originalAnn = annotation.attributes?._originalAnnotation || annotation
 
-  // Create copy with mapped span and new ID (document will assign)
-  doc.addAnnotation({
+  // Create copy with mapped span; the document assigns a new id via the injectable
+  // generator (await so the emit reflects it).
+  await doc.addAnnotation({
     span: mappedSpan,
     type: originalAnn.type,
     caption: originalAnn.caption,
@@ -1992,6 +1947,8 @@ defineExpose({
   queryDoc,
   hasAlignment,
   alignmentResult,
+  aligning,
+  whenSettled,
   alignmentLines,
   targetPositionMap,
   queryPositionMap,
@@ -2007,8 +1964,8 @@ defineExpose({
   // Layer refs for testing
   targetSequenceLayerRef,
   querySequenceLayerRef,
-  // For testing context menu building
-  buildContextMenuItems,
+  // For testing context menu building (contributor service)
+  contextMenu,
   // Gap annotation feature
   detectAlignmentFeatureAt,
   createDeletionAnnotation,
@@ -2229,7 +2186,7 @@ const toolbarHelpText = `Selection Controls:
       </div>
 
       <!-- Selection Status Display -->
-      <Indicator :text="selectionStatusText" />
+      <Indicator :text="indicatorText" />
     </div>
 
     <!-- Context Menu -->

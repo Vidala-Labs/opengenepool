@@ -115,6 +115,7 @@ function toggleConfigPanel() {
         <div v-if="showViewModeToggle" class="view-mode-toggle">
           <button
             :class="['view-mode-btn', { active: viewMode === 'linear' }]"
+            data-view-mode="linear"
             @click="emit('update:viewMode', 'linear')"
             title="Linear view"
           >
@@ -122,6 +123,7 @@ function toggleConfigPanel() {
           </button>
           <button
             :class="['view-mode-btn', { active: viewMode === 'circular' }]"
+            data-view-mode="circular"
             @click="emit('update:viewMode', 'circular')"
             title="Circular view"
           >
@@ -158,7 +160,7 @@ function toggleConfigPanel() {
               <span>{{ item.label }}</span>
             </label>
             <div v-else-if="item.type === 'type-filter'" class="config-types">
-              <label v-for="type in item.types" :key="type" class="type-row">
+              <label v-for="type in item.types" :key="type" class="type-row" :data-type="type">
                 <input type="checkbox" :checked="!item.hiddenTypes.has(type)" @change="item.onToggle(type)">
                 <svg class="type-swatch" viewBox="0 0 14 14" width="14" height="14">
                   <rect

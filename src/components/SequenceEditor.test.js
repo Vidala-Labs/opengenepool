@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { markRaw } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
@@ -74,9 +74,9 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Should have Insert sequence option
-      const menuItems = wrapper.findAll('.menu-item')
-      const insertItem = menuItems.find(item => item.text().includes('Insert sequence'))
-      expect(insertItem).toBeTruthy()
+      const insertItem = wrapper.find('[data-action="insert-sequence"]')
+      expect(insertItem.exists()).toBe(true)
+      expect(insertItem.text()).toContain('Insert sequence')
     })
 
     it('opens insert modal when clicking Insert sequence with no sequence loaded', async () => {
@@ -89,8 +89,9 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Click Insert sequence
-      const menuItems = wrapper.findAll('.menu-item')
-      const insertItem = menuItems.find(item => item.text().includes('Insert sequence'))
+      const insertItem = wrapper.find('[data-action="insert-sequence"]')
+      expect(insertItem.exists()).toBe(true)
+      expect(insertItem.text()).toContain('Insert sequence')
       await insertItem.trigger('click')
       await wrapper.vm.$nextTick()
 
@@ -521,7 +522,9 @@ describe('SequenceEditor', () => {
 
       // Open config and uncheck 'gene'
       await wrapper.find('.config-button').trigger('click')
-      const geneRow = wrapper.findAll('.type-row').find(r => r.text().includes('gene'))
+      const geneRow = wrapper.find('[data-type="gene"]')
+      expect(geneRow.exists()).toBe(true)
+      expect(geneRow.text()).toContain('gene')
       await geneRow.find('input[type="checkbox"]').trigger('change')
 
       await wrapper.vm.$nextTick()
@@ -570,7 +573,9 @@ describe('SequenceEditor', () => {
 
       // Hide gene type
       await wrapper.find('.config-button').trigger('click')
-      const geneRow = wrapper.findAll('.type-row').find(r => r.text().includes('gene'))
+      const geneRow = wrapper.find('[data-type="gene"]')
+      expect(geneRow.exists()).toBe(true)
+      expect(geneRow.text()).toContain('gene')
       await geneRow.find('input[type="checkbox"]').trigger('change')
       await wrapper.vm.$nextTick()
 
@@ -1244,6 +1249,29 @@ describe('SequenceEditor', () => {
       expect(wrapper.vm.getSequence()).toBe('ATCGATCGATCG')
     })
 
+    it('extensionAPI exposes circular status from the document', async () => {
+      let capturedAPI = null
+      const TestPanel = markRaw({
+        template: '<div></div>',
+        setup() {
+          const { inject } = require('vue')
+          capturedAPI = inject('extensionAPI')
+          return {}
+        }
+      })
+
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCGATCGATCG', [], true),
+          extensions: [{ id: 'test', name: 'Test', panel: TestPanel }]
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      expect(capturedAPI).not.toBeNull()
+      expect(capturedAPI.isCircular()).toBe(true)
+    })
+
     it('onSelectionChange notifies when selection.domain changes', async () => {
       // Create a test extension that captures the API
       let capturedAPI = null
@@ -1558,13 +1586,13 @@ describe('SequenceEditor', () => {
 
       expect(capturedAPI).not.toBeNull()
 
-      // Call addAnnotation via the extensionAPI
+      // Call addAnnotation via the extensionAPI (now async: id minted via generator)
       capturedAPI.addAnnotation({
         span: ezSpan(0, 30),
         type: 'CDS',
         caption: 'Test CDS'
       })
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       // Should emit annotations-update
       const emitted = wrapper.emitted('annotations-update')
@@ -1924,6 +1952,19 @@ describe('SequenceEditor', () => {
       expect(viewModeToggle.exists()).toBe(true)
     })
 
+    it('emits stable data-view-mode attributes on view toggle buttons', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('ATCG'.repeat(100), [], true),  // circular = true
+          initialZoom: 50
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.find('[data-view-mode="linear"]').exists()).toBe(true)
+      expect(wrapper.find('[data-view-mode="circular"]').exists()).toBe(true)
+    })
+
     it('shows selection status text for selections', async () => {
       const wrapper = mount(SequenceEditor, {
         props: {
@@ -2108,6 +2149,79 @@ describe('SequenceEditor', () => {
       expect(wrapper.find('.context-menu').exists()).toBe(true)
       const menuText = wrapper.find('.context-menu').text()
       expect(menuText).not.toContain('Clip primer binding')
+    })
+  })
+
+  // A selection drag that starts on the sequence text must keep tracking the cursor
+  // even while the cursor is over the tall whitespace between lines (whitespace that
+  // exists because annotations elsewhere inflate a line's height). The selection must
+  // reflect the position projected from the current cursor (clamped to the line), not
+  // freeze at the last position that was directly over the sequence text.
+  describe('drag selection tracks the cursor over inter-line whitespace', () => {
+    it('keeps updating to the projected position while the cursor is in an annotation-inflated gap', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { sequence: createDoc('A'.repeat(200)), initialZoom: 50 },
+        attachTo: document.body
+      })
+      await wrapper.vm.$nextTick()
+
+      const graphics = wrapper.vm.graphics
+      const editorState = wrapper.vm.editorState
+      const zoom = editorState.zoomLevel.value            // 50 → 4 lines for 200bp
+      expect(editorState.lineCount.value).toBeGreaterThan(1)
+
+      // Inflate line 1's height to create a tall whitespace band above line 1's text
+      // (as stacked annotations on that line would). Drives the real lineExtraHeight path.
+      graphics.setLineExtraHeight(1, 80, 'test')
+      await wrapper.vm.$nextTick()
+      expect(graphics.lineExtraHeight.value.get(1)).toBe(80)
+
+      const metrics = graphics.metrics.value
+      const { lmargin, charWidth } = metrics
+
+      // Known SVG rect at the origin so clientX/clientY map directly into SVG space.
+      const svg = wrapper.find('.editor-svg')
+      svg.element.getBoundingClientRect = () => ({
+        x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 2000, width: 1000, height: 2000
+      })
+
+      // Y in line-1's inflated whitespace band: between line-0's bottom and line-1's
+      // text top. We assert this Y resolves to line 1 (the code's own mapping).
+      const settings = editorState.settings.value
+      const lh = graphics.lineHeight.value
+      const line0Bottom = settings.vmargin + 20 /*tooltipMargin*/ + settings.linetopmargin + lh
+      const gapY = line0Bottom + settings.linepadding + 20 // inside line-1's extra band
+      const lineIndexAtGap = graphics.pixelToLineIndex(gapY, editorState.lineCount.value)
+      expect(lineIndexAtGap).toBe(1)
+
+      // Mousedown on the LINE 0 overlay at base 5.
+      const overlays = wrapper.findAll('.sequence-overlay')
+      const line0Overlay = overlays[0]
+      const startX = lmargin + 5 * charWidth + charWidth / 2
+      await line0Overlay.trigger('mousedown', { button: 0, clientX: startX, clientY: 5 })
+
+      // Drag: cursor X for base 15 within line 1 (i.e. absolute base zoom+15), but the
+      // cursor Y is in the inflated whitespace gap (off the sequence text).
+      const targetLinePos = 15
+      const moveX = lmargin + targetLinePos * charWidth + charWidth / 2
+      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: moveX, clientY: gapY }))
+      await wrapper.vm.$nextTick()
+
+      // Expected projected position = lineIndex*zoom + clamp(linePos, zoom). It must
+      // reflect the cursor (line 1, ~base 15), NOT freeze at the mousedown base (5).
+      const expectedPos = 1 * zoom + Math.min(targetLinePos, zoom)
+      const ranges = wrapper.vm.selection.domain.value.ranges
+      expect(ranges.length).toBeGreaterThan(0)
+      const range = ranges[ranges.length - 1]
+      expect(range.end).toBe(expectedPos)
+      expect(range.end).not.toBe(5)        // not frozen at the last on-text position
+      expect(range.start).toBe(5)          // anchor stays at mousedown
+
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(expectedPos)
+
+      wrapper.unmount()
     })
   })
 })

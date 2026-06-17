@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { TrashIcon, PlusIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/vue/20/solid'
 import { Span, Range, Orientation } from '../utils/dna.js'
+import { isOgpAttr, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
 
 const props = defineProps({
   open: {
@@ -64,6 +65,8 @@ const attributes = ref({})
 const visibleFields = ref([])
 const customFieldName = ref('')
 const additionalFieldValues = ref({})
+// ogp:hidden control (internal OGP attribute, edited via a dedicated checkbox)
+const hidden = ref(false)
 
 // Additional fields filtered by current annotation type
 const activeAdditionalFields = computed(() => {
@@ -134,13 +137,15 @@ watch(() => props.open, (isOpen) => {
       annotationType.value = props.annotation.type || ''
       // Get ranges from existing annotation span
       ranges.value = spanToFormRanges(props.annotation.span || props.span)
-      // Pre-fill attributes (filter underscore-prefixed keys and extension keys from display)
+      // Pre-fill attributes (filter underscore-prefixed keys, ogp: internal keys,
+      // and extension keys from the generic attribute display)
       const attrs = props.annotation.attributes || {}
       attributes.value = { ...attrs }
+      hidden.value = attrs[OGP_HIDDEN_ATTR] === true
       // Build set of keys handled by additionalFields extensions
       const extensionKeys = new Set(props.additionalFields.map(f => f.key))
       visibleFields.value = Object.keys(attrs).filter(key =>
-        !key.startsWith('_') && !extensionKeys.has(key)
+        !key.startsWith('_') && !isOgpAttr(key) && !extensionKeys.has(key)
       )
       // Pre-fill additional field values from existing attributes
       additionalFieldValues.value = {}
@@ -157,6 +162,7 @@ watch(() => props.open, (isOpen) => {
       attributes.value = {}
       visibleFields.value = []
       additionalFieldValues.value = {}
+      hidden.value = false
     }
     customFieldName.value = ''
   }
@@ -268,6 +274,11 @@ function addField(key) {
 
 function addCustomField() {
   const key = customFieldName.value.trim()
+  // Reject the reserved OGP-internal namespace - those are managed via dedicated controls
+  if (isOgpAttr(key)) {
+    customFieldName.value = ''
+    return
+  }
   if (key && !visibleFields.value.includes(key)) {
     visibleFields.value.push(key)
     attributes.value[key] = ''
@@ -305,6 +316,8 @@ function handleSubmit() {
   for (const [key, value] of Object.entries(attributes.value)) {
     // Skip internal attributes (underscore prefix = one-way from backend)
     if (key.startsWith('_')) continue
+    // Skip OGP-internal attributes - managed via dedicated controls, re-applied below
+    if (isOgpAttr(key)) continue
     // Skip keys handled by extension fields - they're managed via additionalFieldValues
     if (activeExtensionKeys.has(key)) continue
     if (typeof value === 'string') {
@@ -340,6 +353,11 @@ function handleSubmit() {
     }
   }
 
+  // OGP-internal: only write ogp:hidden when set; omit the key entirely otherwise
+  if (hidden.value) {
+    finalAttrs[OGP_HIDDEN_ATTR] = true
+  }
+
   const data = {
     caption: caption.value.trim(),
     type: annotationType.value.trim(),
@@ -364,7 +382,7 @@ function onOverlayClick() {
 <template>
   <div v-if="open && !readonly" class="modal-overlay" @click="onOverlayClick">
     <div class="modal-content" @click.stop>
-      <div class="modal-header">
+      <div class="modal-header" data-role="annotation-editor">
         <h3>{{ isEditMode ? 'Edit Annotation' : 'Create Annotation' }}</h3>
         <button class="modal-close" @click="close">&times;</button>
       </div>
@@ -395,6 +413,14 @@ function onOverlayClick() {
             <datalist id="annotation-type-list">
               <option v-for="t in STANDARD_TYPES" :key="t" :value="t" />
             </datalist>
+          </div>
+
+          <!-- Hidden toggle (ogp:hidden internal attribute) -->
+          <div class="form-group">
+            <label class="hidden-checkbox" data-role="annotation-hidden-toggle" title="Hide this annotation from the linear and circular views">
+              <input type="checkbox" v-model="hidden" />
+              <span>Hidden</span>
+            </label>
           </div>
 
           <!-- Ranges section -->
@@ -555,7 +581,7 @@ function onOverlayClick() {
             </div>
             <div class="form-actions-right">
               <button type="button" class="btn-cancel" @click="close">Cancel</button>
-              <button type="submit" class="btn-create" :disabled="!isValid">{{ isEditMode ? 'Update' : 'Create' }}</button>
+              <button type="submit" class="btn-create" data-action="save-annotation" :disabled="!isValid">{{ isEditMode ? 'Update' : 'Create' }}</button>
             </div>
           </div>
         </form>
@@ -780,6 +806,22 @@ function onOverlayClick() {
 
 .indefinite-checkbox:has(input:checked) span {
   color: #4CAF50;
+}
+
+.hidden-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #666;
+}
+
+.hidden-checkbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  margin: 0;
 }
 
 .range-row .range-strand {

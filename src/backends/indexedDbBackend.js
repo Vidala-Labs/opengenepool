@@ -107,24 +107,48 @@ function saveSequence(db, sequence) {
  */
 export function createIndexedDbBackend(sequenceId, options = {}) {
   let db = null
-  const { onSyncStatusChange } = options
+  const { onSyncStatusChange, store } = options
 
-  // Initialize database connection
-  const dbPromise = openDatabase().then((database) => {
-    db = database
-    return db
-  })
+  // Storage seam: defaults to the real IndexedDB-backed functions, but a custom
+  // async store ({ get(id), save(seq) }) can be injected (e.g. for tests). When a
+  // custom store is provided we skip opening IndexedDB entirely.
+  const readSequence = store
+    ? () => store.get(sequenceId)
+    : async () => { await dbPromise; return getSequence(db, sequenceId) }
+  const writeSequence = store
+    ? (seq) => store.save(seq)
+    : async (seq) => { await dbPromise; return saveSequence(db, seq) }
+
+  // Initialize database connection (only when using the real IndexedDB store).
+  const dbPromise = store
+    ? Promise.resolve(null)
+    : openDatabase().then((database) => { db = database; return db })
+
+  // Serialize operations so concurrent calls don't read the same stale snapshot
+  // and overwrite each other (get -> mutate -> put must run atomically per op).
+  let queue = Promise.resolve()
 
   /**
-   * Applies an operation and persists to IndexedDB.
-   * Calls the ack callback on success, error callback on failure.
+   * Applies an operation and persists it. Operations are queued so they run
+   * strictly in order; each one observes the previous one's write. Returns a
+   * promise that resolves when THIS operation has persisted and rejects if it
+   * failed — so callers can await persistence and observe errors.
+   *
+   * The internal `queue` is kept non-rejecting (we chain off a swallowed copy)
+   * so one failed operation never poisons the ordering of later operations.
    */
-  async function applyOperation(operationType, data) {
-    try {
-      await dbPromise
+  function applyOperation(operationType, data) {
+    const result = queue.then(() => runOperation(operationType, data))
+    // Advance the ordering chain on a branch that never rejects, so a failure in
+    // this op doesn't break the queue for subsequent ops.
+    queue = result.catch(() => {})
+    return result
+  }
 
+  async function runOperation(operationType, data) {
+    try {
       // Get current sequence state
-      let sequence = await getSequence(db, sequenceId)
+      let sequence = await readSequence()
 
       if (!sequence) {
         // Initialize new sequence if it doesn't exist
@@ -184,7 +208,7 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
       }
 
       // Save updated sequence
-      await saveSequence(db, sequence)
+      await writeSequence(sequence)
 
       if (onSyncStatusChange) {
         onSyncStatusChange('saved')
@@ -195,54 +219,60 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
       if (onSyncStatusChange) {
         onSyncStatusChange('error')
       }
+      // Re-throw so the per-operation promise rejects and callers can observe
+      // the failure (the ordering queue is insulated from this in applyOperation).
+      throw error
     }
   }
 
   return {
-    // Sequence operations
+    // Sequence operations. Each returns a promise that resolves once the edit is
+    // persisted and rejects if persistence failed.
     insert(data) {
-      applyOperation('insert', data)
+      return applyOperation('insert', data)
     },
 
     delete(data) {
-      applyOperation('delete', data)
+      return applyOperation('delete', data)
     },
 
     // Annotation operations
     annotationCreated(data) {
-      applyOperation('annotationCreated', data)
+      return applyOperation('annotationCreated', data)
     },
 
     annotationUpdate(data) {
-      applyOperation('annotationUpdate', data)
+      return applyOperation('annotationUpdate', data)
     },
 
     annotationDeleted(data) {
-      applyOperation('annotationDeleted', data)
+      return applyOperation('annotationDeleted', data)
     },
 
     // Metadata operations
     titleUpdate(data) {
-      applyOperation('titleUpdate', data)
+      return applyOperation('titleUpdate', data)
     },
 
     metadataUpdate(data) {
-      applyOperation('metadataUpdate', data)
+      return applyOperation('metadataUpdate', data)
     },
 
     // Additional methods for standalone mode
     async load() {
-      await dbPromise
-      const sequence = await getSequence(db, sequenceId)
+      const sequence = await readSequence()
       if (sequence?.annotations) {
         sequence.annotations = normalizeAnnotations(sequence.annotations)
       }
       return sequence
     },
 
-    async save(sequence) {
-      await dbPromise
-      return saveSequence(db, { ...sequence, id: sequenceId })
+    // Queued so an explicit save can't interleave with in-flight edit operations.
+    // Returns a promise reflecting this save; the ordering chain stays non-rejecting.
+    save(sequence) {
+      const result = queue.then(() => writeSequence({ ...sequence, id: sequenceId }))
+      queue = result.catch(() => {})
+      return result
     }
   }
 }

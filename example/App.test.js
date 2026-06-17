@@ -1,11 +1,78 @@
 import { describe, it, expect } from 'bun:test'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
+import { Span, Range } from '../src/utils/dna.js'
 import { ezSpan } from '../test/span-helpers.js'
 
 /**
  * Tests for the computed property logic in App.vue
  */
 describe('App computed properties', () => {
+  describe('normalizeSpan (boundary: rehydrated spans must become real Range/Span objects)', () => {
+    // Mirrors example/App.vue normalizeSpan(). The example app persists sequences to
+    // IndexedDB; structured clone (and JSON round-trips) strip the Span/Range prototypes,
+    // so annotation.span arrives as plain {ranges:[{start,end,...}]}. The app must rebuild
+    // real Range instances before handing data to the library (OGP does no defensive coding).
+    function normalizeSpan(span) {
+      if (span instanceof Span) return span
+      if (typeof span === 'string') return Span.parse(span)
+      if (span?.ranges) {
+        return new Span(span.ranges.map(r =>
+          r instanceof Range
+            ? r
+            : (typeof r === 'string'
+                ? Range.parse(r)
+                : new Range(r.start, r.end, r.orientation, r.startIndefinite, r.endIndefinite))
+        ))
+      }
+      return new Span()
+    }
+
+    it('rebuilds Range instances from plain (structured-clone) ranges', () => {
+      // IndexedDB persists via structured clone, which keeps own enumerable props
+      // but strips the Range prototype: span -> { ranges: [{start,end,orientation,...}] }
+      const plain = {
+        ranges: [
+          { start: 10, end: 50, orientation: -1, startIndefinite: false, endIndefinite: true }
+        ]
+      }
+      expect(plain.ranges[0] instanceof Range).toBe(false)  // sanity: plain object
+
+      const span = normalizeSpan(plain)
+      expect(span instanceof Span).toBe(true)
+      expect(span.ranges[0] instanceof Range).toBe(true)
+      // The crash path: Span.toJSON()/toGenBank() call range methods that only exist on Range
+      expect(() => span.toJSON()).not.toThrow()
+      expect(span.toJSON()).toBe('(10..>50)')
+    })
+
+    it('rebuilds a multi-range span and survives toJSON()', () => {
+      const plain = {
+        ranges: [
+          { start: 0, end: 5, orientation: 1 },
+          { start: 9, end: 20, orientation: 1 }
+        ]
+      }
+      const span = normalizeSpan(plain)
+      expect(span.ranges.every(r => r instanceof Range)).toBe(true)
+      expect(span.toJSON()).toBe('0..5 + 9..20')
+    })
+
+    it('rebuilds ranges stored as fenced strings (JSON-persisted spans)', () => {
+      const span = normalizeSpan({ ranges: ['(10..>50)'] })
+      expect(span.ranges[0] instanceof Range).toBe(true)
+      expect(span.toJSON()).toBe('(10..>50)')
+    })
+
+    it('passes through an existing Span unchanged', () => {
+      const span = new Span([new Range(0, 10)])
+      expect(normalizeSpan(span)).toBe(span)
+    })
+
+    it('parses a string span', () => {
+      expect(normalizeSpan('10..50').toJSON()).toBe('10..50')
+    })
+  })
+
   describe('displayTitle', () => {
     // Mirrors: const displayTitle = computed(() => currentSequenceData.value?.name || 'Untitled')
     function getDisplayTitle(currentSequenceData) {
@@ -100,6 +167,7 @@ describe('App computed properties', () => {
       if (!currentSequenceData) return null
       return new SequenceDocument({
         sequence: currentSequenceData.sequence,
+        name: currentSequenceData.name,
         annotations: currentSequenceData.annotations || [],
         circular: currentSequenceData.metadata?.circular || false
       })
@@ -108,6 +176,7 @@ describe('App computed properties', () => {
     it('creates SequenceDocument from raw data', () => {
       const data = {
         sequence: 'ATCGATCG',
+        name: 'pUC19',
         annotations: [{ id: '1', span: ezSpan(0, 4), type: 'misc_feature' }],
         metadata: { circular: true }
       }
@@ -118,6 +187,12 @@ describe('App computed properties', () => {
       expect(doc.annotations.length).toBe(1)
       expect(doc.annotations[0].span.toJSON()).toBe('0..4')
       expect(doc.circular).toBe(true)
+    })
+
+    it('passes the sequence name into the document', () => {
+      const data = { sequence: 'ATCGATCG', name: 'pUC19' }
+      const doc = createTargetDoc(data)
+      expect(doc.name).toBe('pUC19')
     })
 
     it('returns null when no data', () => {
@@ -142,6 +217,7 @@ describe('App computed properties', () => {
       if (!alignmentSequenceData) return null
       return new SequenceDocument({
         sequence: alignmentSequenceData.sequence,
+        name: alignmentSequenceData.name,
         annotations: alignmentSequenceData.annotations || [],
         circular: alignmentSequenceData.metadata?.circular || false
       })
