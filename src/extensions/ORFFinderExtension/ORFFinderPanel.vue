@@ -158,8 +158,7 @@ function findAllORFs() {
     return
   }
 
-  // TODO: Get circular status from API - for now assume linear
-  const isCircular = false
+  const isCircular = extensionAPI.isCircular?.() ?? false
 
   const allORFs = []
   let idCounter = 0

@@ -841,6 +841,7 @@ const extensionAPI = {
   // State access
   getSequence: () => editorState.sequence.value,
   getTitle: () => editorState.title.value,
+  isCircular: () => isCircular.value,
   getSelectedSequence: getSelectedSequenceText,
   getAnnotations: () => localAnnotations.value,
 

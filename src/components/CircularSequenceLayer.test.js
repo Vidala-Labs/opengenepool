@@ -7,6 +7,7 @@ import { useGraphics } from '../composables/useGraphics.js'
 import { useSelection } from '../composables/useSelection.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
 import { createEventBus } from '../composables/useEventBus.js'
+import { positionToAngle, polarToCartesian } from '../utils/circular.js'
 
 describe('CircularSequenceLayer', () => {
   function createWrapper(options = {}) {
@@ -208,6 +209,55 @@ describe('CircularSequenceLayer', () => {
       })
 
       expect(wrapper.selection.isSelected.value).toBe(true)
+
+      document.body.removeChild(mockSvg)
+    })
+
+    // A drag that starts on the backbone must keep tracking the cursor even while the
+    // cursor is over the ANNOTATION RING (outside the backbone radius) — the circular
+    // analogue of "off the sequence text, over annotation whitespace". mouseToPosition
+    // is radius-independent (atan2 of the angle), so the position must follow the angle.
+    it('keeps tracking while the cursor is over the annotation ring (off the backbone)', async () => {
+      const wrapper = createWrapper({ sequenceLength: 360 })
+
+      const mockSvg = document.createElement('div')
+      mockSvg.className = 'circular-view'
+      // 500x500 rect == viewBox, origin at (0,0), so client coords == SVG coords.
+      mockSvg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 500 })
+      document.body.appendChild(mockSvg)
+
+      const cg = wrapper.circularGraphics
+      const seqLen = wrapper.editorState.sequenceLength.value
+      const cx = cg.centerX.value
+      const cy = cg.centerY.value
+      const backboneR = cg.backboneRadius.value
+
+      // Mousedown on the backbone at base 10's angle.
+      const startBase = 10
+      const startPt = polarToCartesian(cx, cy, backboneR, positionToAngle(startBase, seqLen))
+      const backbone = wrapper.find('.backbone')
+      await backbone.trigger('mousedown', { button: 0, clientX: startPt.x, clientY: startPt.y, preventDefault: () => {} })
+      expect(wrapper.selection.isSelected.value).toBe(true)
+
+      // Drag to base 90's angle, but at the ANNOTATION-RING radius (well outside the
+      // backbone) — i.e. the cursor is over the annotation band, not the backbone.
+      const moveBase = 90
+      const ringR = backboneR + 40
+      const movePt = polarToCartesian(cx, cy, ringR, positionToAngle(moveBase, seqLen))
+      // The editor's own projection for that exact point (radius-independent):
+      const projected = cg.mouseToPosition(movePt.x, movePt.y)
+
+      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: movePt.x, clientY: movePt.y }))
+      await wrapper.vm.$nextTick()
+
+      const range = wrapper.selection.domain.value.ranges[0]
+      // Selection tracked the cursor's ANGLE even though the cursor was over the ring,
+      // not the backbone — so its far edge reflects the projected position, not base 10.
+      expect(range.end).toBe(projected)
+      expect(projected).not.toBe(startBase) // moved; not frozen at the mousedown base
+
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+      await wrapper.vm.$nextTick()
 
       document.body.removeChild(mockSvg)
     })
