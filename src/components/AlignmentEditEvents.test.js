@@ -1,6 +1,6 @@
 import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import AlignmentEditor from './AlignmentEditor.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -11,6 +11,15 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
   return new SequenceDocument({ sequence, annotations, circular, backend })
+}
+
+// Alignment runs asynchronously; wait for the runner to settle (no-op for editors
+// without a runner). Safe superset of $nextTick.
+async function settle(wrapper) {
+  await flushPromises()
+  if (wrapper?.vm?.whenSettled) await wrapper.vm.whenSettled()
+  await flushPromises()
+  await wrapper?.vm?.$nextTick?.()
 }
 
 describe('SequenceEditor Edit Events', () => {
@@ -26,21 +35,21 @@ describe('SequenceEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Select range and trigger delete via Delete key
       wrapper.vm.setSelection(ezSpan(5, 10))
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const svg = wrapper.find('.editor-svg')
       await svg.trigger('keydown', { key: 'Delete' })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Find the ConfirmDialog component and emit confirm
       const confirmDialog = wrapper.findComponent(ConfirmDialog)
       if (confirmDialog.exists()) {
         confirmDialog.vm.$emit('confirm')
-        await wrapper.vm.$nextTick()
+        await settle(wrapper)
       }
 
       const editEvents = wrapper.emitted('edit')
@@ -59,20 +68,20 @@ describe('SequenceEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Select range 3..8
       wrapper.vm.setSelection(ezSpan(3, 8))
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const svg = wrapper.find('.editor-svg')
       await svg.trigger('keydown', { key: 'Delete' })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const confirmDialog = wrapper.findComponent(ConfirmDialog)
       if (confirmDialog.exists()) {
         confirmDialog.vm.$emit('confirm')
-        await wrapper.vm.$nextTick()
+        await settle(wrapper)
       }
 
       const editEvents = wrapper.emitted('edit')
@@ -89,22 +98,22 @@ describe('SequenceEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Set cursor position (zero-width selection)
       wrapper.vm.setSelection(ezSpan(5, 5))
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Type a base to open insert modal
       const svg = wrapper.find('.editor-svg')
       await svg.trigger('keydown', { key: 'A' })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Find the InsertModal component and emit submit
       const insertModal = wrapper.findComponent(InsertModal)
       if (insertModal.exists()) {
         insertModal.vm.$emit('submit', 'ATG')
-        await wrapper.vm.$nextTick()
+        await settle(wrapper)
       }
 
       const editEvents = wrapper.emitted('edit')
@@ -125,22 +134,22 @@ describe('SequenceEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Select a range (not cursor) to trigger replace mode
       wrapper.vm.setSelection(ezSpan(5, 10))
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Type a base to open replace modal
       const svg = wrapper.find('.editor-svg')
       await svg.trigger('keydown', { key: 'G' })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Find the InsertModal component and emit submit
       const insertModal = wrapper.findComponent(InsertModal)
       if (insertModal.exists()) {
         insertModal.vm.$emit('submit', 'GGG')
-        await wrapper.vm.$nextTick()
+        await settle(wrapper)
       }
 
       const editEvents = wrapper.emitted('edit')
@@ -165,16 +174,16 @@ describe('SequenceEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Select a range
       wrapper.vm.setSelection(ezSpan(5, 10))
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Try Ctrl+X
       const svg = wrapper.find('.editor-svg')
       await svg.trigger('keydown', { key: 'x', ctrlKey: true })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const editEvents = wrapper.emitted('edit')
       // Either no events or no 'cut' type events
@@ -206,17 +215,17 @@ describe('AlignmentEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Select on target
       wrapper.vm.selection.startSelection(0, false, 'target')
       wrapper.vm.selection.updateSelection(5)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete via confirmDelete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const editEvents = wrapper.emitted('edit')
       expect(editEvents).toBeTruthy()
@@ -240,17 +249,17 @@ describe('AlignmentEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Select on query
       wrapper.vm.selection.startSelection(0, false, 'query')
       wrapper.vm.selection.updateSelection(5)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete via confirmDelete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const editEvents = wrapper.emitted('edit')
       expect(editEvents).toBeTruthy()
@@ -276,7 +285,7 @@ describe('AlignmentEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify alignment mode is active
       expect(wrapper.vm.hasAlignment).toBe(true)
@@ -288,11 +297,11 @@ describe('AlignmentEditor Edit Events', () => {
       wrapper.vm.selection.startSelection(10, false, 'query')
       wrapper.vm.selection.updateSelection(15)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify delete event emitted
       const editEvents = wrapper.emitted('edit')
@@ -321,7 +330,7 @@ describe('AlignmentEditor Edit Events', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify alignment mode is active
       expect(wrapper.vm.hasAlignment).toBe(true)
@@ -333,11 +342,11 @@ describe('AlignmentEditor Edit Events', () => {
       wrapper.vm.selection.startSelection(10, false, 'target')
       wrapper.vm.selection.updateSelection(15)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify delete event emitted
       const editEvents = wrapper.emitted('edit')
