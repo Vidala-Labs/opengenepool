@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
 import AnnotationLayer, { __resetModuleState, allAnnotationTypes } from './AnnotationLayer.vue'
 import { __resetModuleState as resetTranslationState } from './TranslationLayer.vue'
+import { annotationMenuItems } from './menus/annotationMenuContributor.js'
 import { Annotation } from '../utils/annotation.js'
 import { Orientation, Span, Range } from '../utils/dna.js'
 import { ezSpan } from '../../test/span-helpers.js'
@@ -930,25 +931,40 @@ describe('coordination with TranslationLayer', () => {
   })
 
   describe('clip primer binding context menu', () => {
-    // Helper to mount with selection provider
-    function mountWithSelection(props = {}, selectionState = {}, options = {}) {
-      const { editorState, graphics } = createMockProviders(options)
-
+    // These scenarios now exercise the shared annotation menu contributor (the
+    // same code AnnotationLayer registers). The shim builds the rich context the
+    // editor would resolve and calls the contributor, so the existing call sites
+    // (wrapper.vm.getMenuItemsForElement({ annotationId, rangeIndex })) keep working.
+    function mountWithSelection(props = {}, selectionState = {}) {
       const selection = {
         isSelected: ref(selectionState.isSelected ?? false),
         domain: ref(selectionState.domain ?? null)
       }
+      const annotations = props.annotations || []
+      const clipCalls = []
+      const deps = { onClipPrimer: (primer, primerBind) => clipCalls.push({ primer, primerBind }) }
 
-      return mount(AnnotationLayer, {
-        props,
-        global: {
-          provide: {
-            editorState,
-            graphics,
-            selection
+      return {
+        vm: {
+          clipCalls,
+          getMenuItemsForElement(dataset) {
+            const annotation = annotations.find(a => a.id === dataset.annotationId)
+            if (!annotation) return []
+            const context = {
+              mode: 'linear',
+              targets: [{
+                layer: 'annotation',
+                annotation,
+                rangeIndex: dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : 0
+              }],
+              annotations,
+              selection,
+              readonly: false
+            }
+            return annotationMenuItems(context, deps)
           }
         }
-      })
+      }
     }
 
     // Helper to create selection domain matching a range
@@ -1309,12 +1325,8 @@ describe('coordination with TranslationLayer', () => {
             span: ezSpan(10, 50, Orientation.PLUS)
           })
 
-          const mockDoc = {
-            updateAnnotation: mock()
-          }
-
           const wrapper = mountWithSelection(
-            { annotations: [primer], document: mockDoc },
+            { annotations: [primer] },
             { isSelected: true, domain: selectionDomainFor(30, 70) }
           )
 
@@ -1327,10 +1339,8 @@ describe('coordination with TranslationLayer', () => {
           const clipItem = items.find(i => i.label === 'Clip this primer with selection')
           clipItem.action()
 
-          expect(mockDoc.updateAnnotation).toHaveBeenCalledWith({
-            id: 'primer1',
-            attributes: { primer_bind: 20 }
-          })
+          // primer_bind should be 50 - 30 = 20 (forward primer, 3' end to clip point)
+          expect(wrapper.vm.clipCalls).toEqual([{ primer, primerBind: 20 }])
         })
 
         it('sets correct primer_bind for reverse primer clipped at selection end', () => {
@@ -1343,12 +1353,8 @@ describe('coordination with TranslationLayer', () => {
             span: ezSpan(10, 50, Orientation.MINUS)
           })
 
-          const mockDoc = {
-            updateAnnotation: mock()
-          }
-
           const wrapper = mountWithSelection(
-            { annotations: [primer], document: mockDoc },
+            { annotations: [primer] },
             { isSelected: true, domain: selectionDomainFor(5, 30) }
           )
 
@@ -1361,10 +1367,8 @@ describe('coordination with TranslationLayer', () => {
           const clipItem = items.find(i => i.label === 'Clip this primer with selection')
           clipItem.action()
 
-          expect(mockDoc.updateAnnotation).toHaveBeenCalledWith({
-            id: 'primer1',
-            attributes: { primer_bind: 20 }
-          })
+          // reverse primer: primer_bind = 30 - 10 = 20
+          expect(wrapper.vm.clipCalls).toEqual([{ primer, primerBind: 20 }])
         })
       })
 

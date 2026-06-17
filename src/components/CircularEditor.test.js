@@ -189,6 +189,26 @@ describe('CircularEditor', () => {
 
       expect(wrapper.vm.contextMenuVisible).toBe(true)
     })
+
+    it('shows the unified annotation menu (Edit/Delete/Hide) on annotation right-click', async () => {
+      const annotations = [new Annotation({ id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(100, 500) })]
+      const wrapper = createWrapper({ sequence: createDocument({ annotations }) })
+      await wrapper.vm.$nextTick()
+
+      // Emit the contextmenu event the CircularAnnotationLayer emits at runtime.
+      const annLayer = wrapper.findComponent({ name: 'CircularAnnotationLayer' })
+      annLayer.vm.$emit('contextmenu', {
+        event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+        annotation: annotations[0]
+      })
+      await wrapper.vm.$nextTick()
+
+      const actions = wrapper.findAll('.context-menu .menu-item').map(i => i.attributes('data-action'))
+      expect(actions).toContain('edit-annotation')
+      expect(actions).toContain('delete-annotation')
+      expect(actions).toContain('hide-annotation')
+      expect(actions).toContain('create-annotation')
+    })
   })
 
   describe('modals', () => {
@@ -276,36 +296,35 @@ describe('CircularEditor', () => {
   })
 
   describe('readonly mode', () => {
+    // Build a selection-row menu through the contributor service.
+    function selectionMenu(wrapper) {
+      return wrapper.vm.contextMenu.buildMenu({
+        mode: 'circular',
+        targets: [{ layer: 'selection', rangeIndex: 0, range: wrapper.vm.selection.domain.value.ranges[0] }],
+        selection: wrapper.vm.selection,
+        readonly: true,
+        sequenceLength: wrapper.vm.editorState.sequenceLength.value
+      })
+    }
+
     it('does not show edit options in readonly mode', async () => {
       const wrapper = createWrapper({ readonly: true })
       mockSvgRect(wrapper)
-
-      // Create a selection
       wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
-      // Build context menu items
-      const items = wrapper.vm.buildContextMenuItems({ source: 'selection' })
-
-      // Should not have Replace or Delete options
-      const labels = items.map(i => i.label).filter(Boolean)
-      expect(labels).not.toContain('Replace selection...')
-      expect(labels).not.toContain('Delete selection')
+      const labels = selectionMenu(wrapper).map(i => i.label).filter(Boolean)
+      expect(labels).not.toContain('Replace sequence with...')
+      expect(labels).not.toContain('Delete sequence')
     })
 
     it('still shows Copy in readonly mode', async () => {
       const wrapper = createWrapper({ readonly: true })
       mockSvgRect(wrapper)
-
-      // Create a selection
       wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
-      // Build context menu items
-      const items = wrapper.vm.buildContextMenuItems({ source: 'selection' })
-
-      // Should have Copy option
-      const labels = items.map(i => i.label).filter(Boolean)
+      const labels = selectionMenu(wrapper).map(i => i.label).filter(Boolean)
       expect(labels).toContain('Copy selection')
     })
   })

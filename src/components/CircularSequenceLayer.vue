@@ -1,6 +1,7 @@
 <script setup>
-import { inject, computed, ref } from 'vue'
+import { inject, computed, ref, onMounted, onUnmounted } from 'vue'
 import { polarToCartesian } from '../utils/circular.js'
+import { sequenceMenuItems } from './menus/sequenceMenuContributor.js'
 
 const props = defineProps({
   /** Whether to show the origin tick as draggable */
@@ -16,6 +17,19 @@ const emit = defineEmits(['select', 'contextmenu', 'origin-drag-start'])
 const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const selection = inject('selection')
+
+// Context-menu service + sequence actions (provided by CircularEditor)
+const contextMenu = inject('contextMenu', null)
+const sequenceMenuActions = inject('sequenceMenuActions', null)
+const sequenceContributor = {
+  id: 'sequence',
+  getItems: (context) => sequenceMenuItems(
+    { ...context, sequenceLength: editorState.sequenceLength.value },
+    sequenceMenuActions || {}
+  )
+}
+onMounted(() => contextMenu?.register(sequenceContributor))
+onUnmounted(() => contextMenu?.unregister(sequenceContributor))
 
 // ============================================
 // Backbone Path
@@ -241,25 +255,9 @@ function handleClickForElement(dataset, event) {
   return true
 }
 
-/**
- * Get context menu items for an element with data attributes.
- * Called by parent editor when element is found via elementsFromPoint.
- * CircularSequenceLayer doesn't provide context menu items - global items are handled by the editor.
- *
- * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element (empty for sequence layer)
- */
-function getMenuItemsForElement(dataset) {
-  if (dataset.layer !== 'circular-sequence') return []
-  // CircularSequenceLayer doesn't provide specific context menu items
-  // Global items (Copy, Paste, Select All, etc.) are handled by the editor
-  return []
-}
-
-// Expose for click routing and context menu integration
+// Expose for click routing
 defineExpose({
-  handleClickForElement,
-  getMenuItemsForElement
+  handleClickForElement
 })
 </script>
 
