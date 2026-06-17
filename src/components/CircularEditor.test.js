@@ -276,36 +276,35 @@ describe('CircularEditor', () => {
   })
 
   describe('readonly mode', () => {
+    // Build a selection-row menu through the contributor service.
+    function selectionMenu(wrapper) {
+      return wrapper.vm.contextMenu.buildMenu({
+        mode: 'circular',
+        targets: [{ layer: 'selection', rangeIndex: 0, range: wrapper.vm.selection.domain.value.ranges[0] }],
+        selection: wrapper.vm.selection,
+        readonly: true,
+        sequenceLength: wrapper.vm.editorState.sequenceLength.value
+      })
+    }
+
     it('does not show edit options in readonly mode', async () => {
       const wrapper = createWrapper({ readonly: true })
       mockSvgRect(wrapper)
-
-      // Create a selection
       wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
-      // Build context menu items
-      const items = wrapper.vm.buildContextMenuItems({ source: 'selection' })
-
-      // Should not have Replace or Delete options
-      const labels = items.map(i => i.label).filter(Boolean)
-      expect(labels).not.toContain('Replace selection...')
-      expect(labels).not.toContain('Delete selection')
+      const labels = selectionMenu(wrapper).map(i => i.label).filter(Boolean)
+      expect(labels).not.toContain('Replace sequence with...')
+      expect(labels).not.toContain('Delete sequence')
     })
 
     it('still shows Copy in readonly mode', async () => {
       const wrapper = createWrapper({ readonly: true })
       mockSvgRect(wrapper)
-
-      // Create a selection
       wrapper.vm.selection.select([new Range(100, 500)])
       await wrapper.vm.$nextTick()
 
-      // Build context menu items
-      const items = wrapper.vm.buildContextMenuItems({ source: 'selection' })
-
-      // Should have Copy option
-      const labels = items.map(i => i.label).filter(Boolean)
+      const labels = selectionMenu(wrapper).map(i => i.label).filter(Boolean)
       expect(labels).toContain('Copy selection')
     })
   })

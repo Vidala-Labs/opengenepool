@@ -7,7 +7,8 @@ import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
-import { Annotation } from '../utils/annotation.js'
+import { Annotation, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
+import { useContextMenu } from '../composables/useContextMenu.js'
 import { Span, Range, Orientation, reverseComplement } from '../utils/dna.js'
 import { getArcPath, polarToCartesian } from '../utils/circular.js'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
@@ -102,6 +103,49 @@ provide('eventBus', eventBus)
 provide('selection', selection)
 provide('circularGraphics', circularGraphics)
 provide('annotationColors', ref(null))
+
+// ============================================
+// Context-menu contributor service (circular)
+// ============================================
+// The circular layers self-register the SAME contributors as the linear editor,
+// so the circular menu now matches linear (Edit/Delete/Hide/Subtract + Copy/
+// Select/Insert/Replace/Delete/Create). mode is 'circular'. See CLICK_CHANGES.md.
+const contextMenu = useContextMenu()
+provide('contextMenu', contextMenu)
+
+provide('annotationMenuActions', {
+  onCreateAnnotation: () => openAnnotationModal(),
+  onEdit: (annotation) => openAnnotationModalForEdit(annotation),
+  onDelete: (annotation) => { targetDoc.value?.deleteAnnotation?.(annotation.id); emit('annotations-update') },
+  onToggleHidden: (annotation, hidden) => {
+    const attributes = { ...(annotation.attributes || {}) }
+    if (hidden) attributes[OGP_HIDDEN_ATTR] = true
+    else delete attributes[OGP_HIDDEN_ATTR]
+    targetDoc.value?.updateAnnotation?.({ id: annotation.id, attributes })
+    emit('annotations-update')
+  },
+  onSubtract: (annotation) => selection.subtractSpan(annotation.span),
+  onMergeLeft: () => {}, onMergeRight: () => {}, onSplit: () => {},
+  onClipPrimer: (primer, primerBind) => {
+    targetDoc.value?.updateAnnotation?.({ id: primer.id, attributes: { ...primer.attributes, primer_bind: primerBind } })
+    emit('annotations-update')
+  }
+})
+provide('selectionMenuActions', {
+  onCopy: () => handleCopy(),
+  onSelectNone: () => selection.unselect(),
+  onReplace: () => openInsertModal(true),
+  onDelete: () => handleDelete(),
+  onFlip: (rangeIndex) => selection.flip(rangeIndex),
+  onSetOrientation: (rangeIndex, orientation) => selection.setOrientation(rangeIndex, orientation),
+  onDeleteRange: (rangeIndex) => selection.deleteRange(rangeIndex),
+  onMoveRange: (from, to) => selection.moveRange(from, to),
+  onExtendHandle: () => {}
+})
+provide('sequenceMenuActions', {
+  onSelectAll: () => selectAll(),
+  onInsert: () => openInsertModal(false)
+})
 
 // SVG ref
 const svgRef = ref(null)
@@ -508,162 +552,37 @@ function handleContextMenu(event) {
 }
 
 function showContextMenu(event, context) {
+  // Map the source-tagged context to a target chain and aggregate via the service.
+  const targets = []
+  if (context.source === 'annotation' && context.annotation) {
+    targets.push({ layer: 'annotation', annotation: context.annotation, rangeIndex: context.fragment?.rangeIndex ?? 0 })
+  } else if (context.source === 'selection' || context.source === 'handle') {
+    targets.push({ layer: 'selection', rangeIndex: context.rangeIndex, range: context.range, handleType: context.handleType })
+  } else {
+    // background / sequence
+    targets.push({ layer: context.source === 'sequence' ? 'sequence' : 'background', pos: context.position })
+  }
+
+  const items = contextMenu.buildMenu({
+    mode: 'circular',
+    targets,
+    annotations: localAnnotations.value,
+    selection,
+    document: targetDoc.value,
+    readonly: props.readonly,
+    sequenceLength: editorState.sequenceLength.value,
+    pos: context.position
+  })
+
+  if (items.length === 0) return
   contextMenuX.value = event.clientX
   contextMenuY.value = event.clientY
-  contextMenuItems.value = buildContextMenuItems(context)
+  contextMenuItems.value = items
   contextMenuVisible.value = true
 }
 
 function hideContextMenu() {
   contextMenuVisible.value = false
-}
-
-/**
- * Build global context menu items that don't depend on which region was clicked.
- */
-function buildGlobalContextMenuItems() {
-  const items = []
-  const hasSelection = selection.isSelected.value && selection.domain.value?.ranges.length > 0
-
-  // Copy
-  if (hasSelection) {
-    items.push({
-      label: 'Copy selection',
-      action: () => handleCopy()
-    })
-    items.push({
-      label: 'Select none',
-      action: () => selection.unselect()
-    })
-  }
-
-  items.push({
-    label: 'Select all',
-    action: () => selectAll()
-  })
-
-  // Insert/Replace/Delete
-  if (!props.readonly) {
-    items.push({ separator: true })
-
-    if (hasSelection && selection.domain.value.ranges[0].start !== selection.domain.value.ranges[0].end) {
-      items.push({
-        label: 'Replace selection...',
-        action: () => openInsertModal(true)
-      })
-      items.push({
-        label: 'Delete selection',
-        action: () => handleDelete()
-      })
-    } else {
-      items.push({
-        label: 'Insert sequence...',
-        action: () => openInsertModal(false)
-      })
-    }
-
-    // Annotation creation
-    if (hasSelection && selection.domain.value.ranges[0].start !== selection.domain.value.ranges[0].end) {
-      items.push({ separator: true })
-      items.push({
-        label: 'Create annotation...',
-        action: () => openAnnotationModal()
-      })
-    }
-  }
-
-  return items
-}
-
-/**
- * Build context menu using elementsFromPoint for hit-testing (circular mode).
- */
-function buildContextMenuFromRegistry(event) {
-  const items = buildGlobalContextMenuItems()
-
-  // Use elementsFromPoint to find all elements at the click position
-  const elements = document.elementsFromPoint(event.clientX, event.clientY)
-  const layerItems = []
-
-  // Collect menu items from all layers
-  for (const el of elements) {
-    if (!el.dataset.layer) continue
-
-    // Check each layer ref for matching items
-    const layerMenuItems = [
-      ...(circularAnnotationLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(circularSelectionLayerRef.value?.getMenuItemsForElement?.(el.dataset) || []),
-      ...(circularSequenceLayerRef.value?.getMenuItemsForElement?.(el.dataset) || [])
-    ]
-
-    layerItems.push(...layerMenuItems)
-  }
-
-  // Add layer items with separator
-  if (layerItems.length > 0) {
-    items.push({ separator: true })
-    items.push(...layerItems)
-  }
-
-  return items
-}
-
-function buildContextMenuItems(context) {
-  const items = []
-  const hasSelection = selection.isSelected.value && selection.domain.value?.ranges.length > 0
-
-  // Copy
-  if (hasSelection) {
-    items.push({
-      label: 'Copy selection',
-      action: () => handleCopy()
-    })
-  }
-
-  // Select all/none
-  if (hasSelection) {
-    items.push({
-      label: 'Select none',
-      action: () => selection.unselect()
-    })
-  }
-
-  items.push({
-    label: 'Select all',
-    action: () => selectAll()
-  })
-
-  // Insert/Replace/Delete
-  if (!props.readonly) {
-    items.push({ separator: true })
-
-    if (hasSelection && selection.domain.value.ranges[0].start !== selection.domain.value.ranges[0].end) {
-      items.push({
-        label: 'Replace selection...',
-        action: () => openInsertModal(true)
-      })
-      items.push({
-        label: 'Delete selection',
-        action: () => handleDelete()
-      })
-    } else {
-      items.push({
-        label: 'Insert sequence...',
-        action: () => openInsertModal(false)
-      })
-    }
-
-    // Annotation creation
-    if (hasSelection && selection.domain.value.ranges[0].start !== selection.domain.value.ranges[0].end) {
-      items.push({ separator: true })
-      items.push({
-        label: 'Create annotation...',
-        action: () => openAnnotationModal()
-      })
-    }
-  }
-
-  return items
 }
 
 function selectAll() {
@@ -870,14 +789,18 @@ const annotationModalSpan = ref(null)
 const editingAnnotation = ref(null)
 
 function openAnnotationModal() {
-  if (!selection.isSelected.value) return
-
-  const ranges = selection.domain.value.ranges.map(r =>
-    new Range(r.start, r.end, r.orientation)
-  )
-
+  // Open with the current selection's ranges, or a blank span if nothing is selected.
+  const ranges = (selection.isSelected.value && selection.domain.value)
+    ? selection.domain.value.ranges.map(r => new Range(r.start, r.end, r.orientation))
+    : []
   annotationModalSpan.value = new Span(ranges)
   editingAnnotation.value = null
+  annotationModalOpen.value = true
+}
+
+function openAnnotationModalForEdit(annotation) {
+  editingAnnotation.value = annotation
+  annotationModalSpan.value = annotation.span ?? new Span()
   annotationModalOpen.value = true
 }
 
@@ -961,7 +884,9 @@ defineExpose({
   isZooming,
   showZoomTooltip,
   selection,
-  editorState
+  editorState,
+  // For testing the contributor-based context menu
+  contextMenu
 })
 </script>
 

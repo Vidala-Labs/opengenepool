@@ -3,6 +3,7 @@ import { computed, inject, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useCircularAnnotations } from '../composables/useCircularAnnotations.js'
 import { showAnnotations, hiddenTypes, showHiddenAnnotations, allAnnotationTypes, moduleConfigItems } from './AnnotationLayer.vue'
 import { isAnnotationHidden } from '../utils/annotation.js'
+import { annotationMenuItems } from './menus/annotationMenuContributor.js'
 
 const props = defineProps({
   /** Array of Annotation objects to render */
@@ -24,6 +25,16 @@ const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const annotationColors = inject('annotationColors', null)
 const eventBus = inject('eventBus', null)
+
+// Context-menu service + annotation actions (provided by CircularEditor)
+const contextMenu = inject('contextMenu', null)
+const annotationMenuActions = inject('annotationMenuActions', null)
+const annotationContributor = {
+  id: 'annotation',
+  getItems: (context) => annotationMenuItems(context, annotationMenuActions || {})
+}
+onMounted(() => contextMenu?.register(annotationContributor))
+onUnmounted(() => contextMenu?.unregister(annotationContributor))
 
 // Track instance for first-instance config items (like AnnotationLayer)
 let isFirstInstance = false
@@ -141,35 +152,6 @@ function handleClickForElement(dataset, event) {
   return true
 }
 
-/**
- * Get context menu items for an element with data attributes.
- * Called by parent editor when element is found via elementsFromPoint.
- *
- * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element
- */
-function getMenuItemsForElement(dataset) {
-  if (dataset.layer !== 'circular-annotation') return []
-
-  const annotationId = dataset.annotationId
-  if (!annotationId) return []
-
-  // Find the annotation by ID
-  const annotation = props.annotations.find(a => a.id === annotationId)
-  if (!annotation) return []
-
-  return [
-    {
-      label: 'Edit Annotation',
-      action: () => emit('contextmenu', { event: null, annotation, action: 'edit' })
-    },
-    {
-      label: 'Delete Annotation',
-      action: () => emit('contextmenu', { event: null, annotation, action: 'delete' })
-    }
-  ]
-}
-
 // Config items for Toolbar (shared with AnnotationLayer)
 // Only provide if we're the first instance to avoid duplicates
 const configItems = computed(() => {
@@ -177,10 +159,9 @@ const configItems = computed(() => {
   return moduleConfigItems.value
 })
 
-// Expose for click routing, context menu integration, and config
+// Expose for click routing and config
 defineExpose({
   handleClickForElement,
-  getMenuItemsForElement,
   configItems
 })
 </script>
