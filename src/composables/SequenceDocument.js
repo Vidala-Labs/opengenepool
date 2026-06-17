@@ -31,8 +31,9 @@ export class SequenceDocument {
    * @param {Array} options.annotations - Initial annotations (plain objects or Annotation instances)
    * @param {boolean} options.circular - Whether the sequence is circular (plasmid)
    * @param {Object} options.backend - Backend adapter for persistence (insert, delete, annotationCreated, etc.)
+   * @param {boolean} options.readonly - When true, all mutating methods are no-ops (source-level readonly enforcement)
    */
-  constructor({ sequence = '', name = '', annotations = [], circular = false, gaps = [], backend = null } = {}) {
+  constructor({ sequence = '', name = '', annotations = [], circular = false, gaps = [], backend = null, readonly = false } = {}) {
     // Internal reactive refs
     this._sequence = shallowRef(sequence)
     this._name = ref(name)
@@ -40,6 +41,18 @@ export class SequenceDocument {
     this._circular = ref(circular)
     this._gaps = shallowRef(gaps)
     this._backend = backend
+    // Source-level readonly: when set, every mutating method returns early before
+    // touching state or notifying the backend. This is the single chokepoint that
+    // makes `readonly` real regardless of the backend or UI gating.
+    this._readonly = !!readonly
+  }
+
+  /**
+   * Whether this document rejects all mutations.
+   * @returns {boolean}
+   */
+  get readonly() {
+    return this._readonly
   }
 
   /**
@@ -83,6 +96,9 @@ export class SequenceDocument {
     if (span instanceof Span) return span
     if (span?.ranges) return new Span(span.ranges)
     if (span == null) return new Span()
+    // Accept the fenced-string form that toJSON() emits, so toJSON/fromJSON
+    // round-trips and any caller can pass the serialized span back in.
+    if (typeof span === 'string') return Span.parse(span)
     throw new TypeError('SequenceDocument requires annotation spans to be Span objects')
   }
 
@@ -162,6 +178,7 @@ export class SequenceDocument {
    * @returns {string} The inserted text
    */
   insert(position, text, { extendStartIds = [], extendEndIds = [] } = {}) {
+    if (this._readonly) return ''
     const seq = this._sequence.value
     position = Math.max(0, Math.min(position, seq.length))
 
@@ -184,6 +201,7 @@ export class SequenceDocument {
    * @returns {string} The concatenated deleted text
    */
   delete(ranges) {
+    if (this._readonly) return ''
     if (!ranges || ranges.length === 0) return ''
 
     // Sort by start position descending (delete from end first)
@@ -220,6 +238,7 @@ export class SequenceDocument {
    * @returns {string} The deleted text
    */
   replace(start, end, text, { adjustAnnotations = true } = {}) {
+    if (this._readonly) return ''
     const seq = this._sequence.value
     start = Math.max(0, start)
     end = Math.min(seq.length, end)
@@ -247,6 +266,7 @@ export class SequenceDocument {
    * @param {boolean} circular
    */
   setCircular(circular) {
+    if (this._readonly) return
     this._circular.value = !!circular
   }
 
@@ -255,6 +275,7 @@ export class SequenceDocument {
    * @param {Array<{position: number, length: number}>} gaps
    */
   setGaps(gaps) {
+    if (this._readonly) return
     this._gaps.value = gaps
   }
 
@@ -262,6 +283,7 @@ export class SequenceDocument {
    * Clear all gaps (sets to empty array).
    */
   clearGaps() {
+    if (this._readonly) return
     this._gaps.value = []
   }
 
@@ -274,6 +296,7 @@ export class SequenceDocument {
    * @param {Array} annotations - New annotations array
    */
   setAnnotations(annotations) {
+    if (this._readonly) return
     this._annotations.value = this._normalizeAnnotations(annotations)
   }
 
@@ -286,6 +309,7 @@ export class SequenceDocument {
    * @returns {Promise<string>} The ID of the added annotation
    */
   async addAnnotation(annotation) {
+    if (this._readonly) return null
     // Mint a new id up front (awaited) when the caller didn't supply one, so the
     // constructor/normalize path never needs to be async.
     const withId = annotation.id ? annotation : { ...annotation, id: await generateId() }
@@ -306,6 +330,7 @@ export class SequenceDocument {
    * @returns {boolean} True if annotation was found and updated
    */
   updateAnnotation(annotation) {
+    if (this._readonly) return false
     const index = this._annotations.value.findIndex(a => a.id === annotation.id)
     if (index === -1) return false
 
@@ -332,6 +357,7 @@ export class SequenceDocument {
    * @returns {boolean} True if annotation was found and deleted
    */
   deleteAnnotation(id) {
+    if (this._readonly) return false
     const index = this._annotations.value.findIndex(a => a.id === id)
     if (index === -1) return false
 
@@ -515,7 +541,8 @@ export class SequenceDocument {
         span: annotation.span?.toJSON?.() ?? annotation.span
       })),
       circular: this._circular.value,
-      gaps: this._gaps.value
+      gaps: this._gaps.value,
+      readonly: this._readonly
     }
   }
 
@@ -530,7 +557,8 @@ export class SequenceDocument {
       name: data.name || '',
       annotations: data.annotations || [],
       circular: data.circular || false,
-      gaps: data.gaps || []
+      gaps: data.gaps || [],
+      readonly: data.readonly || false
     })
   }
 }
