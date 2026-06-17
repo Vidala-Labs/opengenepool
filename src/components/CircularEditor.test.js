@@ -161,6 +161,60 @@ describe('CircularEditor', () => {
     })
   })
 
+  describe('sequence editing (document mutation)', () => {
+    it('Delete key removes the selected bases from the document', async () => {
+      const doc = createDocument({ sequence: 'ATCGATCGATCGATCG' })  // 16bp
+      const wrapper = createWrapper({ sequence: doc })
+      mockSvgRect(wrapper)
+      const container = wrapper.find('.editor-container')
+
+      wrapper.vm.selection.select([new Range(4, 8)])
+      await wrapper.vm.$nextTick()
+
+      await container.trigger('keydown', { key: 'Delete' })
+      await wrapper.vm.$nextTick()
+
+      // Previously a no-op: handleDelete called doc.deleteSequence(), which does
+      // not exist on SequenceDocument (the real method is delete([{start,end}])).
+      expect(doc.sequence).toBe('ATCGATCGATCG')  // 12bp, '4..8' removed
+      expect(doc.sequence.length).toBe(12)
+    })
+
+    it('insert modal submit inserts bases into the document', async () => {
+      const doc = createDocument({ sequence: 'ATCGATCG' })  // 8bp
+      const wrapper = createWrapper({ sequence: doc })
+      mockSvgRect(wrapper)
+
+      // Cursor at position 4, open the insert modal (insert mode), then submit.
+      wrapper.vm.selection.select([new Range(4, 4)])
+      await wrapper.vm.$nextTick()
+      wrapper.vm.openInsertModal(false)
+      wrapper.vm.handleModalSubmit({ text: 'GGG', preserveAnnotations: false })
+      await wrapper.vm.$nextTick()
+
+      // Previously a no-op: handleModalSubmit called doc.insertSequence().
+      expect(doc.sequence).toBe('ATCGGGGATCG')  // GGG inserted at 4
+      expect(doc.sequence.length).toBe(11)
+    })
+
+    it('insert modal submit in replace mode replaces the selected bases', async () => {
+      const doc = createDocument({ sequence: 'ATCGATCG' })  // 8bp
+      const wrapper = createWrapper({ sequence: doc })
+      mockSvgRect(wrapper)
+
+      // Select 4..8, open the modal in replace mode, then submit.
+      wrapper.vm.selection.select([new Range(4, 8)])
+      await wrapper.vm.$nextTick()
+      wrapper.vm.openInsertModal(true)
+      wrapper.vm.handleModalSubmit({ text: 'TT', preserveAnnotations: false })
+      await wrapper.vm.$nextTick()
+
+      // Previously a no-op: handleModalSubmit called doc.replaceSequence().
+      expect(doc.sequence).toBe('ATCGTT')  // '4..8' (ATCG) replaced by 'TT'
+      expect(doc.sequence.length).toBe(6)
+    })
+  })
+
   describe('context menu', () => {
     it('has ContextMenu component', () => {
       const wrapper = createWrapper()
@@ -326,6 +380,46 @@ describe('CircularEditor', () => {
 
       const labels = selectionMenu(wrapper).map(i => i.label).filter(Boolean)
       expect(labels).toContain('Copy selection')
+    })
+
+    it('does not offer "Insert sequence..." at a cursor in readonly mode', async () => {
+      const wrapper = createWrapper({ readonly: true })
+      mockSvgRect(wrapper)
+      // Cursor (zero-width selection) is what surfaces the Insert item.
+      wrapper.vm.selection.select([new Range(100, 100)])
+      await wrapper.vm.$nextTick()
+
+      const menu = wrapper.vm.contextMenu.buildMenu({
+        mode: 'circular',
+        targets: [{ layer: 'selection', rangeIndex: 0, range: wrapper.vm.selection.domain.value.ranges[0] }],
+        selection: wrapper.vm.selection,
+        readonly: true,
+        sequenceLength: wrapper.vm.editorState.sequenceLength.value
+      })
+      const labels = menu.map(i => i.label).filter(Boolean)
+      expect(labels).not.toContain('Insert sequence...')
+    })
+
+    it('the editor injects its readonly prop into the resolved menu (write ops absent)', async () => {
+      // Use the editor's own context builder so we verify props.readonly flows
+      // through, not just a hand-passed readonly:true.
+      const doc = createDocument({ sequence: 'ATCGATCGATCGATCG' })
+      const wrapper = createWrapper({ sequence: doc, readonly: true })
+      mockSvgRect(wrapper)
+      wrapper.vm.selection.select([new Range(4, 8)])
+      await wrapper.vm.$nextTick()
+
+      const menu = wrapper.vm.contextMenu.buildMenu({
+        mode: 'circular',
+        targets: [{ layer: 'selection', rangeIndex: 0, range: wrapper.vm.selection.domain.value.ranges[0] }],
+        selection: wrapper.vm.selection,
+        readonly: wrapper.props('readonly'),
+        sequenceLength: wrapper.vm.editorState.sequenceLength.value
+      })
+      const labels = menu.map(i => i.label).filter(Boolean)
+      expect(labels).not.toContain('Delete sequence')
+      expect(labels).not.toContain('Replace sequence with...')
+      expect(labels).not.toContain('Insert sequence...')
     })
   })
 

@@ -725,12 +725,14 @@ async function handlePaste() {
 function handleDelete() {
   if (props.readonly || !selection.isSelected.value) return
 
-  const ranges = [...selection.domain.value.ranges].sort((a, b) => b.start - a.start)
+  // SequenceDocument.delete() takes an array of fenced {start, end} ranges and
+  // handles ordering internally.
+  const ranges = selection.domain.value.ranges
+    .filter(range => range.start !== range.end)
+    .map(range => ({ start: range.start, end: range.end }))
 
-  for (const range of ranges) {
-    if (range.start !== range.end && targetDoc.value?.deleteSequence) {
-      targetDoc.value.deleteSequence(new Range(range.start, range.end))
-    }
+  if (ranges.length > 0) {
+    targetDoc.value?.delete?.(ranges)
   }
 
   selection.unselect()
@@ -773,11 +775,15 @@ function handleModalSubmit({ text, preserveAnnotations }) {
     return
   }
 
-  if (insertModalIsReplace.value && targetDoc.value?.replaceSequence) {
-    const range = new Range(insertModalPosition.value, insertModalSelectionEnd.value)
-    targetDoc.value.replaceSequence(range, cleaned)
-  } else if (targetDoc.value?.insertSequence) {
-    targetDoc.value.insertSequence(insertModalPosition.value, cleaned)
+  if (insertModalIsReplace.value) {
+    targetDoc.value?.replace?.(
+      insertModalPosition.value,
+      insertModalSelectionEnd.value,
+      cleaned,
+      { adjustAnnotations: !preserveAnnotations }
+    )
+  } else {
+    targetDoc.value?.insert?.(insertModalPosition.value, cleaned)
   }
 
   insertModalVisible.value = false
@@ -897,7 +903,11 @@ defineExpose({
   selection,
   editorState,
   // For testing the contributor-based context menu
-  contextMenu
+  contextMenu,
+  // For testing the edit paths (insert/replace/delete document mutation)
+  openInsertModal,
+  handleModalSubmit,
+  handleDelete
 })
 </script>
 
