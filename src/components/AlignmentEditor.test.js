@@ -850,7 +850,7 @@ describe('Delete via context menu (bug reproduction)', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
-  it('FAILS: context menu Delete sequence on target does nothing', async () => {
+  it('context menu Delete sequence on target removes the selected bases', async () => {
     const targetDoc = createDoc('ATCGATCGATCGATCGATCGATCG')  // 24bp
     const queryDoc = createDoc('ATCGATCGATCGATCGATCGATCG')   // 24bp identical
 
@@ -870,8 +870,6 @@ describe('Delete via context menu (bug reproduction)', () => {
 
     // Check the aligned target sequence shown in the view
     const alignedTargetBefore = wrapper.vm.alignedTargetSequence
-    console.log('Before delete - alignedTargetSequence:', alignedTargetBefore)
-    console.log('Before delete - targetDoc.sequence:', targetDoc.sequence)
     expect(alignedTargetBefore).toBe('ATCGATCGATCGATCGATCGATCG')
 
     // Select on target row (simulating mouse selection)
@@ -903,8 +901,6 @@ describe('Delete via context menu (bug reproduction)', () => {
 
     // Verify the rendered target sequence after delete
     const alignedTargetAfter = wrapper.vm.alignedTargetSequence
-    console.log('After delete - alignedTargetSequence:', alignedTargetAfter)
-    console.log('After delete - targetDoc.sequence:', targetDoc.sequence)
 
     // Target should be modified (24 - 5 = 19)
     // Original: ATCGATCGATCGATCGATCGATCG (24bp)
@@ -934,8 +930,6 @@ describe('Delete via context menu (bug reproduction)', () => {
 
     // Verify the rendered query sequence before delete
     const alignedQueryBefore = wrapper.vm.alignedQuerySequence
-    console.log('Before delete - alignedQuerySequence:', alignedQueryBefore)
-    console.log('Before delete - queryDoc.sequence:', queryDoc.sequence)
     expect(alignedQueryBefore).toBe('ATCGATCGATCGATCGATCGATCG')
 
     // Select on query row (simulating mouse selection)
@@ -967,8 +961,6 @@ describe('Delete via context menu (bug reproduction)', () => {
 
     // Verify the rendered query sequence after delete
     const alignedQueryAfter = wrapper.vm.alignedQuerySequence
-    console.log('After delete - alignedQuerySequence:', alignedQueryAfter)
-    console.log('After delete - queryDoc.sequence:', queryDoc.sequence)
 
     // Query should be modified (24 - 5 = 19)
     expect(queryDoc.sequence.length).toBe(19)
@@ -1140,7 +1132,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
     expect(targetDoc.sequence.length).toBe(12)
   })
 
-  it('dragging on overlay creates selection with source=target (BUG TEST)', async () => {
+  it('dragging on overlay creates selection with source=target', async () => {
     // This test verifies that clicking and dragging on the overlay creates a selection
     // We need to mock getBoundingClientRect since happy-dom doesn't provide real layout
     const wrapper = mount(AlignmentEditor, {
@@ -1240,7 +1232,7 @@ describe('Delete with different sequences (alignment has gaps)', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
-  it('deletes from target when sequences differ (BUG REPRODUCTION)', async () => {
+  it('deletes from target when sequences differ (gapped alignment)', async () => {
     // Use sequences that produce gaps in alignment
     // Target has TTTTT in middle, query has GGGGG - this creates alignment gaps
     const targetDoc = createDoc('ATCGATCGATTTTTCGATCGATCG')  // 24bp
@@ -1256,11 +1248,6 @@ describe('Delete with different sequences (alignment has gaps)', () => {
     expect(initialLength).toBe(24)
 
     // Log alignment result to understand the gaps
-    console.log('Alignment result with different sequences:', {
-      targetAligned: wrapper.vm.alignmentResult.targetAligned,
-      queryAligned: wrapper.vm.alignmentResult.queryAligned,
-      identity: wrapper.vm.alignmentResult.identity
-    })
 
     // Select 5bp from target (positions 5..10)
     wrapper.vm.selection.startSelection(5, false, 'target')
@@ -1273,15 +1260,12 @@ describe('Delete with different sequences (alignment has gaps)', () => {
 
     // Log the selection
     const domain = wrapper.vm.selection.domain.value
-    console.log('Selection domain:', domain?.ranges)
 
     // Delete via confirmDelete (like context menu would)
     wrapper.vm.confirmDelete()
     await settle(wrapper)
 
     // Target should be modified
-    console.log('After delete - targetDoc.sequence:', targetDoc.sequence)
-    console.log('After delete - targetDoc.sequence.length:', targetDoc.sequence.length)
     expect(targetDoc.sequence.length).toBe(19)  // 24 - 5 = 19
   })
 
@@ -1336,11 +1320,6 @@ describe('AlignmentEditor Reactivity', () => {
     const alignmentBefore = wrapper.vm.alignmentResult
     expect(alignmentBefore).not.toBeNull()
     expect(alignmentBefore.targetAligned.length).toBe(24)
-    console.log('alignmentResult BEFORE delete:', {
-      targetAligned: alignmentBefore.targetAligned,
-      queryAligned: alignmentBefore.queryAligned,
-      score: alignmentBefore.score
-    })
 
     // Delete from target sequence directly (bypassing selection/context menu)
     targetDoc.delete([{ start: 5, end: 10 }])
@@ -1352,11 +1331,6 @@ describe('AlignmentEditor Reactivity', () => {
 
     // Capture alignmentResult AFTER delete
     const alignmentAfter = wrapper.vm.alignmentResult
-    console.log('alignmentResult AFTER delete:', {
-      targetAligned: alignmentAfter?.targetAligned,
-      queryAligned: alignmentAfter?.queryAligned,
-      score: alignmentAfter?.score
-    })
 
     // The alignmentResult should be DIFFERENT - it should have been recomputed
     // with the new target sequence (19bp instead of 24bp)
@@ -1392,9 +1366,6 @@ describe('AlignmentEditor Reactivity', () => {
 
     // After delete - alignedTargetSequence should reflect the change
     const alignedTargetAfter = wrapper.vm.alignedTargetSequence
-    console.log('alignedTargetSequence BEFORE:', alignedTargetBefore)
-    console.log('alignedTargetSequence AFTER:', alignedTargetAfter)
-    console.log('targetDoc.sequence AFTER:', targetDoc.sequence)
 
     // The aligned target should NOT still be the original 24bp sequence
     expect(alignedTargetAfter).not.toBe(alignedTargetBefore)
