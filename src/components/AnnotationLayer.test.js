@@ -951,10 +951,12 @@ describe('coordination with TranslationLayer', () => {
             const annotation = annotations.find(a => a.id === dataset.annotationId)
             if (!annotation) return []
             const context = {
-              kind: 'annotation',
               mode: 'linear',
-              annotation,
-              rangeIndex: dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : 0,
+              targets: [{
+                layer: 'annotation',
+                annotation,
+                rangeIndex: dataset.rangeIndex !== undefined ? parseInt(dataset.rangeIndex, 10) : 0
+              }],
               annotations,
               selection,
               readonly: false

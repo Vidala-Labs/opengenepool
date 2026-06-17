@@ -21,21 +21,38 @@ function ann(overrides = {}) {
 }
 
 const ids = (items) => items.map(i => i.id).filter(Boolean)
-const ctx = (over = {}) => ({ kind: 'annotation', mode: 'linear', annotation: ann(), selection: makeSelection(), ...over })
+// Build a context whose target chain contains an annotation target.
+const ctx = (over = {}) => {
+  const { annotation = ann(), rangeIndex, ...rest } = over
+  return {
+    mode: 'linear',
+    targets: [{ layer: 'annotation', annotation, rangeIndex }],
+    selection: makeSelection(),
+    ...rest
+  }
+}
 
 describe('annotationMenuItems', () => {
-  it('returns [] for non-annotation kind or missing annotation', () => {
-    expect(annotationMenuItems({ kind: 'selection' })).toEqual([])
-    expect(annotationMenuItems({ kind: 'annotation' })).toEqual([])
+  it('offers only Create Annotation when no annotation target in the chain', () => {
+    expect(ids(annotationMenuItems({ targets: [{ layer: 'selection' }] }))).toEqual(['create-annotation'])
+    expect(ids(annotationMenuItems({ targets: [] }))).toEqual(['create-annotation'])
+    expect(ids(annotationMenuItems({}))).toEqual(['create-annotation'])
   })
 
   it('returns [] in readonly mode', () => {
     expect(annotationMenuItems(ctx({ readonly: true }))).toEqual([])
   })
 
-  it('always offers edit, delete, and hide for a visible annotation', () => {
+  it('routes Create Annotation through deps', () => {
+    const onCreateAnnotation = mock(() => {})
+    const items = annotationMenuItems({ targets: [] }, { onCreateAnnotation })
+    items.find(i => i.id === 'create-annotation').action()
+    expect(onCreateAnnotation).toHaveBeenCalled()
+  })
+
+  it('offers create, edit, delete, and hide for a visible annotation', () => {
     const items = annotationMenuItems(ctx())
-    expect(ids(items)).toEqual(['edit-annotation', 'delete-annotation', 'hide-annotation'])
+    expect(ids(items)).toEqual(['create-annotation', 'edit-annotation', 'delete-annotation', 'hide-annotation'])
   })
 
   it('offers unhide (not hide) for a hidden annotation', () => {
@@ -46,12 +63,13 @@ describe('annotationMenuItems', () => {
 
   it('routes edit/delete/hide through deps', () => {
     const onEdit = mock(() => {}), onDelete = mock(() => {}), onToggleHidden = mock(() => {})
-    const c = ctx()
+    const a = ann()
+    const c = ctx({ annotation: a })
     const items = annotationMenuItems(c, { onEdit, onDelete, onToggleHidden })
     const byId = Object.fromEntries(items.map(i => [i.id, i]))
-    byId['edit-annotation'].action(); expect(onEdit).toHaveBeenCalledWith(c.annotation)
-    byId['delete-annotation'].action(); expect(onDelete).toHaveBeenCalledWith(c.annotation)
-    byId['hide-annotation'].action(); expect(onToggleHidden).toHaveBeenCalledWith(c.annotation, true)
+    byId['edit-annotation'].action(); expect(onEdit).toHaveBeenCalledWith(a)
+    byId['delete-annotation'].action(); expect(onDelete).toHaveBeenCalledWith(a)
+    byId['hide-annotation'].action(); expect(onToggleHidden).toHaveBeenCalledWith(a, true)
   })
 
   it('unhide routes onToggleHidden with false', () => {

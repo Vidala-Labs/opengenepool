@@ -192,14 +192,13 @@ const getAlignmentLineY = inject('getAlignmentLineY', null)
 const contextMenu = inject('contextMenu', null)
 const annotationMenuActions = inject('annotationMenuActions', null)
 
-// Register this layer's annotation menu contributor. The id is suffixed with the
-// alignment row mode so the two stacked alignment instances don't collide.
+// Register this layer's annotation menu contributor. The contributor always fires
+// and shows items only when an annotation is in the target chain (see the module).
+// The id is suffixed with the alignment row mode so the two stacked alignment
+// instances don't collide.
 const annotationContributor = {
   id: `annotation${props.mode ? ':' + props.mode : ''}`,
-  getItems: (context) => {
-    if (context.kind !== 'annotation') return []
-    return annotationMenuItems(context, annotationMenuActions || {})
-  }
+  getItems: (context) => annotationMenuItems(context, annotationMenuActions || {})
 }
 onMounted(() => contextMenu?.register(annotationContributor))
 onUnmounted(() => contextMenu?.unregister(annotationContributor))

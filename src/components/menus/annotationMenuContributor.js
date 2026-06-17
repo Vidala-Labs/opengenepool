@@ -28,25 +28,42 @@ import { isAnnotationHidden } from '../../utils/annotation.js'
  * own event/modal/undo plumbing) so the item SET is identical everywhere and only
  * the wiring differs.
  *
+ * Always fires; contributes only when an `annotation` target is present in
+ * `context.targets`. The target's `annotation` is the editor-resolved *effective*
+ * annotation (alignment internals already unwrapped).
+ *
  * @param {Object} context
- * @param {'annotation'} context.kind
- * @param {Object} context.annotation - effective annotation
- * @param {number} [context.rangeIndex] - clicked range index within the span
- * @param {Array}  [context.annotations] - all annotations (for clip-primer matching)
- * @param {Object} [context.selection] - selection composable
+ * @param {Array}  context.targets - hit chain; this reads the `{layer:'annotation', annotation, rangeIndex}` entry
+ * @param {Array}  [context.annotations] - all annotations (system state, for clip-primer matching)
+ * @param {Object} [context.selection] - selection composable (system state)
  * @param {boolean} [context.readonly]
  * @param {Object} deps - { onEdit, onDelete, onToggleHidden, onSubtract,
  *   onMergeLeft, onMergeRight, onSplit, onClipPrimer }
  * @returns {Array} menu items
  */
 export function annotationMenuItems(context, deps = {}) {
-  if (!context || context.kind !== 'annotation' || !context.annotation) return []
+  if (!context) return []
   if (context.readonly) return []
 
-  const { annotation, selection } = context
-  const rangeIndex = context.rangeIndex
-  const spanRanges = annotation.span?.ranges
   const items = []
+
+  // Create Annotation is always available (when editable) — it opens the modal
+  // with the current selection, or blank fields when there's no selection. This
+  // is the annotation surface's own item, independent of clicking an annotation.
+  items.push({
+    id: 'create-annotation',
+    label: 'Create Annotation',
+    action: () => deps.onCreateAnnotation?.()
+  })
+
+  // The remaining items require an annotation to be in the target chain.
+  const target = (context.targets || []).find(t => t.layer === 'annotation')
+  if (!target || !target.annotation) return items
+
+  const annotation = target.annotation        // editor-resolved effective annotation
+  const rangeIndex = target.rangeIndex
+  const selection = context.selection
+  const spanRanges = annotation.span?.ranges
 
   // Edit
   items.push({

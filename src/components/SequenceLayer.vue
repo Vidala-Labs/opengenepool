@@ -1,6 +1,7 @@
 <script setup>
-import { inject, computed, ref } from 'vue'
+import { inject, computed, ref, onMounted, onUnmounted } from 'vue'
 import { Range } from '../utils/dna.js'
+import { sequenceMenuItems } from './menus/sequenceMenuContributor.js'
 
 const props = defineProps({
   /** SequenceDocument for edit operations (insert, delete, replace) */
@@ -52,6 +53,21 @@ const emit = defineEmits(['select', 'contextmenu'])
 const editorState = inject('editorState')
 const graphics = inject('graphics')
 const selection = inject('selection')
+
+// Context-menu service + sequence action handlers (provided by the editor). The
+// contributor always fires; it shows Select all / Insert from system state, and
+// uses this layer's mode (props.mode) so only the clicked alignment row contributes.
+const contextMenu = inject('contextMenu', null)
+const sequenceMenuActions = inject('sequenceMenuActions', null)
+const sequenceContributor = {
+  id: `sequence${props.mode ? ':' + props.mode : ''}`,
+  getItems: (context) => sequenceMenuItems(
+    { ...context, layerMode: props.mode, sequenceLength: props.originalSequenceLength ?? editorState.sequenceLength.value },
+    sequenceMenuActions || {}
+  )
+}
+onMounted(() => contextMenu?.register(sequenceContributor))
+onUnmounted(() => contextMenu?.unregister(sequenceContributor))
 // Inject alignment line positioning function and lines (provided by AlignmentEditor)
 const getAlignmentLineY = inject('getAlignmentLineY', null)
 const injectedAlignmentLines = inject('alignmentLines', null)
@@ -343,47 +359,9 @@ function handleClickForElement(dataset, event) {
   return true
 }
 
-/**
- * Get context menu items for an element with data attributes.
- * Called by parent editor when element is found via elementsFromPoint.
- *
- * @param {DOMStringMap} dataset - The element's dataset (data-* attributes)
- * @returns {Array} Menu items for this element
- */
-function getMenuItemsForElement(dataset) {
-  if (dataset.layer !== 'sequence') return []
-
-  // In alignment mode, only return items if the element's mode matches this layer's mode
-  if (props.mode && dataset.mode !== props.mode) return []
-
-  const items = []
-
-  // Select all - available for sequence layers
-  // For alignment mode, use originalSequenceLength prop and set source
-  // For normal mode, use editorState.sequenceLength
-  const seqLength = props.originalSequenceLength ?? editorState.sequenceLength.value
-  const mode = props.mode  // 'target', 'query', or null
-
-  if (seqLength > 0) {
-    items.push({
-      label: 'Select all',
-      action: () => {
-        selection.select([new Range(0, seqLength)])
-        if (mode) {
-          // Alignment mode: set source AFTER selecting (select() calls unselect() which clears source)
-          selection.source.value = mode
-        }
-      }
-    })
-  }
-
-  return items
-}
-
-// Expose for click routing and context menu integration
+// Expose for click routing
 defineExpose({
-  handleClickForElement,
-  getMenuItemsForElement
+  handleClickForElement
 })
 </script>
 

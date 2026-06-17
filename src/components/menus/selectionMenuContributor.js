@@ -30,44 +30,56 @@
  */
 export function selectionMenuItems(context, deps = {}) {
   if (!context) return []
-  const { kind, selection, readonly } = context
+  const { selection } = context
   const domain = selection?.domain?.value
   const hasSelection = !!(selection?.isSelected?.value && domain && domain.ranges.length > 0)
-
-  // Style 1: clicked directly on a selection range/handle.
-  if (kind === 'selection') {
-    return selectionRangeItems(context, deps)
-  }
-
-  // Style 2: sequence/background context with an existing selection.
-  if (kind !== 'sequence' && kind !== 'background') return []
-  if (!hasSelection) return []
+  const selectionTarget = (context.targets || []).find(t => t.layer === 'selection')
 
   const items = []
-  const firstRange = domain.ranges[0]
-  const isZeroLength = firstRange.start === firstRange.end
 
-  items.push({ id: 'copy-selection', label: 'Copy selection', action: () => deps.onCopy?.() })
-  items.push({ id: 'select-none', label: 'Select none', action: () => deps.onSelectNone?.() })
+  // Selection-state items: offered whenever a selection EXISTS (system state),
+  // regardless of what was clicked — these compose onto every menu. There are no
+  // editor-owned "globals"; this contributor owns them.
+  if (hasSelection) {
+    items.push(...selectionStateItems(context, deps))
+  }
 
-  if (!readonly) {
-    // Replace only for a single non-zero-length range.
-    if (!isZeroLength && domain.ranges.length === 1) {
-      items.push({ id: 'replace-sequence', label: 'Replace sequence with...', action: () => deps.onReplace?.(firstRange) })
-    }
-    // Delete only for non-zero-length selections.
-    if (!isZeroLength) {
-      items.push({ id: 'delete-sequence', label: 'Delete sequence', action: () => deps.onDelete?.() })
-    }
-    items.push({ id: 'create-annotation', label: 'Create Annotation', action: () => deps.onCreateAnnotation?.() })
+  // Per-range items: only when a selection range/handle is in the target chain.
+  if (selectionTarget) {
+    items.push(...selectionRangeItems(context, selectionTarget, deps))
   }
 
   return items
 }
 
-/** Per-range / per-handle items (clicked directly on a selection element). */
-function selectionRangeItems(context, deps) {
-  const { selection, rangeIndex, handleType } = context
+/** Copy / Select none / Replace / Delete / Create — shown when a selection exists. */
+function selectionStateItems(context, deps) {
+  const { selection, readonly } = context
+  const domain = selection.domain.value
+  const firstRange = domain.ranges[0]
+  const isZeroLength = firstRange.start === firstRange.end
+
+  const items = []
+  items.push({ id: 'copy-selection', label: 'Copy selection', action: () => deps.onCopy?.() })
+  items.push({ id: 'select-none', label: 'Select none', action: () => deps.onSelectNone?.() })
+
+  if (!readonly) {
+    if (!isZeroLength && domain.ranges.length === 1) {
+      items.push({ id: 'replace-sequence', label: 'Replace sequence with...', action: () => deps.onReplace?.(firstRange) })
+    }
+    if (!isZeroLength) {
+      items.push({ id: 'delete-sequence', label: 'Delete sequence', action: () => deps.onDelete?.() })
+    }
+    // Note: "Create Annotation" is owned by the annotation contributor (it is
+    // available regardless of selection), so it is not added here.
+  }
+  return items
+}
+
+/** Per-range / per-handle items (a selection element was in the target chain). */
+function selectionRangeItems(context, target, deps) {
+  const { selection } = context
+  const { rangeIndex, handleType } = target
   const domain = selection?.domain?.value
   if (rangeIndex === undefined || !domain?.ranges?.[rangeIndex]) return []
   const range = domain.ranges[rangeIndex]
@@ -80,8 +92,9 @@ function selectionRangeItems(context, deps) {
     }]
   }
 
+  // Note: Copy selection is contributed by selectionStateItems (a selection
+  // exists whenever a range was clicked), so it is not repeated here.
   const items = []
-  items.push({ id: 'copy-selection', label: 'Copy selection', action: () => deps.onCopy?.(rangeIndex, range) })
 
   if (range.orientation === 1 || range.orientation === -1) {
     items.push({ id: 'flip-strand', label: 'Flip strand', action: () => deps.onFlip?.(rangeIndex) })
