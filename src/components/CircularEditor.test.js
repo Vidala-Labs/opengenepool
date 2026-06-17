@@ -189,6 +189,26 @@ describe('CircularEditor', () => {
 
       expect(wrapper.vm.contextMenuVisible).toBe(true)
     })
+
+    it('shows the unified annotation menu (Edit/Delete/Hide) on annotation right-click', async () => {
+      const annotations = [new Annotation({ id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(100, 500) })]
+      const wrapper = createWrapper({ sequence: createDocument({ annotations }) })
+      await wrapper.vm.$nextTick()
+
+      // Emit the contextmenu event the CircularAnnotationLayer emits at runtime.
+      const annLayer = wrapper.findComponent({ name: 'CircularAnnotationLayer' })
+      annLayer.vm.$emit('contextmenu', {
+        event: { clientX: 100, clientY: 100, preventDefault: () => {} },
+        annotation: annotations[0]
+      })
+      await wrapper.vm.$nextTick()
+
+      const actions = wrapper.findAll('.context-menu .menu-item').map(i => i.attributes('data-action'))
+      expect(actions).toContain('edit-annotation')
+      expect(actions).toContain('delete-annotation')
+      expect(actions).toContain('hide-annotation')
+      expect(actions).toContain('create-annotation')
+    })
   })
 
   describe('modals', () => {
