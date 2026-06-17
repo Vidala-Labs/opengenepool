@@ -253,3 +253,56 @@ describe('indexedDbBackend operation serialization (lost-update races)', () => {
     expect(store.record().content).toBe('AAGGGG')
   })
 })
+
+describe('indexedDbBackend operation result promises (awaitable failures)', () => {
+  it('edit methods return a promise that resolves on success', async () => {
+    const store = makeFakeStore({ id: 'seq1', content: '', title: '', annotations: [], metadata: {} })
+    const backend = createIndexedDbBackend('seq1', { store })
+
+    await expect(backend.insert({ position: 0, text: 'AAA' })).resolves.toBeUndefined()
+    expect(store.record().content).toBe('AAA')
+  })
+
+  it('a returned promise rejects when the underlying save fails', async () => {
+    // Store whose save() always throws.
+    const store = {
+      record: () => null,
+      get: async () => ({ id: 'seq1', content: '', title: '', annotations: [], metadata: {} }),
+      save: async () => { throw new Error('disk full') }
+    }
+    const statuses = []
+    const backend = createIndexedDbBackend('seq1', {
+      store,
+      onSyncStatusChange: (s) => statuses.push(s)
+    })
+
+    // Previously the error was swallowed and the promise resolved; callers/tests
+    // could not assert persistence failure.
+    await expect(backend.insert({ position: 0, text: 'AAA' })).rejects.toThrow('disk full')
+    expect(statuses).toContain('error')
+  })
+
+  it('a failed operation does not poison subsequent operations in the queue', async () => {
+    // Fail only the first save, then succeed.
+    let saved = { id: 'seq1', content: 'AAAA', title: '', annotations: [], metadata: {} }
+    let calls = 0
+    const store = {
+      record: () => saved,
+      get: async () => JSON.parse(JSON.stringify(saved)),
+      save: async (seq) => {
+        calls += 1
+        if (calls === 1) throw new Error('transient')
+        saved = JSON.parse(JSON.stringify(seq))
+      }
+    }
+    const backend = createIndexedDbBackend('seq1', { store })
+
+    const first = backend.insert({ position: 4, text: 'BBBB' })   // save #1 -> throws
+    const second = backend.insert({ position: 4, text: 'CCCC' })  // save #2 -> succeeds
+
+    await expect(first).rejects.toThrow('transient')
+    await expect(second).resolves.toBeUndefined()
+    // Second op still applied (queue kept advancing) and observed the original 'AAAA'.
+    expect(saved.content).toBe('AAAACCCC')
+  })
+})

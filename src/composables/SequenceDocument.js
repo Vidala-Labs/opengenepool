@@ -56,6 +56,23 @@ export class SequenceDocument {
   }
 
   /**
+   * Notify the backend of an edit, fire-and-forget. A backend may return a
+   * promise that rejects on persistence failure (e.g. the IndexedDB backend);
+   * the document deliberately does not surface that here (the backend reports
+   * sync status via its own callback), so we swallow the rejection to avoid an
+   * unhandled-rejection. Callers that need to await persistence should hold the
+   * backend directly.
+   * @private
+   */
+  _notifyBackend(method, payload) {
+    const result = this._backend?.[method]?.(payload)
+    if (result && typeof result.then === 'function') {
+      result.catch(() => {})
+    }
+    return result
+  }
+
+  /**
    * Normalize annotations, preserving Span objects.
    * @private
    */
@@ -189,7 +206,7 @@ export class SequenceDocument {
     this._adjustAnnotationsForInsert(position, text.length, extendStartIds, extendEndIds)
 
     // 3. Notify backend
-    this._backend?.insert?.({ editId: generateIdSync(), position, text })
+    this._notifyBackend('insert', { editId: generateIdSync(), position, text })
 
     return text
   }
@@ -220,7 +237,7 @@ export class SequenceDocument {
         this._adjustAnnotationsForReplace(start, end, 0)
 
         // Notify backend
-        this._backend?.delete?.({ editId: generateIdSync(), start, end })
+        this._notifyBackend('delete', { editId: generateIdSync(), start, end })
       }
     }
 
@@ -319,7 +336,7 @@ export class SequenceDocument {
 
     // Notify backend (include edit id for acknowledgment round-trip)
     const editId = `create-${generateIdSync()}`
-    this._backend?.annotationCreated?.({ ...normalized, editId })
+    this._notifyBackend('annotationCreated', { ...normalized, editId })
 
     return normalized.id
   }
@@ -346,7 +363,7 @@ export class SequenceDocument {
 
     // Notify backend (include edit id for acknowledgment round-trip)
     const editId = `update-${generateIdSync()}`
-    this._backend?.annotationUpdate?.({ ...updated, editId })
+    this._notifyBackend('annotationUpdate', { ...updated, editId })
 
     return true
   }
@@ -365,7 +382,7 @@ export class SequenceDocument {
 
     // Notify backend (include edit id for acknowledgment round-trip)
     const editId = `del-${generateIdSync()}`
-    this._backend?.annotationDeleted?.({ editId, id })
+    this._notifyBackend('annotationDeleted', { editId, id })
 
     return true
   }
