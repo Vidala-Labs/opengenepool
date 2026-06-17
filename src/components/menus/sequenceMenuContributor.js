@@ -28,9 +28,13 @@
 export function sequenceMenuItems(context, deps = {}) {
   if (!context) return []
   const { selection, readonly, mode, layerMode, sequenceLength = 0 } = context
-  // Sequence-surface items (Select all / Insert) compose onto every menu — they
-  // are not gated by what was clicked, only by system state (sequence length /
-  // cursor). This matches the prior always-present "global" items.
+  // Sequence-surface items (Select all / Insert) require that a sequence surface
+  // was actually clicked — i.e. a 'sequence' or 'background' target is in the
+  // chain. (Linear builds such a target for sequence/background right-clicks;
+  // alignment only builds one when a sequence ROW is clicked, so an empty-space
+  // click in alignment shows nothing here.)
+  const hasSurfaceTarget = (context.targets || []).some(t => t.layer === 'sequence' || t.layer === 'background')
+  if (!hasSurfaceTarget) return []
 
   // Alignment: only the row that was actually clicked contributes (so the two
   // stacked rows don't both add Select all). layerMode is this layer's row;
