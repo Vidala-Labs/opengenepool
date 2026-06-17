@@ -11,6 +11,7 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation, ANNOTATION_COLORS, isOgpAttr, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
+import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/safeStorage.js'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import TranslationLayer, { showTranslation } from './TranslationLayer.vue'
 import SelectionLayer from './SelectionLayer.vue'
@@ -491,14 +492,14 @@ const OVERLAY_STORAGE_KEY = 'opengenepool-copy-overlay'
  * Save overlay data for rich paste (annotations with relative positions)
  */
 function saveOverlay(sequence, annotations) {
-  localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify({ sequence, annotations }))
+  setStorageItem(OVERLAY_STORAGE_KEY, JSON.stringify({ sequence, annotations }))
 }
 
 /**
  * Load overlay data from localStorage
  */
 function loadOverlay() {
-  const data = localStorage.getItem(OVERLAY_STORAGE_KEY)
+  const data = getStorageItem(OVERLAY_STORAGE_KEY)
   return data ? JSON.parse(data) : null
 }
 
@@ -506,7 +507,7 @@ function loadOverlay() {
  * Clear overlay from localStorage
  */
 function clearOverlay() {
-  localStorage.removeItem(OVERLAY_STORAGE_KEY)
+  removeStorageItem(OVERLAY_STORAGE_KEY)
 }
 
 /**
@@ -598,19 +599,19 @@ const COLORS_KEY = 'opengenepool-annotation-colors'
 // If no colors are stored, save the defaults to localStorage and return them.
 // This ensures users always have a baseline that can be customized later.
 function loadAnnotationColors() {
-  const stored = localStorage.getItem(COLORS_KEY)
+  const stored = getStorageItem(COLORS_KEY)
   if (stored) {
     try {
       // Merge with defaults to handle any new types added in future versions
       return { ...ANNOTATION_COLORS, ...JSON.parse(stored) }
     } catch {
       // Corrupted data - reset to defaults
-      localStorage.setItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
+      setStorageItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
       return { ...ANNOTATION_COLORS }
     }
   }
   // First load - save defaults to localStorage
-  localStorage.setItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
+  setStorageItem(COLORS_KEY, JSON.stringify(ANNOTATION_COLORS))
   return { ...ANNOTATION_COLORS }
 }
 
@@ -640,7 +641,7 @@ const collectedConfigItems = computed(() => {
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
-  localStorage.setItem(COLORS_KEY, JSON.stringify(newColors))
+  setStorageItem(COLORS_KEY, JSON.stringify(newColors))
 }, { deep: true })
 
 // Get color for an annotation type, falling back to default
