@@ -1,0 +1,30 @@
+# The package is consumed as a GitHub dependency (raw ESM source, no build step).
+# This strips dev-only artifacts from the published/github tarball so consumers
+# get just the runtime source (src/, sans tests + build sources) and docs.
+
+# Tests (colocated with source)
+*.test.js
+test/
+
+# Example app (not part of the library)
+example/
+
+# WASM build sources — the prebuilt src/utils/alignment.wasm ships; the Zig
+# toolchain sources do not.
+src/wasm/
+
+# Dev / CI / editor / tooling config
+.github/
+.claude/
+.codex
+.playwright-mcp/
+bunfig.toml
+playwright.config.js
+package-lock.json
+bun.lockb
+
+# Internal docs (keep README + EXTENSIONS for consumers)
+CLAUDE.md
+CLICK_CHANGES.md
+TODO.md
+VERSIONS.md

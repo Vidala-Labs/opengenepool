@@ -66,6 +66,18 @@ branch) so upstream changes never silently alter your build.
 To run the bundled demo app instead of integrating the library, see
 [Development](#development) / the `example/` directory.
 
+### Requirements
+
+OpenGenePool ships as **raw ESM source** (no precompiled `dist/`). The package
+entrypoint (`opengenepool` → `src/index.js`) re-exports Vue Single-File
+Components (`.vue`), and at runtime it loads a Web Worker and a WASM module via
+`new URL('./…', import.meta.url)`. Consuming it therefore requires a bundler that
+can compile `.vue` files and resolve worker/asset URLs — **Vite** (or an
+equivalent Vue + ESM toolchain such as a suitably configured webpack 5). It is not
+consumable from plain Node without such a build step. The Web Worker and WASM both
+degrade gracefully: if your bundler can't build them, alignment falls back to the
+main thread / the pure-JS implementation.
+
 ## Quick Start
 
 ```vue
