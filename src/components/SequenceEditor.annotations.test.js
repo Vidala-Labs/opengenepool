@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import SequenceEditor from './SequenceEditor.vue'
@@ -1252,7 +1252,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(10, 50),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         // Should emit annotations-update with the new annotation
         const emitted = wrapper.emitted('annotations-update')
@@ -1277,7 +1277,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(10, 20),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         const emitted = wrapper.emitted('annotations-update')
         expect(emitted[0][0][0].id).toBeTruthy()
@@ -1298,7 +1298,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(0, 9),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         const emitted = wrapper.emitted('annotations-update')
         expect(emitted[0][0][0].attributes.translation).toBe('MMM')
@@ -1320,7 +1320,7 @@ describe('SequenceEditor annotations', () => {
           span: ezSpan(10, 20),
           attributes: {}
         })
-        await wrapper.vm.$nextTick()
+        await flushPromises()
 
         expect(mockBackend.annotationCreated).toHaveBeenCalledTimes(1)
         const call = mockBackend.annotationCreated.mock.calls[0][0]

@@ -1,6 +1,7 @@
 import { shallowRef, ref, computed } from 'vue'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range } from '../utils/dna.js'
+import { generateId, generateIdSync } from '../utils/uuid.js'
 
 /**
  * SequenceDocument encapsulates a DNA sequence with its annotations and metadata.
@@ -59,7 +60,10 @@ export class SequenceDocument {
       }
       const span = this._requireSpan(ann.span)
       return {
-        id: ann.id || crypto.randomUUID(),
+        // Sync guarded fallback for bulk/load paths (constructor, setAnnotations).
+        // New annotations created via addAnnotation get their id from the async
+        // (overridable) generator before reaching here.
+        id: ann.id || generateIdSync(),
         caption: ann.caption || '',
         type: ann.type || 'misc_feature',
         span,
@@ -168,7 +172,7 @@ export class SequenceDocument {
     this._adjustAnnotationsForInsert(position, text.length, extendStartIds, extendEndIds)
 
     // 3. Notify backend
-    this._backend?.insert?.({ editId: crypto.randomUUID(), position, text })
+    this._backend?.insert?.({ editId: generateIdSync(), position, text })
 
     return text
   }
@@ -198,7 +202,7 @@ export class SequenceDocument {
         this._adjustAnnotationsForReplace(start, end, 0)
 
         // Notify backend
-        this._backend?.delete?.({ editId: crypto.randomUUID(), start, end })
+        this._backend?.delete?.({ editId: generateIdSync(), start, end })
       }
     }
 
@@ -231,8 +235,8 @@ export class SequenceDocument {
 
     // 3. Notify backend (delete + insert)
     if (this._backend) {
-      this._backend.delete?.({ editId: crypto.randomUUID(), start, end })
-      this._backend.insert?.({ editId: crypto.randomUUID(), position: start, text })
+      this._backend.delete?.({ editId: generateIdSync(), start, end })
+      this._backend.insert?.({ editId: generateIdSync(), position: start, text })
     }
 
     return deleted
@@ -275,15 +279,22 @@ export class SequenceDocument {
 
   /**
    * Add an annotation.
+   *
+   * Async: a NEW annotation (no id supplied) gets its id from the overridable id
+   * generator, which may do an async round-trip (e.g. server-synchronized UUIDv7).
    * @param {Object|Annotation} annotation - Annotation to add
-   * @returns {string} The ID of the added annotation
+   * @returns {Promise<string>} The ID of the added annotation
    */
-  addAnnotation(annotation) {
-    const normalized = this._normalizeAnnotations([annotation])[0]
+  async addAnnotation(annotation) {
+    // Mint a new id up front (awaited) when the caller didn't supply one, so the
+    // constructor/normalize path never needs to be async.
+    const withId = annotation.id ? annotation : { ...annotation, id: await generateId() }
+
+    const normalized = this._normalizeAnnotations([withId])[0]
     this._annotations.value = [...this._annotations.value, normalized]
 
     // Notify backend (include edit id for acknowledgment round-trip)
-    const editId = `create-${globalThis.crypto?.randomUUID?.() || Date.now()}`
+    const editId = `create-${generateIdSync()}`
     this._backend?.annotationCreated?.({ ...normalized, editId })
 
     return normalized.id
@@ -309,7 +320,7 @@ export class SequenceDocument {
     this._annotations.value = newAnnotations
 
     // Notify backend (include edit id for acknowledgment round-trip)
-    const editId = `update-${globalThis.crypto?.randomUUID?.() || Date.now()}`
+    const editId = `update-${generateIdSync()}`
     this._backend?.annotationUpdate?.({ ...updated, editId })
 
     return true
@@ -327,7 +338,7 @@ export class SequenceDocument {
     this._annotations.value = this._annotations.value.filter(a => a.id !== id)
 
     // Notify backend (include edit id for acknowledgment round-trip)
-    const editId = `del-${globalThis.crypto?.randomUUID?.() || Date.now()}`
+    const editId = `del-${generateIdSync()}`
     this._backend?.annotationDeleted?.({ editId, id })
 
     return true

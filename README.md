@@ -37,6 +37,9 @@ A Vue.js DNA sequence editor component library for viewing, editing, and annotat
 - **Customizable Slots** - Title, toolbar, and config panel customization
 - **Exposed API** - Methods for programmatic control (setSelection, scrollToPosition, etc.)
 - **Event System** - Comprehensive events for selection, editing, and annotation interactions
+- **Pluggable IDs** - `setUuidGenerator(fn)` overrides how new annotation IDs are
+  minted (sync or async, e.g. a server-synchronized UUIDv7 round-trip); defaults to
+  a guarded `crypto.randomUUID()`
 
 ## Installation
 
