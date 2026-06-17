@@ -1,5 +1,18 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { Span, Range, Orientation } from '../utils/dna.js'
+import { createIndexedDbBackend } from './indexedDbBackend.js'
+
+// In-memory store seam with an artificial async delay, to exercise operation
+// ordering without a real IndexedDB (Node/Bun/happy-dom have none).
+function makeFakeStore(initial = null, { delay = 5 } = {}) {
+  let record = initial
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+  return {
+    record: () => record,
+    get: async (_id) => { await sleep(delay); return record ? JSON.parse(JSON.stringify(record)) : null },
+    save: async (seq) => { await sleep(delay); record = JSON.parse(JSON.stringify(seq)) }
+  }
+}
 
 /**
  * Test the applyEdit logic for annotationDeleted
@@ -193,5 +206,50 @@ describe('indexedDbBackend span normalization', () => {
       expect(restored.ranges[1].end).toBe(70)
       expect(restored.ranges[1].orientation).toBe(Orientation.MINUS)
     })
+  })
+})
+
+describe('indexedDbBackend operation serialization (lost-update races)', () => {
+  // Wait until the store has been written enough times to reflect all queued ops.
+  async function settle(ms = 200) { await new Promise(r => setTimeout(r, ms)) }
+
+  it('applies rapid sequential inserts without losing updates', async () => {
+    const store = makeFakeStore({ id: 'seq1', content: '', title: '', annotations: [], metadata: {} })
+    const backend = createIndexedDbBackend('seq1', { store })
+
+    // Fire several inserts in a row WITHOUT awaiting between them. With a
+    // get->mutate->put race these would read the same stale '' and clobber each
+    // other; serialized, each sees the previous write.
+    backend.insert({ position: 0, text: 'AAA' })
+    backend.insert({ position: 3, text: 'CCC' })
+    backend.insert({ position: 6, text: 'GGG' })
+    await settle()
+
+    expect(store.record().content).toBe('AAACCCGGG')
+  })
+
+  it('applies interleaved insert + annotation ops in order', async () => {
+    const store = makeFakeStore({ id: 'seq1', content: 'ATCG', title: '', annotations: [], metadata: {} })
+    const backend = createIndexedDbBackend('seq1', { store })
+
+    backend.annotationCreated({ id: 'a1', caption: 'one', editId: 'e1' })
+    backend.insert({ position: 4, text: 'TTTT' })
+    backend.annotationCreated({ id: 'a2', caption: 'two', editId: 'e2' })
+    await settle()
+
+    const rec = store.record()
+    expect(rec.content).toBe('ATCGTTTT')
+    expect(rec.annotations.map(a => a.id)).toEqual(['a1', 'a2'])
+  })
+
+  it('a delete after an insert sees the inserted bases (no stale read)', async () => {
+    const store = makeFakeStore({ id: 'seq1', content: 'AAAA', title: '', annotations: [], metadata: {} })
+    const backend = createIndexedDbBackend('seq1', { store })
+
+    backend.insert({ position: 4, text: 'GGGG' })   // -> AAAAGGGG
+    backend.delete({ start: 0, end: 2 })            // -> AAGGGG
+    await settle()
+
+    expect(store.record().content).toBe('AAGGGG')
   })
 })
