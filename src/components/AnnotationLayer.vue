@@ -4,6 +4,7 @@
 // ============================================
 import { ref, computed, watch } from 'vue'
 import { isAnnotationHidden } from '../utils/annotation.js'
+import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/safeStorage.js'
 
 const HIDDEN_TYPES_STORAGE_KEY = 'ogp-hidden-annotation-types'
 
@@ -18,10 +19,10 @@ function isTranslationEffectivelyVisible() {
   return translationShowRef.value
 }
 
-// Load hidden types from localStorage
+// Load hidden types from localStorage (guarded for SSR / restricted browsers)
 function loadHiddenTypes() {
   try {
-    const stored = localStorage.getItem(HIDDEN_TYPES_STORAGE_KEY)
+    const stored = getStorageItem(HIDDEN_TYPES_STORAGE_KEY)
     if (stored) return new Set(JSON.parse(stored))
   } catch (e) {}
   return new Set()
@@ -34,9 +35,7 @@ const hiddenTypes = ref(loadHiddenTypes())
 const showHiddenAnnotations = ref(false)
 
 watch(hiddenTypes, (newSet) => {
-  try {
-    localStorage.setItem(HIDDEN_TYPES_STORAGE_KEY, JSON.stringify([...newSet]))
-  } catch (e) {}
+  setStorageItem(HIDDEN_TYPES_STORAGE_KEY, JSON.stringify([...newSet]))
 }, { deep: true })
 
 const allAnnotationTypes = ref(new Set())
@@ -95,7 +94,7 @@ export function __resetModuleState() {
   instanceCount = 0
   annotationColorsRef = null
   translationShowRef = null
-  try { localStorage.removeItem(HIDDEN_TYPES_STORAGE_KEY) } catch (e) {}
+  removeStorageItem(HIDDEN_TYPES_STORAGE_KEY)
 }
 </script>
 
