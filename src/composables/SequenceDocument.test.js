@@ -173,6 +173,59 @@ describe('SequenceDocument', () => {
     })
   })
 
+  describe('annotation adjustment immutability', () => {
+    // Regression: adjustment must NOT mutate the original Span/Range objects in
+    // place — external code holding a reference to an annotation's span must not
+    // see its coordinates change when the document is edited.
+    function docWithAnn(start, end) {
+      return new SequenceDocument({
+        sequence: 'A'.repeat(100),
+        annotations: [{ id: 'a', caption: 'g', type: 'gene', span: new Span([new Range(start, end, Orientation.PLUS)]) }]
+      })
+    }
+
+    it('does not mutate the original span object on insert', () => {
+      const doc = docWithAnn(10, 20)
+      const originalSpan = doc.annotations[0].span
+      const originalRange = originalSpan.ranges[0]
+
+      doc.insert(0, 'GGGGG')  // shifts the annotation right by 5
+
+      // The doc's annotation reflects the shift...
+      expect(doc.annotations[0].span.ranges[0].start).toBe(15)
+      // ...but the captured original span/range are unchanged (no in-place mutation).
+      expect(originalRange.start).toBe(10)
+      expect(originalRange.end).toBe(20)
+      expect(originalSpan.ranges[0]).toBe(originalRange)
+      // And the doc now holds a different span object than the captured one.
+      expect(doc.annotations[0].span).not.toBe(originalSpan)
+    })
+
+    it('does not mutate the original span object on delete', () => {
+      const doc = docWithAnn(10, 20)
+      const originalSpan = doc.annotations[0].span
+
+      doc.delete([{ start: 0, end: 5 }])  // shifts left by 5
+
+      expect(doc.annotations[0].span.ranges[0].start).toBe(5)
+      expect(originalSpan.ranges[0].start).toBe(10)  // original untouched
+      expect(doc.annotations[0].span).not.toBe(originalSpan)
+    })
+
+    it('preserves indefinite flags through adjustment', () => {
+      const doc = new SequenceDocument({
+        sequence: 'A'.repeat(100),
+        annotations: [{ id: 'a', caption: 'g', type: 'gene', span: new Span([new Range(10, 20, Orientation.PLUS, true, true)]) }]
+      })
+      doc.insert(0, 'GG')  // shift right by 2
+      const r = doc.annotations[0].span.ranges[0]
+      expect(r.start).toBe(12)
+      expect(r.end).toBe(22)
+      expect(r.startIndefinite).toBe(true)
+      expect(r.endIndefinite).toBe(true)
+    })
+  })
+
   describe('setCircular', () => {
     it('sets circular to true', () => {
       const doc = new SequenceDocument({ circular: false })
