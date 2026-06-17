@@ -85,10 +85,13 @@ function selectionRangeItems(context, target, deps) {
   const range = domain.ranges[rangeIndex]
 
   if (handleType) {
+    // Only offer "Extend to position..." when the editor actually supports it
+    // (linear). Circular/alignment editors don't, so they omit onExtendHandle.
+    if (typeof deps.onExtendHandle !== 'function') return []
     return [{
       id: 'extend-to-position',
       label: 'Extend to position...',
-      action: () => deps.onExtendHandle?.(rangeIndex, range, handleType)
+      action: () => deps.onExtendHandle(rangeIndex, range, handleType)
     }]
   }
 

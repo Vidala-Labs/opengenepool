@@ -47,18 +47,21 @@ export function annotationMenuItems(context, deps = {}) {
 
   const items = []
 
-  // Create Annotation is always available (when editable) — it opens the modal
-  // with the current selection, or blank fields when there's no selection. This
-  // is the annotation surface's own item, independent of clicking an annotation.
-  items.push({
-    id: 'create-annotation',
-    label: 'Create Annotation',
-    action: () => deps.onCreateAnnotation?.()
-  })
-
-  // The remaining items require an annotation to be in the target chain.
+  // These items require an annotation to be in the target chain.
+  // (Create Annotation is NOT owned here — it is a single editor-level item, so
+  // it isn't duplicated by the two alignment AnnotationLayer instances nor lost
+  // when no annotation layer is mounted. See each editor's createAnnotationContributor.)
   const target = (context.targets || []).find(t => t.layer === 'annotation')
   if (!target || !target.annotation) return items
+
+  // Alignment: two AnnotationLayer instances (target + query) each register a
+  // contributor. `context.layerMode` is THIS contributor's row; the clicked
+  // annotation's row is `_alignmentMode`. Only the matching row contributes the
+  // per-annotation items, so the menu doesn't show duplicates.
+  if (context.layerMode && target.annotation.attributes?._alignmentMode &&
+      target.annotation.attributes._alignmentMode !== context.layerMode) {
+    return items
+  }
 
   const annotation = target.annotation        // editor-resolved effective annotation
   const rangeIndex = target.rangeIndex
