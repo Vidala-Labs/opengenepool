@@ -788,10 +788,7 @@ function splitAnnotationAtPosition(annotation, rangeIndex, position) {
   emit('annotations-update', localAnnotations.value)
 }
 
-function handleAnnotationCreate(data) {
-  // Generate a new UUID for the annotation
-  const annotationId = crypto.randomUUID()
-
+async function handleAnnotationCreate(data) {
   // For CDS annotations, compute the translation string
   const span = data.span
   let attributes = data.attributes || {}
@@ -804,16 +801,14 @@ function handleAnnotationCreate(data) {
     attributes = { ...attributes, translation: result.aminoAcids }
   }
 
-  const newAnnotation = {
-    id: annotationId,
+  // No id supplied — the document mints one via the injectable id generator (which
+  // may be a host-provided async server-synchronized UUIDv7). Await it.
+  await targetDoc.value.addAnnotation({
     caption: data.caption,
     type: data.type,
     span,
     attributes
-  }
-
-  // Add annotation to document (handles backend notification)
-  targetDoc.value.addAnnotation(newAnnotation)
+  })
   // Emit for parent components
   emit('annotations-update', localAnnotations.value)
 

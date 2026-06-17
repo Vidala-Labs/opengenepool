@@ -447,7 +447,7 @@ function detectAlignmentFeatureAt(alignedPos) {
  * @param {number} alignedStart - Start position of the gap in aligned sequence
  * @param {number} alignedEnd - End position of the gap in aligned sequence (exclusive)
  */
-function createDeletionAnnotation(alignedStart, alignedEnd) {
+async function createDeletionAnnotation(alignedStart, alignedEnd) {
   if (!alignmentResult.value || !queryDoc.value) return
 
   // Find flanking bases in query (for span)
@@ -489,7 +489,7 @@ function createDeletionAnnotation(alignedStart, alignedEnd) {
 
   const span = new Span([new Range(origLeft, origRight + 1)])
 
-  queryDoc.value.addAnnotation({
+  await queryDoc.value.addAnnotation({
     type: 'deletion',
     caption,
     span
@@ -504,7 +504,7 @@ function createDeletionAnnotation(alignedStart, alignedEnd) {
  * @param {number} alignedStart - Start position in aligned sequence
  * @param {number} alignedEnd - End position in aligned sequence
  */
-function createInsertionAnnotation(alignedStart, alignedEnd) {
+async function createInsertionAnnotation(alignedStart, alignedEnd) {
   if (!alignmentResult.value || !queryDoc.value) return
 
   // The inserted bases in query
@@ -519,7 +519,7 @@ function createInsertionAnnotation(alignedStart, alignedEnd) {
   const caption = `+${insertedBases}`
   const span = new Span([new Range(origStart, origEnd + 1)])
 
-  queryDoc.value.addAnnotation({
+  await queryDoc.value.addAnnotation({
     type: 'insertion',
     caption,
     span,
@@ -725,7 +725,7 @@ function formatCdsSuffix(geneName, changes) {
  * @param {number} alignedStart - Start position in aligned sequence
  * @param {number} alignedEnd - End position in aligned sequence
  */
-function createMutationAnnotation(alignedStart, alignedEnd) {
+async function createMutationAnnotation(alignedStart, alignedEnd) {
   if (!alignmentResult.value || !queryDoc.value) return
 
   const targetBases = alignmentResult.value.targetAligned.slice(alignedStart, alignedEnd)
@@ -773,7 +773,7 @@ function createMutationAnnotation(alignedStart, alignedEnd) {
 
   const span = new Span([new Range(origStart, origEnd + 1)])
 
-  queryDoc.value.addAnnotation({
+  await queryDoc.value.addAnnotation({
     type: 'mutation',
     caption,
     span
@@ -1478,12 +1478,12 @@ function openAnnotationModalForEdit(annotation, mode = 'target') {
   annotationModalOpen.value = true
 }
 
-function handleAnnotationCreate(data) {
+async function handleAnnotationCreate(data) {
   const doc = annotationModalMode.value === 'query' ? props.query : props.target
   if (!doc) return
 
-  // Add annotation to the appropriate document
-  doc.addAnnotation({
+  // Add annotation to the appropriate document (id minted via injectable generator)
+  await doc.addAnnotation({
     span: data.span,
     type: data.type,
     caption: data.caption,
@@ -1582,15 +1582,16 @@ function computeMappedSpanForCopy(annotation, sourceMode) {
  * @param {string} destMode - The destination: 'query' or 'target'
  * @param {Span} mappedSpan - The pre-computed mapped span for the destination
  */
-function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
+async function copyAnnotationToDocument(annotation, destMode, mappedSpan) {
   const doc = destMode === 'query' ? props.query : props.target
   if (!doc || !mappedSpan) return
 
   // Get the original annotation for other properties
   const originalAnn = annotation.attributes?._originalAnnotation || annotation
 
-  // Create copy with mapped span and new ID (document will assign)
-  doc.addAnnotation({
+  // Create copy with mapped span; the document assigns a new id via the injectable
+  // generator (await so the emit reflects it).
+  await doc.addAnnotation({
     span: mappedSpan,
     type: originalAnn.type,
     caption: originalAnn.caption,

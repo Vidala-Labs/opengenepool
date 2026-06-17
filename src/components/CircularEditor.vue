@@ -819,9 +819,11 @@ function closeAnnotationModal() {
   editingAnnotation.value = null
 }
 
-function handleAnnotationCreate(annotationData) {
+async function handleAnnotationCreate(annotationData) {
   if (targetDoc.value?.addAnnotation) {
-    targetDoc.value.addAnnotation(annotationData)
+    // addAnnotation mints the id via the injectable (possibly async) generator;
+    // await before emitting so the update reflects the new annotation.
+    await targetDoc.value.addAnnotation(annotationData)
     emit('annotations-update')
   }
   closeAnnotationModal()

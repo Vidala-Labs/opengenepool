@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { SequenceDocument } from './SequenceDocument.js'
 import { Span, Range, Orientation } from '../utils/dna.js'
+import { setUuidGenerator } from '../utils/uuid.js'
 import { ezSpan } from '../../test/span-helpers.js'
 
 describe('SequenceDocument', () => {
@@ -208,8 +209,8 @@ describe('SequenceDocument', () => {
     })
 
     describe('addAnnotation', () => {
-      it('adds annotation and returns id', () => {
-        const id = doc.addAnnotation({
+      it('adds annotation and returns id (async)', async () => {
+        const id = await doc.addAnnotation({
           caption: 'New Gene',
           type: 'promoter',
           span: ezSpan(2, 6)
@@ -217,16 +218,38 @@ describe('SequenceDocument', () => {
         expect(typeof id).toBe('string')
         expect(doc.annotations.length).toBe(3)
         expect(doc.annotations[2].caption).toBe('New Gene')
+        expect(doc.annotations[2].id).toBe(id)
       })
 
-      it('preserves provided id', () => {
-        const id = doc.addAnnotation({
+      it('preserves provided id', async () => {
+        const id = await doc.addAnnotation({
           id: 'custom-id',
           caption: 'Test',
           type: 'gene',
           span: ezSpan(0, 4)
         })
         expect(id).toBe('custom-id')
+      })
+
+      it('mints a new id via the injectable generator when none provided', async () => {
+        setUuidGenerator(() => 'injected-id-1')
+        try {
+          const id = await doc.addAnnotation({ caption: 'X', type: 'gene', span: ezSpan(0, 4) })
+          expect(id).toBe('injected-id-1')
+          expect(doc.annotations.find(a => a.id === 'injected-id-1')).toBeTruthy()
+        } finally {
+          setUuidGenerator(null)
+        }
+      })
+
+      it('awaits an async (server-synced) generator for the new id', async () => {
+        setUuidGenerator(async () => { await Promise.resolve(); return 'server-uuid-v7' })
+        try {
+          const id = await doc.addAnnotation({ caption: 'Y', type: 'gene', span: ezSpan(0, 4) })
+          expect(id).toBe('server-uuid-v7')
+        } finally {
+          setUuidGenerator(null)
+        }
       })
     })
 
@@ -323,10 +346,10 @@ describe('SequenceDocument', () => {
       expect(doc.sequence).toBe('ATGGGCG')
     })
 
-    it('annotations getter returns updated value after add', () => {
+    it('annotations getter returns updated value after add', async () => {
       const doc = new SequenceDocument({ sequence: 'ATCG' })
       expect(doc.annotations.length).toBe(0)
-      doc.addAnnotation({ caption: 'Test', type: 'gene', span: ezSpan(0, 4) })
+      await doc.addAnnotation({ caption: 'Test', type: 'gene', span: ezSpan(0, 4) })
       expect(doc.annotations.length).toBe(1)
     })
   })
@@ -393,13 +416,13 @@ describe('SequenceDocument', () => {
       expect(calls[1].text).toBe('XXX')
     })
 
-    it('calls backend.annotationCreated on addAnnotation', () => {
+    it('calls backend.annotationCreated on addAnnotation', async () => {
       const calls = []
       const backend = {
         annotationCreated: (data) => calls.push(data)
       }
       const doc = new SequenceDocument({ sequence: 'ATCG', backend })
-      doc.addAnnotation({ caption: 'Test', type: 'gene', span: ezSpan(0, 4) })
+      await doc.addAnnotation({ caption: 'Test', type: 'gene', span: ezSpan(0, 4) })
 
       expect(calls.length).toBe(1)
       expect(calls[0].caption).toBe('Test')

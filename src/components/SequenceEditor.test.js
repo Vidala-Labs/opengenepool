@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { markRaw } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
@@ -1563,13 +1563,13 @@ describe('SequenceEditor', () => {
 
       expect(capturedAPI).not.toBeNull()
 
-      // Call addAnnotation via the extensionAPI
+      // Call addAnnotation via the extensionAPI (now async: id minted via generator)
       capturedAPI.addAnnotation({
         span: ezSpan(0, 30),
         type: 'CDS',
         caption: 'Test CDS'
       })
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       // Should emit annotations-update
       const emitted = wrapper.emitted('annotations-update')
