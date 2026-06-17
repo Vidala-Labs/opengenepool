@@ -130,12 +130,19 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
 
   /**
    * Applies an operation and persists it. Operations are queued so they run
-   * strictly in order; each one observes the previous one's write.
-   * Calls the sync-status callback on success/failure.
+   * strictly in order; each one observes the previous one's write. Returns a
+   * promise that resolves when THIS operation has persisted and rejects if it
+   * failed — so callers can await persistence and observe errors.
+   *
+   * The internal `queue` is kept non-rejecting (we chain off a swallowed copy)
+   * so one failed operation never poisons the ordering of later operations.
    */
   function applyOperation(operationType, data) {
-    queue = queue.then(() => runOperation(operationType, data))
-    return queue
+    const result = queue.then(() => runOperation(operationType, data))
+    // Advance the ordering chain on a branch that never rejects, so a failure in
+    // this op doesn't break the queue for subsequent ops.
+    queue = result.catch(() => {})
+    return result
   }
 
   async function runOperation(operationType, data) {
@@ -212,39 +219,43 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
       if (onSyncStatusChange) {
         onSyncStatusChange('error')
       }
+      // Re-throw so the per-operation promise rejects and callers can observe
+      // the failure (the ordering queue is insulated from this in applyOperation).
+      throw error
     }
   }
 
   return {
-    // Sequence operations
+    // Sequence operations. Each returns a promise that resolves once the edit is
+    // persisted and rejects if persistence failed.
     insert(data) {
-      applyOperation('insert', data)
+      return applyOperation('insert', data)
     },
 
     delete(data) {
-      applyOperation('delete', data)
+      return applyOperation('delete', data)
     },
 
     // Annotation operations
     annotationCreated(data) {
-      applyOperation('annotationCreated', data)
+      return applyOperation('annotationCreated', data)
     },
 
     annotationUpdate(data) {
-      applyOperation('annotationUpdate', data)
+      return applyOperation('annotationUpdate', data)
     },
 
     annotationDeleted(data) {
-      applyOperation('annotationDeleted', data)
+      return applyOperation('annotationDeleted', data)
     },
 
     // Metadata operations
     titleUpdate(data) {
-      applyOperation('titleUpdate', data)
+      return applyOperation('titleUpdate', data)
     },
 
     metadataUpdate(data) {
-      applyOperation('metadataUpdate', data)
+      return applyOperation('metadataUpdate', data)
     },
 
     // Additional methods for standalone mode
@@ -257,9 +268,11 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
     },
 
     // Queued so an explicit save can't interleave with in-flight edit operations.
+    // Returns a promise reflecting this save; the ordering chain stays non-rejecting.
     save(sequence) {
-      queue = queue.then(() => writeSequence({ ...sequence, id: sequenceId }))
-      return queue
+      const result = queue.then(() => writeSequence({ ...sequence, id: sequenceId }))
+      queue = result.catch(() => {})
+      return result
     }
   }
 }
