@@ -40,9 +40,28 @@ A Vue.js DNA sequence editor component library for viewing, editing, and annotat
 
 ## Installation
 
+OpenGenePool is **not published to npm**. Install it directly from GitHub, pinned
+to a specific commit so your build is reproducible:
+
 ```bash
-npm install opengenepool
+npm install github:vidala-labs/opengenepool#12faa94
 ```
+
+Or pin it in `package.json`:
+
+```json
+{
+  "dependencies": {
+    "opengenepool": "github:vidala-labs/opengenepool#12faa94"
+  }
+}
+```
+
+Replace `12faa94` with the commit hash you want to track. Pin to a full hash (not a
+branch) so upstream changes never silently alter your build.
+
+To run the bundled demo app instead of integrating the library, see
+[Development](#development) / the `example/` directory.
 
 ## Quick Start
 
