@@ -7,11 +7,12 @@ import { usePersistedZoom } from '../composables/usePersistedZoom.js'
 import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { useContextMenu } from '../composables/useContextMenu.js'
+import { useAlignmentRunner } from '../composables/useAlignmentRunner.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
 import { ANNOTATION_COLORS, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
-import { align, loadWasm, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
+import { loadWasm, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -132,17 +133,14 @@ const selection = useSelection(editorState, graphics, eventBus)
 // ============================================
 
 // Alignment computation - use sequenceRef for proper Vue reactivity tracking
-// When the document's sequence changes via doc.delete() or doc.insert(),
-// Vue will see the dependency and recompute alignmentResult
-const alignmentResult = computed(() => {
-  const target = targetDoc.value
-  const query = queryDoc.value
-  // Access sequenceRef (public API) for proper Vue reactivity tracking
-  const targetSeq = target?.sequenceRef?.value
-  const querySeq = query?.sequenceRef?.value
-  if (!targetSeq || !querySeq) return null
-  return align(querySeq, targetSeq)
-})
+// Alignment runs off the synchronous reactive path (Web Worker in the browser,
+// async main-thread fallback otherwise). `alignmentResult` is a shallowRef whose
+// value is null until the first run settles; `aligning` is true while a run is
+// pending. Downstream computeds already guard on a falsy result.
+const { result: alignmentResult, pending: aligning, whenSettled } = useAlignmentRunner(
+  () => queryDoc.value?.sequenceRef?.value ?? '',
+  () => targetDoc.value?.sequenceRef?.value ?? ''
+)
 
 // Check if alignment found a match
 const hasAlignment = computed(() => {
@@ -918,6 +916,10 @@ const selectionStatusText = computed(() => {
 
   return null
 })
+
+// Indicator text: show "Aligning…" while an alignment run is pending, otherwise the
+// selection status. (While pending, the previous alignment stays rendered.)
+const indicatorText = computed(() => aligning.value ? 'Aligning…' : selectionStatusText.value)
 
 // Set initial zoom from localStorage (fallback to prop)
 const { getInitialZoom, saveZoom } = usePersistedZoom(props.initialZoom)
@@ -1931,6 +1933,8 @@ defineExpose({
   queryDoc,
   hasAlignment,
   alignmentResult,
+  aligning,
+  whenSettled,
   alignmentLines,
   getSelectedAlignmentSequenceText,
   alignedTargetAnnotations,
@@ -2164,7 +2168,7 @@ const toolbarHelpText = `Selection Controls:
       </div>
 
       <!-- Selection Status Display -->
-      <Indicator :text="selectionStatusText" />
+      <Indicator :text="indicatorText" />
     </div>
 
     <!-- Context Menu -->

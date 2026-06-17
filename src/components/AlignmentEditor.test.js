@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 import AlignmentEditor from './AlignmentEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
@@ -10,6 +10,16 @@ import { ezSpan } from '../../test/span-helpers.js'
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
   return new SequenceDocument({ sequence, annotations, circular, backend })
+}
+
+// Alignment now runs asynchronously (off the synchronous computed). `settle` waits
+// for the runner to finish so alignmentResult/derived state are ready to assert.
+// It is a superset of $nextTick, so it is safe to use everywhere a tick was used.
+async function settle(wrapper) {
+  await flushPromises()
+  if (wrapper?.vm?.whenSettled) await wrapper.vm.whenSettled()
+  await flushPromises()
+  await wrapper?.vm?.$nextTick?.()
 }
 
 // Build a menu through the contributor service the way AlignmentEditor's
@@ -48,7 +58,7 @@ describe('AlignmentEditor Component', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.find('.alignment-editor').exists()).toBe(true)
     expect(wrapper.find('.editor-svg').exists()).toBe(true)
@@ -64,7 +74,7 @@ describe('AlignmentEditor Component', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.hasAlignment).toBe(true)
 
@@ -78,6 +88,33 @@ describe('AlignmentEditor Component', () => {
     expect(lines[0].matchText).toBe('|||||||||')
   })
 
+  it('runs alignment asynchronously (result is null synchronously, set after settle)', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCG'), query: createDoc('ATCGATCG') }
+    })
+    // Synchronously after mount the alignment has not run yet.
+    expect(wrapper.vm.alignmentResult).toBeNull()
+    expect(wrapper.vm.aligning).toBe(true)
+
+    await settle(wrapper)
+
+    expect(wrapper.vm.alignmentResult).not.toBeNull()
+    expect(wrapper.vm.aligning).toBe(false)
+  })
+
+  it('shows an "Aligning…" indicator while pending, then selection status', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCG'), query: createDoc('ATCGATCG') }
+    })
+    // While pending, the toolbar indicator reads "Aligning…".
+    expect(wrapper.findComponent({ name: 'Indicator' }).props('text')).toBe('Aligning…')
+
+    await settle(wrapper)
+
+    // Once settled (no selection), the indicator is no longer "Aligning…".
+    expect(wrapper.findComponent({ name: 'Indicator' }).props('text')).not.toBe('Aligning…')
+  })
+
   it('computes alignment for partial match', async () => {
     const target = 'CGAGTCAGT'
     const query = 'AGTCAGT'
@@ -89,7 +126,7 @@ describe('AlignmentEditor Component', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.hasAlignment).toBe(true)
 
@@ -108,7 +145,7 @@ describe('AlignmentEditor Component', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // The alignment algorithm still finds some match, but let's test with really
     // different sequences that would produce no meaningful alignment
@@ -124,7 +161,7 @@ describe('AlignmentEditor Component', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const sequenceLayers = wrapper.findAllComponents({ name: 'SequenceLayer' })
     expect(sequenceLayers.length).toBe(2)
@@ -138,7 +175,7 @@ describe('AlignmentEditor Component', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const ticksLayer = wrapper.findComponent({ name: 'AlignmentTicksLayer' })
     expect(ticksLayer.exists()).toBe(true)
@@ -158,7 +195,7 @@ describe('AlignmentEditor Selection', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection).toBeDefined()
     expect(wrapper.vm.selection.domain).toBeDefined()
@@ -172,12 +209,12 @@ describe('AlignmentEditor Selection', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
     expect(wrapper.vm.selection.source.value).toBe('target')
@@ -191,12 +228,12 @@ describe('AlignmentEditor Selection', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
     expect(wrapper.vm.selection.source.value).toBe('query')
@@ -210,12 +247,12 @@ describe('AlignmentEditor Selection', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const selectedText = wrapper.vm.getSelectedAlignmentSequenceText()
     expect(selectedText).toBe('ATCG')
@@ -229,12 +266,12 @@ describe('AlignmentEditor Selection', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const selectedText = wrapper.vm.getSelectedAlignmentSequenceText()
     expect(selectedText).toBe('GGGG')
@@ -254,7 +291,7 @@ describe('AlignmentEditor Status Text', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // selectionStatusText is null when no selection - stats should be displayed via #info slot
     const statusText = wrapper.vm.selectionStatusText
@@ -275,12 +312,12 @@ describe('AlignmentEditor Status Text', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const statusText = wrapper.vm.selectionStatusText
     expect(statusText).toContain('Target selected')
@@ -294,12 +331,12 @@ describe('AlignmentEditor Status Text', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const statusText = wrapper.vm.selectionStatusText
     expect(statusText).toContain('Query selected')
@@ -322,7 +359,7 @@ describe('AlignmentEditor Reactivity', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Initial alignment should have 100% identity
     expect(wrapper.vm.alignmentResult.identity).toBe(100)
@@ -330,7 +367,7 @@ describe('AlignmentEditor Reactivity', () => {
 
     // Delete from target document
     targetDoc.delete([{ start: 0, end: 4 }])
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Alignment should have changed - target is now shorter
     const newLength = wrapper.vm.alignmentResult.targetAligned.length
@@ -348,7 +385,7 @@ describe('AlignmentEditor Reactivity', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Initial alignment
     expect(wrapper.vm.alignmentResult.identity).toBe(100)
@@ -356,7 +393,7 @@ describe('AlignmentEditor Reactivity', () => {
 
     // Delete from query document
     queryDoc.delete([{ start: 0, end: 4 }])
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Alignment should have changed
     const newLength = wrapper.vm.alignmentResult.queryAligned.length
@@ -380,7 +417,7 @@ describe('AlignmentEditor Edit Routing', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialTargetLength = targetDoc.sequence.length
 
@@ -388,11 +425,11 @@ describe('AlignmentEditor Edit Routing', () => {
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Use internal delete function (confirmDelete would be used via context menu)
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Target should be shorter
     expect(targetDoc.sequence.length).toBe(initialTargetLength - 4)
@@ -411,7 +448,7 @@ describe('AlignmentEditor Edit Routing', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialQueryLength = queryDoc.sequence.length
 
@@ -419,11 +456,11 @@ describe('AlignmentEditor Edit Routing', () => {
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Use internal delete function
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Query should be shorter
     expect(queryDoc.sequence.length).toBe(initialQueryLength - 4)
@@ -442,16 +479,16 @@ describe('AlignmentEditor Edit Routing', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Select on target row
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const editEvents = wrapper.emitted('edit')
     expect(editEvents).toBeDefined()
@@ -471,16 +508,16 @@ describe('AlignmentEditor Edit Routing', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Select on query row
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const editEvents = wrapper.emitted('edit')
     expect(editEvents).toBeDefined()
@@ -508,7 +545,7 @@ describe('AlignmentEditor Annotations', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.alignedTargetAnnotations).toBeDefined()
     expect(wrapper.vm.alignedTargetAnnotations.length).toBe(1)
@@ -527,7 +564,7 @@ describe('AlignmentEditor Annotations', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.alignedQueryAnnotations).toBeDefined()
     expect(wrapper.vm.alignedQueryAnnotations.length).toBe(1)
@@ -572,7 +609,7 @@ describe('Annotation alignment mapping', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment result
     const result = wrapper.vm.alignmentResult
@@ -627,7 +664,7 @@ describe('Annotation alignment mapping', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment result (target gets the gap when query is longer)
     const result = wrapper.vm.alignmentResult
@@ -673,7 +710,7 @@ describe('AlignmentEditor Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }  // no annotations
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const items = sequenceRowMenu(wrapper, 'target')
     expect(items.some(i => i.label === 'Create Annotation')).toBe(true)
@@ -683,7 +720,7 @@ describe('AlignmentEditor Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const items = sequenceRowMenu(wrapper, 'target')
     expect(items.some(item => item.label === 'Select all')).toBe(true)
@@ -693,12 +730,12 @@ describe('AlignmentEditor Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const items = sequenceRowMenu(wrapper, 'target')
     expect(items.some(item => item.label === 'Select all')).toBe(true)
@@ -711,12 +748,12 @@ describe('AlignmentEditor Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('GGGGAAAACCCC') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
     expect(wrapper.vm.selection.isSelected.value).toBe(false)
 
     const items = sequenceRowMenu(wrapper, 'target')
     items.find(item => item.label === 'Select all').action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
     expect(wrapper.vm.selection.source.value).toBe('target')
@@ -728,11 +765,11 @@ describe('AlignmentEditor Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('GGGGAAAA') }  // 8 bases
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const items = sequenceRowMenu(wrapper, 'query')
     items.find(item => item.label === 'Select all').action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
     expect(wrapper.vm.selection.source.value).toBe('query')
@@ -762,7 +799,7 @@ describe('AlignmentEditor Select All Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Background: no sequence target in the chain → no Select all.
     const items = wrapper.vm.contextMenu.buildMenu({
@@ -775,12 +812,12 @@ describe('AlignmentEditor Select All Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('GGGGAAAA') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const item = rowMenu(wrapper, 'target').find(i => i.label === 'Select all')
     expect(item).toBeDefined()
     item.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
     expect(wrapper.vm.selection.source.value).toBe('target')
     expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(12)
   })
@@ -789,12 +826,12 @@ describe('AlignmentEditor Select All Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('GGGGAAAA') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const item = rowMenu(wrapper, 'query').find(i => i.label === 'Select all')
     expect(item).toBeDefined()
     item.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
     expect(wrapper.vm.selection.source.value).toBe('query')
     expect(wrapper.vm.selection.domain.value.ranges[0].end).toBe(8)
   })
@@ -803,7 +840,7 @@ describe('AlignmentEditor Select All Context Menu', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('GGGGAAAA') }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
     expect(rowMenu(wrapper, 'target').some(i => i.label === 'Select all')).toBe(true)
   })
 })
@@ -821,7 +858,7 @@ describe('Delete via context menu (bug reproduction)', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialTargetLength = targetDoc.sequence.length
     expect(initialTargetLength).toBe(24)
@@ -841,7 +878,7 @@ describe('Delete via context menu (bug reproduction)', () => {
     wrapper.vm.selection.startSelection(5, false, 'target')
     wrapper.vm.selection.updateSelection(10)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.source.value).toBe('target')
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
@@ -855,14 +892,14 @@ describe('Delete via context menu (bug reproduction)', () => {
 
     // Click "Delete sequence" - this calls handleDelete() which shows confirmation
     deleteItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Confirmation dialog should be visible
     expect(wrapper.vm.deleteConfirmVisible).toBe(true)
 
     // Click confirm - this calls confirmDelete()
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify the rendered target sequence after delete
     const alignedTargetAfter = wrapper.vm.alignedTargetSequence
@@ -890,7 +927,7 @@ describe('Delete via context menu (bug reproduction)', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialQueryLength = queryDoc.sequence.length
     expect(initialQueryLength).toBe(24)
@@ -905,7 +942,7 @@ describe('Delete via context menu (bug reproduction)', () => {
     wrapper.vm.selection.startSelection(5, false, 'query')
     wrapper.vm.selection.updateSelection(10)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.source.value).toBe('query')
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
@@ -919,14 +956,14 @@ describe('Delete via context menu (bug reproduction)', () => {
 
     // Click "Delete sequence"
     deleteItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Confirmation dialog should be visible
     expect(wrapper.vm.deleteConfirmVisible).toBe(true)
 
     // Click confirm
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify the rendered query sequence after delete
     const alignedQueryAfter = wrapper.vm.alignedQuerySequence
@@ -956,7 +993,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Check that alignment is computed
     expect(wrapper.vm.hasAlignment).toBe(true)
@@ -981,7 +1018,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the query SequenceLayer
     const sequenceLayers = wrapper.findAllComponents({ name: 'SequenceLayer' })
@@ -1003,7 +1040,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the target SequenceLayer by checking the mode prop
     const sequenceLayers = wrapper.findAllComponents({ name: 'SequenceLayer' })
@@ -1015,7 +1052,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
     wrapper.vm.selection.startSelection(2, false, 'target')
     wrapper.vm.selection.updateSelection(6)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.source.value).toBe('target')
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
@@ -1029,7 +1066,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the query SequenceLayer by checking the mode prop
     const sequenceLayers = wrapper.findAllComponents({ name: 'SequenceLayer' })
@@ -1040,7 +1077,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
     wrapper.vm.selection.startSelection(2, false, 'query')
     wrapper.vm.selection.updateSelection(6)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.source.value).toBe('query')
     expect(wrapper.vm.selection.isSelected.value).toBe(true)
@@ -1054,13 +1091,13 @@ describe('AlignmentEditor Mouse Interactions', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // First select on target
     wrapper.vm.selection.startSelection(0, false, 'target')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.source.value).toBe('target')
 
@@ -1068,7 +1105,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(wrapper.vm.selection.source.value).toBe('query')
   })
@@ -1084,7 +1121,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialQueryLength = queryDoc.sequence.length
 
@@ -1092,11 +1129,11 @@ describe('AlignmentEditor Mouse Interactions', () => {
     wrapper.vm.selection.startSelection(0, false, 'query')
     wrapper.vm.selection.updateSelection(4)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Delete - should affect query document
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Query should be shorter, target unchanged
     expect(queryDoc.sequence.length).toBe(initialQueryLength - 4)
@@ -1115,7 +1152,7 @@ describe('AlignmentEditor Mouse Interactions', () => {
       attachTo: document.body
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment is ready
     expect(wrapper.vm.hasAlignment).toBe(true)
@@ -1173,12 +1210,12 @@ describe('AlignmentEditor Mouse Interactions', () => {
       clientY: 10
     })
     window.dispatchEvent(mouseMoveEvent)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Trigger mouseup to complete the selection
     const mouseUpEvent = new MouseEvent('mouseup', { bubbles: true })
     window.dispatchEvent(mouseUpEvent)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // After clicking and dragging, a selection SHOULD be created:
     // - selection.source.value should be 'target' (since we clicked target row)
@@ -1213,7 +1250,7 @@ describe('Delete with different sequences (alignment has gaps)', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialLength = targetDoc.sequence.length
     expect(initialLength).toBe(24)
@@ -1229,7 +1266,7 @@ describe('Delete with different sequences (alignment has gaps)', () => {
     wrapper.vm.selection.startSelection(5, false, 'target')
     wrapper.vm.selection.updateSelection(10)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify selection source
     expect(wrapper.vm.selection.source.value).toBe('target')
@@ -1240,7 +1277,7 @@ describe('Delete with different sequences (alignment has gaps)', () => {
 
     // Delete via confirmDelete (like context menu would)
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Target should be modified
     console.log('After delete - targetDoc.sequence:', targetDoc.sequence)
@@ -1257,7 +1294,7 @@ describe('Delete with different sequences (alignment has gaps)', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const initialLength = queryDoc.sequence.length
     expect(initialLength).toBe(24)
@@ -1266,14 +1303,14 @@ describe('Delete with different sequences (alignment has gaps)', () => {
     wrapper.vm.selection.startSelection(5, false, 'query')
     wrapper.vm.selection.updateSelection(10)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify selection source
     expect(wrapper.vm.selection.source.value).toBe('query')
 
     // Delete
     wrapper.vm.confirmDelete()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Query should be modified
     expect(queryDoc.sequence.length).toBe(19)  // 24 - 5 = 19
@@ -1293,7 +1330,7 @@ describe('AlignmentEditor Reactivity', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Capture alignmentResult BEFORE delete
     const alignmentBefore = wrapper.vm.alignmentResult
@@ -1307,7 +1344,7 @@ describe('AlignmentEditor Reactivity', () => {
 
     // Delete from target sequence directly (bypassing selection/context menu)
     targetDoc.delete([{ start: 5, end: 10 }])
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify the document was modified
     expect(targetDoc.sequence.length).toBe(19)
@@ -1343,7 +1380,7 @@ describe('AlignmentEditor Reactivity', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Before delete
     const alignedTargetBefore = wrapper.vm.alignedTargetSequence
@@ -1351,7 +1388,7 @@ describe('AlignmentEditor Reactivity', () => {
 
     // Delete from target
     targetDoc.delete([{ start: 0, end: 5 }])
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // After delete - alignedTargetSequence should reflect the change
     const alignedTargetAfter = wrapper.vm.alignedTargetSequence
@@ -1385,7 +1422,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGAATCG')
@@ -1411,7 +1448,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCG-ATCG')
@@ -1434,7 +1471,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment (should be direct alignment with mismatch)
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGATCG')
@@ -1456,7 +1493,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 0 should be a match (A=A), no feature
     const feature = wrapper.vm.detectAlignmentFeatureAt(0)
@@ -1471,7 +1508,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 4 has gap in query
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
@@ -1487,7 +1524,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 4 has gap in target (insertion in query)
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
@@ -1503,7 +1540,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 4 is a mismatch (A vs T)
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
@@ -1519,7 +1556,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 0 is a match - no menu items
     const items = wrapper.vm.getAlignmentMenuItems(0, 'query')
@@ -1542,14 +1579,14 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
 
     // Create deletion annotation at position 4 (single gap)
     wrapper.vm.createDeletionAnnotation(4, 5)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Should have created annotation on query document
     expect(queryDoc.annotations.length).toBe(1)
@@ -1577,7 +1614,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment has the expected gaps
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGAAATCG')
@@ -1585,7 +1622,7 @@ describe('Gap annotation context menu', () => {
 
     // Create deletion annotation for the entire gap region (positions 4-6)
     wrapper.vm.createDeletionAnnotation(4, 6)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -1611,14 +1648,14 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
 
     // Create insertion annotation at position 4
     wrapper.vm.createInsertionAnnotation(4, 5)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Should have created annotation on query document
     expect(queryDoc.annotations.length).toBe(1)
@@ -1646,7 +1683,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCG--ATCG')
@@ -1654,7 +1691,7 @@ describe('Gap annotation context menu', () => {
 
     // Create insertion annotation for the entire insertion (positions 4-6)
     wrapper.vm.createInsertionAnnotation(4, 6)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -1675,14 +1712,14 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
 
     // Create mutation annotation at position 4
     wrapper.vm.createMutationAnnotation(4, 5)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Should have created annotation on query document
     expect(queryDoc.annotations.length).toBe(1)
@@ -1707,7 +1744,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment (should be direct without gaps)
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATCGATCGATCG')
@@ -1715,7 +1752,7 @@ describe('Gap annotation context menu', () => {
 
     // Create mutation annotation for positions 4-6 (AT->TT)
     wrapper.vm.createMutationAnnotation(4, 6)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -1732,7 +1769,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Get menu items for deletion position
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
@@ -1741,7 +1778,7 @@ describe('Gap annotation context menu', () => {
 
     // Execute the action
     deleteItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Should have created annotation with correct caption
     expect(queryDoc.annotations.length).toBe(1)
@@ -1757,7 +1794,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Get menu items for insertion position
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
@@ -1766,7 +1803,7 @@ describe('Gap annotation context menu', () => {
 
     // Execute the action
     insertItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Should have created annotation with correct caption and sequence attribute
     expect(queryDoc.annotations.length).toBe(1)
@@ -1783,7 +1820,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Get menu items for mutation position
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
@@ -1792,7 +1829,7 @@ describe('Gap annotation context menu', () => {
 
     // Execute the action
     mutationItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Should have created annotation with correct caption
     expect(queryDoc.annotations.length).toBe(1)
@@ -1813,7 +1850,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Clicking on position 4 should find the full deletion region 4-6
     const region = wrapper.vm.findContiguousFeatureRegion(4, 'deletion')
@@ -1839,7 +1876,7 @@ describe('Gap annotation context menu', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Clicking on position 4 should find the full insertion region 4-6
     const region = wrapper.vm.findContiguousFeatureRegion(4, 'insertion')
@@ -1867,7 +1904,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the alignment-match overlay rect
     const matchOverlay = wrapper.find('rect.alignment-match-overlay')
@@ -1886,7 +1923,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       preventDefault: () => {},
       stopPropagation: () => {}
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Context menu should be visible
     // Note: The actual position calculation depends on the SVG metrics
@@ -1912,7 +1949,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the alignment-match overlay rect
     const matchOverlay = wrapper.find('rect.alignment-match-overlay')
@@ -1937,7 +1974,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the alignment-match overlay rect
     const matchOverlay = wrapper.find('rect.alignment-match-overlay')
@@ -1962,7 +1999,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the alignment-match overlay rect
     const matchOverlay = wrapper.find('rect.alignment-match-overlay')
@@ -1986,7 +2023,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
@@ -1997,7 +2034,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
     expect(deleteItem).toBeDefined()
 
     deleteItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Annotation should be created on query document
     expect(queryDoc.annotations.length).toBe(1)
@@ -2018,7 +2055,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
@@ -2029,7 +2066,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
     expect(insertItem).toBeDefined()
 
     insertItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Annotation should be created on query document
     expect(queryDoc.annotations.length).toBe(1)
@@ -2051,7 +2088,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
       global: { stubs: { Teleport: true } },
       attachTo: document.body
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify no annotations initially
     expect(queryDoc.annotations.length).toBe(0)
@@ -2062,7 +2099,7 @@ describe('AlignmentTicksLayer context menu integration', () => {
     expect(mutationItem).toBeDefined()
 
     mutationItem.action()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Annotation should be created on query document
     expect(queryDoc.annotations.length).toBe(1)
@@ -2087,12 +2124,12 @@ describe('Context menu parity with SequenceEditor', () => {
         props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
         global: { stubs: { Teleport: true } }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Set cursor position (zero-length selection)
       wrapper.vm.selection.select([new Range(5, 5)])
       wrapper.vm.selection.source.value = 'target'
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const items = buildAlignmentMenu(wrapper, { source: 'sequence' })
       expect(items.some(item => item.label === 'Insert sequence...')).toBe(true)
@@ -2106,12 +2143,12 @@ describe('Context menu parity with SequenceEditor', () => {
         props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
         global: { stubs: { Teleport: true } }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Set selection with range
       wrapper.vm.selection.select([new Range(2, 6)])
       wrapper.vm.selection.source.value = 'target'
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const items = buildAlignmentMenu(wrapper, { source: 'sequence' })
       expect(items.some(item => item.label === 'Replace sequence with...')).toBe(true)
@@ -2149,12 +2186,12 @@ describe('Context menu parity with SequenceEditor', () => {
         },
         global: { stubs: { Teleport: true } }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Set selection
       wrapper.vm.selection.select([new Range(2, 6)])
       wrapper.vm.selection.source.value = 'target'
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       const items = buildAlignmentMenu(wrapper, {
         source: 'selection'
@@ -2190,7 +2227,7 @@ describe('TranslationLayer in alignment mode', () => {
       },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find TranslationLayer components
     const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
@@ -2224,7 +2261,7 @@ describe('TranslationLayer in alignment mode', () => {
       },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
     const targetTranslation = translationLayers.find(tl => tl.props('mode') === 'target')
@@ -2251,7 +2288,7 @@ describe('TranslationLayer in alignment mode', () => {
       },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
     const queryTranslation = translationLayers.find(tl => tl.props('mode') === 'query')
@@ -2281,7 +2318,7 @@ describe('TranslationLayer in alignment mode', () => {
       },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const translationLayers = wrapper.findAllComponents({ name: 'TranslationLayer' })
     const queryTranslation = translationLayers.find(tl => tl.props('mode') === 'query')
@@ -2319,7 +2356,7 @@ describe('TranslationLayer in alignment mode', () => {
       },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // The alignment should have computed successfully
     expect(wrapper.vm.hasAlignment).toBe(true)
@@ -2352,7 +2389,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Build context menu for query annotation
     const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
@@ -2383,7 +2420,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Build context menu for target annotation
     const targetAnnotation = wrapper.vm.alignedTargetAnnotations[0]
@@ -2414,7 +2451,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify initial state
     expect(targetDoc.annotations.length).toBe(0)
@@ -2432,7 +2469,7 @@ describe('Copy annotation to target/query', () => {
     expect(copyItem).toBeDefined()
     copyItem.action()
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Target should now have the annotation copy
     expect(targetDoc.annotations.length).toBe(1)
@@ -2460,7 +2497,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify initial state
     expect(targetDoc.annotations.length).toBe(1)
@@ -2478,7 +2515,7 @@ describe('Copy annotation to target/query', () => {
     expect(copyItem).toBeDefined()
     copyItem.action()
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Query should now have the annotation copy
     expect(queryDoc.annotations.length).toBe(1)
@@ -2511,7 +2548,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Build context menu for query annotation
     const queryAnnotation = wrapper.vm.alignedQueryAnnotations[0]
@@ -2524,7 +2561,7 @@ describe('Copy annotation to target/query', () => {
     const copyItem = menuItems.find(item => item.label === 'Copy annotation to target')
     copyItem.action()
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Copied annotation span should be mapped through alignment
     // Query 4..6 partially overlaps with target, so result is 4..5 (one position)
@@ -2549,7 +2586,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Build context menu for target annotation
     const targetAnnotation = wrapper.vm.alignedTargetAnnotations[0]
@@ -2582,7 +2619,7 @@ describe('Copy annotation to target/query', () => {
       }
     })
 
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment result shows the gap
     // Query aligned: ATCGAATCG
@@ -2628,7 +2665,7 @@ describe('AlignmentEditor Translation Spacing', () => {
         initialZoom: 100
       }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the AnnotationLayer components - they should exist for target and query
     const annotationLayers = wrapper.findAllComponents({ name: 'AnnotationLayer' })
@@ -2664,7 +2701,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 5-6 is within the CDS (0..24)
     const cds = wrapper.vm.findCdsContainingRange(5, 6)
@@ -2684,7 +2721,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 5-6 is outside the CDS
     const cds = wrapper.vm.findCdsContainingRange(5, 6)
@@ -2703,7 +2740,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Range 3-7 only partially overlaps CDS (5..15)
     const cds = wrapper.vm.findCdsContainingRange(3, 7)
@@ -2723,7 +2760,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Find the CDS
     const cds = wrapper.vm.findCdsContainingRange(4, 5)
@@ -2752,7 +2789,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const cds = wrapper.vm.findCdsContainingRange(5, 6)
     const changes = wrapper.vm.computeAminoAcidChanges(cds, 5, 6, 'A', 'G')
@@ -2777,7 +2814,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const cds = wrapper.vm.findCdsContainingRange(3, 4)
     const changes = wrapper.vm.computeAminoAcidChanges(cds, 3, 4, 'A', 'T')
@@ -2796,7 +2833,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const changes = [{ targetAA: 'K', queryAA: 'R', codonIndex: 5, isSilent: false, isNonsense: false }]
     const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
@@ -2810,7 +2847,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const changes = [{ targetAA: 'K', queryAA: 'K', codonIndex: 5, isSilent: true, isNonsense: false }]
     const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
@@ -2824,7 +2861,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const changes = [{ targetAA: 'K', queryAA: '*', codonIndex: 5, isSilent: false, isNonsense: true }]
     const suffix = wrapper.vm.formatCdsSuffix('GFP', changes)
@@ -2838,7 +2875,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     const changes = [
       { targetAA: 'K', queryAA: 'R', codonIndex: 2, isSilent: false, isNonsense: false },
@@ -2861,7 +2898,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAATGA')
@@ -2869,7 +2906,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
 
     // Create mutation annotation at position 4 (A->G)
     wrapper.vm.createMutationAnnotation(4, 5)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Check the annotation was created with CDS suffix
     expect(queryDoc.annotations.length).toBe(1)
@@ -2890,11 +2927,11 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Create mutation annotation at position 5 (A->G in third position of codon)
     wrapper.vm.createMutationAnnotation(5, 6)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -2914,11 +2951,11 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Create mutation annotation at position 3 (A->T)
     wrapper.vm.createMutationAnnotation(3, 4)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -2938,7 +2975,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify the alignment is as expected (no gaps)
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('AAAGGGAAATGAAATGAAA')
@@ -2946,7 +2983,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
 
     // Create mutation annotation at position 3 (G->C) which is outside CDS
     wrapper.vm.createMutationAnnotation(3, 4)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -2967,11 +3004,11 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Create mutation annotation at position 7 (G->A)
     wrapper.vm.createMutationAnnotation(7, 8)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -2993,7 +3030,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify the alignment (no gaps expected for similar length sequences)
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAATTTTGA')
@@ -3001,7 +3038,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
 
     // Create mutation annotation for positions 5-7 (AT->GC in aligned coordinates)
     wrapper.vm.createMutationAnnotation(5, 7)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -3027,10 +3064,10 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     wrapper.vm.createMutationAnnotation(4, 5)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -3052,7 +3089,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Position 8 is in the overlap region (within both CDS annotations)
     // findAllCdsContainingRange should return both
@@ -3085,7 +3122,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAAAAAAAATGA')
@@ -3093,7 +3130,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
 
     // Create mutation at position 4 (A->G), which is in both CDS regions
     wrapper.vm.createMutationAnnotation(4, 5)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -3125,7 +3162,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAAAATTGA')
@@ -3133,7 +3170,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
 
     // Create mutation at positions 5-7 (AA->GG)
     wrapper.vm.createMutationAnnotation(5, 7)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -3161,7 +3198,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
       global: { stubs: { Teleport: true } }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment
     expect(wrapper.vm.alignmentResult.targetAligned).toBe('ATGAAACATTGA')
@@ -3169,7 +3206,7 @@ describe('AlignmentEditor CDS Mutation Annotation', () => {
 
     // Create mutation at positions 4-7 (AACA->GATA)
     wrapper.vm.createMutationAnnotation(4, 7)
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     expect(queryDoc.annotations.length).toBe(1)
     const ann = queryDoc.annotations[0]
@@ -3196,7 +3233,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment has non-zero targetStart
     expect(wrapper.vm.alignmentResult.targetStart).toBe(5)
@@ -3205,7 +3242,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     // This is what SequenceLayer would produce when clicking on target row
     wrapper.vm.selection.select([new Range(5, 8)])
     wrapper.vm.selection.source.value = 'target'
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Selection status should show original coordinates (GenBank 1-indexed)
     // Range 5..8 (0-indexed) = 6..8 (1-indexed GenBank)
@@ -3222,7 +3259,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment has non-zero queryStart
     expect(wrapper.vm.alignmentResult.queryStart).toBe(5)
@@ -3230,7 +3267,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     // Select positions on query (5-8 original)
     wrapper.vm.selection.select([new Range(5, 8)])
     wrapper.vm.selection.source.value = 'query'
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Selection status should show original coordinates (GenBank 1-indexed)
     expect(wrapper.vm.selectionStatusText).toContain('6..8')
@@ -3247,7 +3284,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Check target position map - should start at position 5
     // Aligned position 0 should map to original position 5
@@ -3281,7 +3318,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: targetDoc, query: queryDoc, initialZoom: 100 }
     })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // Verify alignment setup
     expect(wrapper.vm.alignmentResult.targetStart).toBe(5)
@@ -3294,7 +3331,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     wrapper.vm.selection.startSelection(5, false, 'target')
     wrapper.vm.selection.updateSelection(8)
     wrapper.vm.selection.endSelection()
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // At this point, selection.domain has original coords (5, 8)
     expect(wrapper.vm.selection.domain.value.ranges[0].start).toBe(5)
@@ -3304,7 +3341,7 @@ describe('AlignmentEditor Selection with non-zero alignment start', () => {
     // Find the target SequenceLayer and emit from it
     const targetSeqLayer = wrapper.vm.targetSequenceLayerRef
     targetSeqLayer.$emit('select', { ranges: wrapper.vm.selection.domain.value.ranges })
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
 
     // BUG CHECK: After handleSelectionChange, the coordinates should still be (5, 8)
     // But with the bug, they get converted to (10, 13) because handleSelectionChange

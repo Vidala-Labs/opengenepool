@@ -1,6 +1,6 @@
 import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import AlignmentEditor from './AlignmentEditor.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
@@ -9,6 +9,15 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 // Helper to create a SequenceDocument for tests
 function createDoc(sequence = '', annotations = [], circular = false, backend = null) {
   return new SequenceDocument({ sequence, annotations, circular, backend })
+}
+
+// Alignment runs asynchronously; wait for the runner to settle (no-op for editors
+// without a runner). Safe superset of $nextTick.
+async function settle(wrapper) {
+  await flushPromises()
+  if (wrapper?.vm?.whenSettled) await wrapper.vm.whenSettled()
+  await flushPromises()
+  await wrapper?.vm?.$nextTick?.()
 }
 
 describe('Alignment Document Editing', () => {
@@ -31,7 +40,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Get initial alignment
       const initialResult = wrapper.vm.alignmentResult
@@ -41,11 +50,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'target')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Trigger delete via confirmDelete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Check document was modified
       expect(targetDoc.sequence.length).toBe(15)
@@ -71,7 +80,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Check if we're in text mode - if not, skip this test
       const textMode = wrapper.vm.graphics.metrics.value.textMode
@@ -88,11 +97,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(3, false, 'target')
       wrapper.vm.selection.updateSelection(6)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
+      await settle(wrapper)
 
       // Get new rendered target text
       const newTargetText = wrapper.find('.alignment-target-text')
@@ -117,7 +126,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Check if we're in text mode - if not, skip this test
       const textMode = wrapper.vm.graphics.metrics.value.textMode
@@ -134,11 +143,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(3, false, 'query')
       wrapper.vm.selection.updateSelection(6)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
+      await settle(wrapper)
 
       // Get new rendered query text
       const newQueryText = wrapper.find('.alignment-query-text')
@@ -165,7 +174,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Get initial alignment lines
       const initialLines = wrapper.vm.alignmentLines
@@ -176,10 +185,10 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'query')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // alignmentLines should have updated
       const newLines = wrapper.vm.alignmentLines
@@ -201,7 +210,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Get initial alignment lines
       const initialLines = wrapper.vm.alignmentLines
@@ -212,10 +221,10 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'target')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // alignmentLines should have updated
       const newLines = wrapper.vm.alignmentLines
@@ -237,7 +246,7 @@ describe('Alignment Document Editing', () => {
         },
         attachTo: document.body
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Find the target sequence layer overlay (first one)
       const overlays = wrapper.findAll('.sequence-overlay')
@@ -246,7 +255,7 @@ describe('Alignment Document Editing', () => {
       // Simulate mousedown on the first overlay (target layer)
       const targetOverlay = overlays[0]
       await targetOverlay.trigger('mousedown', { button: 0, clientX: 100, clientY: 8 })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Check if selection source is 'target'
       expect(wrapper.vm.selection.source.value).toBe('target')
@@ -266,7 +275,7 @@ describe('Alignment Document Editing', () => {
         },
         attachTo: document.body
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Find all sequence overlays
       const overlays = wrapper.findAll('.sequence-overlay')
@@ -276,7 +285,7 @@ describe('Alignment Document Editing', () => {
       // The second overlay should be from the query layer
       const queryOverlay = overlays[1]
       await queryOverlay.trigger('mousedown', { button: 0, clientX: 100, clientY: 40 })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Check if selection source is 'query'
       expect(wrapper.vm.selection.source.value).toBe('query')
@@ -300,7 +309,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify initial state
       expect(queryDoc.sequence.length).toBe(20)
@@ -309,11 +318,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'query')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify queryDoc.sequence was updated directly
       expect(queryDoc.sequence.length).toBe(15)
@@ -334,7 +343,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify initial state
       expect(targetDoc.sequence.length).toBe(20)
@@ -343,11 +352,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'target')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify targetDoc.sequence was updated directly
       expect(targetDoc.sequence.length).toBe(15)
@@ -370,7 +379,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Get initial alignment result
       const initialAlignment = wrapper.vm.alignmentResult
@@ -380,10 +389,10 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'query')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Alignment should have recomputed with shorter query
       expect(queryDoc.sequence.length).toBe(15)
@@ -403,7 +412,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Get initial alignment result
       const initialAlignment = wrapper.vm.alignmentResult
@@ -413,10 +422,10 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(5, false, 'target')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Alignment should have recomputed with shorter target
       expect(targetDoc.sequence.length).toBe(15)
@@ -435,13 +444,13 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Set selection with target source
       wrapper.vm.selection.startSelection(5, false, 'target')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       expect(wrapper.vm.selection.source.value).toBe('target')
     })
@@ -457,13 +466,13 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Set selection with query source
       wrapper.vm.selection.startSelection(5, false, 'query')
       wrapper.vm.selection.updateSelection(10)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       expect(wrapper.vm.selection.source.value).toBe('query')
     })
@@ -482,7 +491,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify initial sequences
       expect(targetDoc.sequence).toBe('ATCGATCGATCGATCGATCG')
@@ -492,11 +501,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(0, false, 'target')
       wrapper.vm.selection.updateSelection(5)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Target should be modified, query should be unchanged
       expect(targetDoc.sequence).toBe('TCGATCGATCGATCG') // First 5bp removed
@@ -517,7 +526,7 @@ describe('Alignment Document Editing', () => {
           stubs: { Teleport: true }
         }
       })
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Verify initial sequences
       expect(targetDoc.sequence).toBe('ATCGATCGATCGATCGATCG')
@@ -527,11 +536,11 @@ describe('Alignment Document Editing', () => {
       wrapper.vm.selection.startSelection(0, false, 'query')
       wrapper.vm.selection.updateSelection(5)
       wrapper.vm.selection.endSelection()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Delete
       wrapper.vm.confirmDelete()
-      await wrapper.vm.$nextTick()
+      await settle(wrapper)
 
       // Query should be modified, target should be unchanged
       expect(queryDoc.sequence).toBe('GGGGGGGGGGGGGGG') // First 5bp removed
