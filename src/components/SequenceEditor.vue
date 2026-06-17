@@ -932,6 +932,16 @@ provide('sequenceMenuActions', {
   onInsert: (position) => openInsertModalAt(position)
 })
 
+// Create Annotation is a single editor-level item (not owned by the annotation
+// layer) so it is never duplicated by multiple annotation layers nor lost when no
+// annotation layer is mounted.
+const createAnnotationContributor = {
+  id: 'create-annotation',
+  getItems: () => props.readonly ? [] : [{ id: 'create-annotation', label: 'Create Annotation', action: () => openAnnotationModal() }]
+}
+onMounted(() => contextMenu.register(createAnnotationContributor))
+onUnmounted(() => contextMenu.unregister(createAnnotationContributor))
+
 // Extensions are contributors too — registered LAST so their items appear after
 // the built-in items. Maps the resolved menu context to the extension ext-context.
 const extensionMenuContributor = {

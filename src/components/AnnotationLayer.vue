@@ -198,7 +198,10 @@ const annotationMenuActions = inject('annotationMenuActions', null)
 // instances don't collide.
 const annotationContributor = {
   id: `annotation${props.mode ? ':' + props.mode : ''}`,
-  getItems: (context) => annotationMenuItems(context, annotationMenuActions || {})
+  // Pass this layer's row (props.mode) as layerMode so the contributor only emits
+  // per-annotation items for an annotation belonging to THIS row (avoids the two
+  // alignment instances duplicating items).
+  getItems: (context) => annotationMenuItems({ ...context, layerMode: props.mode }, annotationMenuActions || {})
 }
 onMounted(() => contextMenu?.register(annotationContributor))
 onUnmounted(() => contextMenu?.unregister(annotationContributor))

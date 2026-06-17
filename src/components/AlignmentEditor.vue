@@ -1204,8 +1204,9 @@ provide('selectionMenuActions', {
   onFlip: (rangeIndex) => selection.flip(rangeIndex),
   onSetOrientation: (rangeIndex, orientation) => selection.setOrientation(rangeIndex, orientation),
   onDeleteRange: (rangeIndex) => selection.deleteRange(rangeIndex),
-  onMoveRange: (from, to) => selection.moveRange(from, to),
-  onExtendHandle: () => {}
+  onMoveRange: (from, to) => selection.moveRange(from, to)
+  // No onExtendHandle: the alignment editor does not support handle extend, so the
+  // contributor omits the "Extend to position..." item entirely.
 })
 
 provide('sequenceMenuActions', {
@@ -1213,6 +1214,15 @@ provide('sequenceMenuActions', {
   onSelectAll: (mode) => selectAllForMode(mode),
   onInsert: (position) => { insertModalIsReplace.value = false; insertModalPosition.value = position; insertModalText.value = ''; insertModalVisible.value = true }
 })
+
+// Single editor-level Create Annotation item — available regardless of whether the
+// (v-if mounted) annotation layers exist, and not duplicated by the two rows.
+const createAnnotationContributor = {
+  id: 'create-annotation',
+  getItems: () => props.readonly ? [] : [{ id: 'create-annotation', label: 'Create Annotation', action: () => openAnnotationModal() }]
+}
+onMounted(() => contextMenu.register(createAnnotationContributor))
+onUnmounted(() => contextMenu.unregister(createAnnotationContributor))
 
 // Alignment-only contributor: "Copy annotation to the other row" (when the
 // annotation maps to non-gap positions) and the gap/mutation items for the match

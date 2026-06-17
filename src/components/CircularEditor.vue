@@ -139,13 +139,22 @@ provide('selectionMenuActions', {
   onFlip: (rangeIndex) => selection.flip(rangeIndex),
   onSetOrientation: (rangeIndex, orientation) => selection.setOrientation(rangeIndex, orientation),
   onDeleteRange: (rangeIndex) => selection.deleteRange(rangeIndex),
-  onMoveRange: (from, to) => selection.moveRange(from, to),
-  onExtendHandle: () => {}
+  onMoveRange: (from, to) => selection.moveRange(from, to)
+  // No onExtendHandle: the circular editor does not support handle extend, so the
+  // contributor omits the "Extend to position..." item entirely.
 })
 provide('sequenceMenuActions', {
   onSelectAll: () => selectAll(),
   onInsert: () => openInsertModal(false)
 })
+
+// Single editor-level Create Annotation item (not owned by the annotation layer).
+const createAnnotationContributor = {
+  id: 'create-annotation',
+  getItems: () => props.readonly ? [] : [{ id: 'create-annotation', label: 'Create Annotation', action: () => openAnnotationModal() }]
+}
+onMounted(() => contextMenu.register(createAnnotationContributor))
+onUnmounted(() => contextMenu.unregister(createAnnotationContributor))
 
 // SVG ref
 const svgRef = ref(null)

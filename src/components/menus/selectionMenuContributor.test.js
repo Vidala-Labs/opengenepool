@@ -101,7 +101,7 @@ describe('selectionMenuItems — clicked on a selection range', () => {
     byId['move-range-down'].action(); expect(deps.onMoveRange).toHaveBeenCalledWith(0, 1)
   })
 
-  it('offers extend-to-position for a handle and routes it', () => {
+  it('offers extend-to-position for a handle and routes it (when supported)', () => {
     const onExtendHandle = mock(()=>{})
     const range = new Range(5, 15, Orientation.PLUS)
     const items = selectionMenuItems(rangeCtx(sel({ ranges: [range] }), { rangeIndex: 0, handleType: 'start' }), { onExtendHandle })
@@ -109,5 +109,13 @@ describe('selectionMenuItems — clicked on a selection range', () => {
     expect(ids(items)).toContain('extend-to-position')
     items.find(i => i.id === 'extend-to-position').action()
     expect(onExtendHandle).toHaveBeenCalledWith(0, range, 'start')
+  })
+
+  // BUG 3: circular/alignment editors wire onExtendHandle to a no-op, so the item
+  // must NOT be shown there — only when the editor actually supports extend.
+  it('does NOT offer extend-to-position when the editor provides no onExtendHandle', () => {
+    const range = new Range(5, 15, Orientation.PLUS)
+    const items = selectionMenuItems(rangeCtx(sel({ ranges: [range] }), { rangeIndex: 0, handleType: 'start' }), {})
+    expect(ids(items)).not.toContain('extend-to-position')
   })
 })

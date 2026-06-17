@@ -666,6 +666,19 @@ describe('AlignmentEditor Context Menu', () => {
     })
   }
 
+  // BUG 2: Create Annotation must be available even when neither row has annotations
+  // (the AnnotationLayers are v-if mounted only when aligned annotations exist, so no
+  // annotation contributor would be registered to own Create Annotation).
+  it('offers Create Annotation on a sequence row even with no annotations present', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }  // no annotations
+    })
+    await wrapper.vm.$nextTick()
+
+    const items = sequenceRowMenu(wrapper, 'target')
+    expect(items.some(i => i.label === 'Create Annotation')).toBe(true)
+  })
+
   it('shows context menu with Select all option when clicking on target sequence', async () => {
     const wrapper = mount(AlignmentEditor, {
       props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }

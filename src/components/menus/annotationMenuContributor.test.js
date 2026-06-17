@@ -33,26 +33,45 @@ const ctx = (over = {}) => {
 }
 
 describe('annotationMenuItems', () => {
-  it('offers only Create Annotation when no annotation target in the chain', () => {
-    expect(ids(annotationMenuItems({ targets: [{ layer: 'selection' }] }))).toEqual(['create-annotation'])
-    expect(ids(annotationMenuItems({ targets: [] }))).toEqual(['create-annotation'])
-    expect(ids(annotationMenuItems({}))).toEqual(['create-annotation'])
+  it('returns [] when no annotation target in the chain (Create is editor-owned)', () => {
+    expect(annotationMenuItems({ targets: [{ layer: 'selection' }] })).toEqual([])
+    expect(annotationMenuItems({ targets: [] })).toEqual([])
+    expect(annotationMenuItems({})).toEqual([])
+  })
+
+  // BUG 1: in alignment, two AnnotationLayer instances (target + query) each register
+  // a contributor. A contributor for one row must NOT emit annotation-specific items
+  // for an annotation belonging to the OTHER row, or the menu shows duplicates.
+  describe('alignment row filtering (regression: duplicate items)', () => {
+    const rowAnn = (mode) => ann({ attributes: { _alignmentMode: mode } })
+
+    it('a query-row contributor emits nothing for a target-row annotation', () => {
+      const items = annotationMenuItems(
+        { layerMode: 'query', targets: [{ layer: 'annotation', annotation: rowAnn('target') }], selection: makeSelection() }
+      )
+      expect(items).toEqual([])
+    })
+
+    it('a target-row contributor emits edit/delete for a target-row annotation', () => {
+      const items = annotationMenuItems(
+        { layerMode: 'target', targets: [{ layer: 'annotation', annotation: rowAnn('target') }], selection: makeSelection() }
+      )
+      expect(ids(items)).toContain('edit-annotation')
+      expect(ids(items)).toContain('delete-annotation')
+    })
+
+    it('non-alignment (no layerMode) still emits per-annotation items', () => {
+      expect(ids(annotationMenuItems(ctx()))).toContain('edit-annotation')
+    })
   })
 
   it('returns [] in readonly mode', () => {
     expect(annotationMenuItems(ctx({ readonly: true }))).toEqual([])
   })
 
-  it('routes Create Annotation through deps', () => {
-    const onCreateAnnotation = mock(() => {})
-    const items = annotationMenuItems({ targets: [] }, { onCreateAnnotation })
-    items.find(i => i.id === 'create-annotation').action()
-    expect(onCreateAnnotation).toHaveBeenCalled()
-  })
-
-  it('offers create, edit, delete, and hide for a visible annotation', () => {
+  it('offers edit, delete, and hide for a visible annotation (no Create — that is editor-owned)', () => {
     const items = annotationMenuItems(ctx())
-    expect(ids(items)).toEqual(['create-annotation', 'edit-annotation', 'delete-annotation', 'hide-annotation'])
+    expect(ids(items)).toEqual(['edit-annotation', 'delete-annotation', 'hide-annotation'])
   })
 
   it('offers unhide (not hide) for a hidden annotation', () => {
