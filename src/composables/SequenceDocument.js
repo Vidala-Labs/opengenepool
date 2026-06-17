@@ -382,8 +382,9 @@ export class SequenceDocument {
       const shouldExtendStart = extendStartIds.includes(ann.id)
       const shouldExtendEnd = extendEndIds.includes(ann.id)
 
-      for (let i = 0; i < span.ranges.length; i++) {
-        const range = span.ranges[i]
+      // Build a NEW ranges array (no in-place mutation of the original span/ranges,
+      // which external holders may still reference). Unchanged ranges are reused.
+      const newRanges = span.ranges.map(range => {
         let newStart = range.start
         let newEnd = range.end
 
@@ -415,13 +416,14 @@ export class SequenceDocument {
         }
 
         if (newStart !== range.start || newEnd !== range.end) {
-          span.ranges[i] = new Range(newStart, newEnd, range.orientation)
           modified = true
+          return new Range(newStart, newEnd, range.orientation, range.startIndefinite, range.endIndefinite)
         }
-      }
+        return range
+      })
 
       if (modified) {
-        return { ...ann, span }
+        return { ...ann, span: new Span(newRanges) }
       }
       return ann
     })
@@ -447,8 +449,8 @@ export class SequenceDocument {
       const span = ann.span
       let modified = false
 
-      for (let i = 0; i < span.ranges.length; i++) {
-        const range = span.ranges[i]
+      // Build a NEW ranges array (no in-place mutation; unchanged ranges reused).
+      const newRanges = span.ranges.map(range => {
         let newStart = range.start
         let newEnd = range.end
 
@@ -481,13 +483,14 @@ export class SequenceDocument {
         }
 
         if (newStart !== range.start || newEnd !== range.end) {
-          span.ranges[i] = new Range(newStart, newEnd, range.orientation)
           modified = true
+          return new Range(newStart, newEnd, range.orientation, range.startIndefinite, range.endIndefinite)
         }
-      }
+        return range
+      })
 
       if (modified) {
-        return { ...ann, span }
+        return { ...ann, span: new Span(newRanges) }
       }
       return ann
     })
