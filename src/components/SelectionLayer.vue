@@ -139,13 +139,10 @@ function convertRangeToAligned(range) {
   const alignedStart = map[range.start]
   const alignedEnd = map[range.end - 1]
 
-  // If positions can't be mapped, use the original range
+  // If positions can't be mapped (e.g. the range touches a gap boundary), fall
+  // back to the original range. This is an expected edge case, not an error, so
+  // it intentionally does not log.
   if (alignedStart === undefined || alignedEnd === undefined) {
-    console.warn('[SelectionLayer] Could not map positions to aligned coordinates', {
-      start: range.start,
-      end: range.end,
-      mapKeys: Object.keys(map).slice(0, 10)
-    })
     return range
   }
 
