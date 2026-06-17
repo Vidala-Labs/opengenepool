@@ -7,6 +7,7 @@ import { Span, Range } from '../src/utils/dna.js'
 import Sidebar from './Sidebar.vue'
 import { ArrowDownTrayIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
+import { snapshotDoc } from './persistence.js'
 import { pUC19, testAlignmentSequence } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
@@ -154,11 +155,23 @@ function selectSequence(id) {
   window.location.reload()
 }
 
-// Edit handling - now handled by SequenceDocument
+// Snapshot the LIVE editor document back into currentSequenceData + IndexedDB.
+// Sequence edits (insert/delete/replace) mutate the live SequenceDocument in place
+// but are not otherwise persisted; without this they are lost on reload and stale
+// on export. Reads the live doc via the editor ref (target doc in both editor types).
+async function persistCurrentDoc() {
+  const liveDoc = editorRef.value?.targetDoc?.value
+  if (!currentSequenceData.value || !liveDoc) return
+  const snapshot = snapshotDoc(currentSequenceData.value, liveDoc)
+  if (!snapshot) return
+  currentSequenceData.value = snapshot
+  await saveSequence(snapshot)
+}
+
+// Edit handling: sequence edits are applied to the live SequenceDocument by the
+// editor; persist the resulting state so it survives reload and export.
 function handleEdit(data) {
-  // Edits are now handled by SequenceDocument methods internally
-  // This event is just for logging/analytics
-  console.log('Edit event:', data)
+  persistCurrentDoc()
 }
 
 async function saveAs() {
@@ -200,18 +213,25 @@ function handleSelect(data) {
 async function handleAnnotationsUpdate(updatedAnnotations) {
   if (!currentSequenceData.value) return
 
-  // Update the current sequence's annotations
-  currentSequenceData.value.annotations = updatedAnnotations
+  // Persist from the LIVE document so annotation AND sequence state stay consistent
+  // (the live doc holds both the updated annotations and any prior base edits).
+  if (editorRef.value?.targetDoc?.value) {
+    await persistCurrentDoc()
+    return
+  }
 
-  // Persist to IndexedDB (deep clone to strip Vue proxies)
-  const plainData = JSON.parse(JSON.stringify(currentSequenceData.value))
-  await saveSequence(plainData)
+  // Fallback (no editor ref yet): persist the annotations we were handed.
+  currentSequenceData.value.annotations = updatedAnnotations
+  await saveSequence(JSON.parse(JSON.stringify(currentSequenceData.value)))
 }
 
 function downloadSequence() {
   if (!currentSequenceData.value) return
 
-  const genbank = toGenBank(currentSequenceData.value)
+  // Export from the LIVE document's current bases, not the stale loaded record.
+  const liveDoc = editorRef.value?.targetDoc?.value
+  const source = liveDoc ? snapshotDoc(currentSequenceData.value, liveDoc) : currentSequenceData.value
+  const genbank = toGenBank(source)
   const blob = new Blob([genbank], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
 
