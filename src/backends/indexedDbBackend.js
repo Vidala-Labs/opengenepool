@@ -107,24 +107,41 @@ function saveSequence(db, sequence) {
  */
 export function createIndexedDbBackend(sequenceId, options = {}) {
   let db = null
-  const { onSyncStatusChange } = options
+  const { onSyncStatusChange, store } = options
 
-  // Initialize database connection
-  const dbPromise = openDatabase().then((database) => {
-    db = database
-    return db
-  })
+  // Storage seam: defaults to the real IndexedDB-backed functions, but a custom
+  // async store ({ get(id), save(seq) }) can be injected (e.g. for tests). When a
+  // custom store is provided we skip opening IndexedDB entirely.
+  const readSequence = store
+    ? () => store.get(sequenceId)
+    : async () => { await dbPromise; return getSequence(db, sequenceId) }
+  const writeSequence = store
+    ? (seq) => store.save(seq)
+    : async (seq) => { await dbPromise; return saveSequence(db, seq) }
+
+  // Initialize database connection (only when using the real IndexedDB store).
+  const dbPromise = store
+    ? Promise.resolve(null)
+    : openDatabase().then((database) => { db = database; return db })
+
+  // Serialize operations so concurrent calls don't read the same stale snapshot
+  // and overwrite each other (get -> mutate -> put must run atomically per op).
+  let queue = Promise.resolve()
 
   /**
-   * Applies an operation and persists to IndexedDB.
-   * Calls the ack callback on success, error callback on failure.
+   * Applies an operation and persists it. Operations are queued so they run
+   * strictly in order; each one observes the previous one's write.
+   * Calls the sync-status callback on success/failure.
    */
-  async function applyOperation(operationType, data) {
-    try {
-      await dbPromise
+  function applyOperation(operationType, data) {
+    queue = queue.then(() => runOperation(operationType, data))
+    return queue
+  }
 
+  async function runOperation(operationType, data) {
+    try {
       // Get current sequence state
-      let sequence = await getSequence(db, sequenceId)
+      let sequence = await readSequence()
 
       if (!sequence) {
         // Initialize new sequence if it doesn't exist
@@ -184,7 +201,7 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
       }
 
       // Save updated sequence
-      await saveSequence(db, sequence)
+      await writeSequence(sequence)
 
       if (onSyncStatusChange) {
         onSyncStatusChange('saved')
@@ -232,17 +249,17 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
 
     // Additional methods for standalone mode
     async load() {
-      await dbPromise
-      const sequence = await getSequence(db, sequenceId)
+      const sequence = await readSequence()
       if (sequence?.annotations) {
         sequence.annotations = normalizeAnnotations(sequence.annotations)
       }
       return sequence
     },
 
-    async save(sequence) {
-      await dbPromise
-      return saveSequence(db, { ...sequence, id: sequenceId })
+    // Queued so an explicit save can't interleave with in-flight edit operations.
+    save(sequence) {
+      queue = queue.then(() => writeSequence({ ...sequence, id: sequenceId }))
+      return queue
     }
   }
 }
