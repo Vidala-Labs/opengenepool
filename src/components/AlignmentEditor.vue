@@ -12,7 +12,7 @@ import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
 import { ANNOTATION_COLORS, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
-import { loadWasm, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
+import { loadWasm, buildAlignedToOriginalMap, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
 import ContextMenu from './ContextMenu.vue'
@@ -136,15 +136,34 @@ const selection = useSelection(editorState, graphics, eventBus)
 // Alignment runs off the synchronous reactive path (Web Worker in the browser,
 // async main-thread fallback otherwise). `alignmentResult` is a shallowRef whose
 // value is null until the first run settles; `aligning` is true while a run is
-// pending. Downstream computeds already guard on a falsy result.
+// pending. Downstream computeds already guard on a falsy result. The options getter
+// supplies the circular flag (circular-aware alignment) to the worker/fallback.
 const { result: alignmentResult, pending: aligning, whenSettled } = useAlignmentRunner(
   () => queryDoc.value?.sequenceRef?.value ?? '',
-  () => targetDoc.value?.sequenceRef?.value ?? ''
+  () => targetDoc.value?.sequenceRef?.value ?? '',
+  () => ({ circular: Boolean(targetDoc.value?.circular || queryDoc.value?.circular) })
 )
 
 // Check if alignment found a match
 const hasAlignment = computed(() => {
   return alignmentResult.value && alignmentResult.value.score > 0
+})
+
+const queryCoordinateOptions = computed(() => ({}))
+
+const targetCoordinateOptions = computed(() => {
+  const result = alignmentResult.value
+  const target = targetDoc.value
+  const sequenceLength = target?.sequenceRef?.value?.length ?? target?.sequence?.length ?? 0
+
+  if (!result || !target?.circular || result.targetOriginOffset === undefined || sequenceLength === 0) {
+    return {}
+  }
+
+  return {
+    circular: true,
+    sequenceLength
+  }
 })
 
 // Update gaps on documents when alignment changes
@@ -157,11 +176,11 @@ watch(alignmentResult, (result) => {
   }
 
   // Extract and set gaps for target document
-  const targetGaps = extractGaps(result.targetAligned, result.targetStart)
+  const targetGaps = extractGaps(result.targetAligned, result.targetStart, targetCoordinateOptions.value)
   targetDoc.value?.setGaps?.(targetGaps)
 
   // Extract and set gaps for query document
-  const queryGaps = extractGaps(result.queryAligned, result.queryStart)
+  const queryGaps = extractGaps(result.queryAligned, result.queryStart, queryCoordinateOptions.value)
   queryDoc.value?.setGaps?.(queryGaps)
 }, { immediate: true })
 
@@ -199,33 +218,21 @@ const alignmentMatchLine = computed(() => {
 // Position mapping: aligned index -> original position for query
 const queryPositionMap = computed(() => {
   if (!hasAlignment.value) return []
-  const map = []
-  let origPos = alignmentResult.value.queryStart
-  for (let i = 0; i < alignedQuerySequence.value.length; i++) {
-    if (alignedQuerySequence.value[i] !== '-') {
-      map.push(origPos)
-      origPos++
-    } else {
-      map.push(null) // Gap position
-    }
-  }
-  return map
+  return buildAlignedToOriginalMap(
+    alignedQuerySequence.value,
+    alignmentResult.value.queryStart,
+    queryCoordinateOptions.value
+  )
 })
 
 // Position mapping: aligned index -> original position for target
 const targetPositionMap = computed(() => {
   if (!hasAlignment.value) return []
-  const map = []
-  let origPos = alignmentResult.value.targetStart
-  for (let i = 0; i < alignedTargetSequence.value.length; i++) {
-    if (alignedTargetSequence.value[i] !== '-') {
-      map.push(origPos)
-      origPos++
-    } else {
-      map.push(null) // Gap position
-    }
-  }
-  return map
+  return buildAlignedToOriginalMap(
+    alignedTargetSequence.value,
+    alignmentResult.value.targetStart,
+    targetCoordinateOptions.value
+  )
 })
 
 // Alignment lines - similar to editorState.lines but for alignment mode
@@ -273,12 +280,20 @@ const alignmentLines = computed(() => {
 // Reverse coordinate maps for mapping annotations through alignment
 const targetReverseMap = computed(() => {
   if (!hasAlignment.value) return {}
-  return buildReverseCoordinateMap(alignedTargetSequence.value, alignmentResult.value.targetStart)
+  return buildReverseCoordinateMap(
+    alignedTargetSequence.value,
+    alignmentResult.value.targetStart,
+    targetCoordinateOptions.value
+  )
 })
 
 const queryReverseMap = computed(() => {
   if (!hasAlignment.value) return {}
-  return buildReverseCoordinateMap(alignedQuerySequence.value, alignmentResult.value.queryStart)
+  return buildReverseCoordinateMap(
+    alignedQuerySequence.value,
+    alignmentResult.value.queryStart,
+    queryCoordinateOptions.value
+  )
 })
 
 // Inverted maps: aligned position -> original position (for converting selection to annotation)
@@ -319,7 +334,8 @@ const alignedTargetAnnotations = computed(() => {
       ann,
       targetReverseMap.value,
       result.targetStart,
-      result.targetEnd
+      result.targetEnd,
+      targetCoordinateOptions.value
     )
     if (mappedAnn) {
       // Tag with alignment mode for context menu routing
@@ -344,7 +360,8 @@ const alignedQueryAnnotations = computed(() => {
       ann,
       queryReverseMap.value,
       result.queryStart,
-      result.queryEnd
+      result.queryEnd,
+      queryCoordinateOptions.value
     )
     if (mappedAnn) {
       // Tag with alignment mode for context menu routing
@@ -1546,8 +1563,8 @@ function computeMappedSpanForCopy(annotation, sourceMode) {
   const sourceReverseMap = sourceMode === 'query' ? queryReverseMap.value : targetReverseMap.value
   // Get the destination's aligned sequence to check for gaps
   const destAligned = sourceMode === 'query' ? alignedTargetSequence.value : alignedQuerySequence.value
-  // Get the destination's alignment start for computing original positions
-  const destStart = sourceMode === 'query' ? result.targetStart : result.queryStart
+  // Get the destination's physical position map for computing original positions
+  const destPositionMap = sourceMode === 'query' ? targetPositionMap.value : queryPositionMap.value
 
   // Track the min/max destination positions that have non-gap bases
   let minDestPos = Infinity
@@ -1561,12 +1578,8 @@ function computeMappedSpanForCopy(annotation, sourceMode) {
 
       // Check if the destination has a base (not a gap) at this aligned position
       if (destAligned[alignedPos] && destAligned[alignedPos] !== '-') {
-        // Compute the destination's original position from the aligned position
-        // Count non-gap characters up to this position
-        let destOrigPos = destStart
-        for (let i = 0; i < alignedPos; i++) {
-          if (destAligned[i] !== '-') destOrigPos++
-        }
+        const destOrigPos = destPositionMap[alignedPos]
+        if (destOrigPos === null || destOrigPos === undefined) continue
         minDestPos = Math.min(minDestPos, destOrigPos)
         maxDestPos = Math.max(maxDestPos, destOrigPos + 1) // +1 for exclusive end
       }
@@ -1937,6 +1950,10 @@ defineExpose({
   aligning,
   whenSettled,
   alignmentLines,
+  targetPositionMap,
+  queryPositionMap,
+  targetReverseMap,
+  queryReverseMap,
   getSelectedAlignmentSequenceText,
   alignedTargetAnnotations,
   alignedQueryAnnotations,

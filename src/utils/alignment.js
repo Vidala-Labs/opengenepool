@@ -1,9 +1,10 @@
 /**
  * Smith-Waterman Local Pairwise Alignment
  *
- * This module provides a memory-efficient implementation using:
- * - WASM (Zig) for large sequences when available
- * - JavaScript fallback with linear-space algorithm
+ * This module provides alignment using:
+ * - WASM (Zig) banded alignment by default when available
+ * - JavaScript banded alignment for circular origin-offset handling
+ * - Linear-space fallback for unsafe bands
  *
  * The linear-space implementation uses Hirschberg-style divide-and-conquer
  * to reduce space complexity from O(m×n) to O(n), preventing OOM crashes
@@ -23,6 +24,11 @@ import { align as alignJS, scoreMatch } from './alignment-js.js'
 let wasmModule = null
 let wasmLoading = null
 let wasmFailed = false
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
+const WASM_RESULT_HEADER_SIZE = 40
+const WASM_STATUS_OK = 0
+const WASM_STATUS_BAND_UNSAFE = 2
 
 /**
  * Load the WASM module for alignment.
@@ -81,7 +87,9 @@ export function isWasmReady() {
 
 /**
  * Perform Smith-Waterman local alignment.
- * Uses WASM if available, otherwise falls back to JavaScript.
+ * Uses the WASM banded fast path by default when available. Explicit
+ * `mode: 'linear'` uses WASM linear alignment when available. Circular target
+ * origin offset handling uses WASM when the circular export is available.
  *
  * @param {string} query - Query sequence
  * @param {string} target - Target sequence
@@ -93,9 +101,26 @@ export function isWasmReady() {
  * @returns {AlignmentResult}
  */
 export function align(query, target, options = {}) {
-  // Use WASM if available
   if (wasmModule) {
-    return alignWasm(query, target, options)
+    if (options.circular || options.circularTarget) {
+      const result = alignWasmCircular(query, target, options)
+      if (result) {
+        return result
+      }
+
+      return alignJS(query, target, options)
+    }
+
+    if (options.mode === 'linear') {
+      return alignWasmLinear(query, target, options) || alignJS(query, target, options)
+    }
+
+    const result = alignWasmBanded(query, target, options)
+    if (result) {
+      return result
+    }
+
+    return alignWasmLinear(query, target, options) || alignJS(query, target, options)
   }
 
   // Fall back to JavaScript implementation
@@ -103,9 +128,9 @@ export function align(query, target, options = {}) {
 }
 
 /**
- * Perform alignment using WASM module.
+ * Perform linear alignment using WASM module.
  */
-function alignWasm(query, target, options) {
+function alignWasmLinear(query, target, options) {
   const {
     match = 2,
     mismatch = -1,
@@ -113,48 +138,146 @@ function alignWasm(query, target, options) {
     gapExtend = -1
   } = options
 
-  // Reset heap before starting new alignment
+  return callWasmAlignmentInto(query, target, (ptrs) =>
+    wasmModule.alignSequencesInto(
+      ptrs.queryPtr, ptrs.queryLen,
+      ptrs.targetPtr, ptrs.targetLen,
+      ptrs.queryOutPtr, ptrs.targetOutPtr,
+      ptrs.outCapacity,
+      ptrs.resultPtr,
+      match, mismatch, gapOpen, gapExtend
+    )
+  )
+}
+
+/**
+ * Perform banded alignment using WASM module.
+ */
+function alignWasmBanded(query, target, options) {
+  if (typeof wasmModule.alignSequencesBandedInto !== 'function') {
+    return null
+  }
+
+  const {
+    match = 2,
+    mismatch = -1,
+    gapOpen = -3,
+    gapExtend = -1,
+    bandWidth = 128
+  } = options
+
+  if (bandWidth <= 0) {
+    return null
+  }
+
+  const callResult = callWasmAlignmentInto(query, target, (ptrs) =>
+    wasmModule.alignSequencesBandedInto(
+      ptrs.queryPtr, ptrs.queryLen,
+      ptrs.targetPtr, ptrs.targetLen,
+      ptrs.queryOutPtr, ptrs.targetOutPtr,
+      ptrs.outCapacity,
+      ptrs.resultPtr,
+      match, mismatch, gapOpen, gapExtend,
+      bandWidth
+    )
+  )
+
+  if (callResult?.status === WASM_STATUS_BAND_UNSAFE) {
+    return null
+  }
+
+  return callResult
+}
+
+/**
+ * Perform circular target alignment using WASM module.
+ */
+function alignWasmCircular(query, target, options) {
+  if (typeof wasmModule.alignSequencesBandedCircularInto !== 'function') {
+    return null
+  }
+
+  const {
+    match = 2,
+    mismatch = -1,
+    gapOpen = -3,
+    gapExtend = -1,
+    bandWidth = 128,
+    originKmerSize = 15,
+    originMinVotes = 3
+  } = options
+
+  return callWasmAlignmentInto(query, target, (ptrs) =>
+    wasmModule.alignSequencesBandedCircularInto(
+      ptrs.queryPtr, ptrs.queryLen,
+      ptrs.targetPtr, ptrs.targetLen,
+      ptrs.queryOutPtr, ptrs.targetOutPtr,
+      ptrs.outCapacity,
+      ptrs.resultPtr,
+      match, mismatch, gapOpen, gapExtend,
+      bandWidth,
+      originKmerSize,
+      originMinVotes
+    )
+  )
+}
+
+/**
+ * Run a WASM alignment export that writes into caller-owned output buffers.
+ */
+function callWasmAlignmentInto(query, target, invoke) {
   wasmModule.reset()
 
-  // Encode strings to memory
-  const encoder = new TextEncoder()
-  const queryBytes = encoder.encode(query)
-  const targetBytes = encoder.encode(target)
+  const queryBytes = textEncoder.encode(query)
+  const targetBytes = textEncoder.encode(target)
+  const outCapacity = queryBytes.length + targetBytes.length
 
-  const queryLen = queryBytes.length
-  const targetLen = targetBytes.length
+  const queryPtr = wasmModule.alloc(queryBytes.length)
+  const targetPtr = wasmModule.alloc(targetBytes.length)
+  const queryOutPtr = wasmModule.alloc(outCapacity)
+  const targetOutPtr = wasmModule.alloc(outCapacity)
+  const resultPtr = wasmModule.alloc(WASM_RESULT_HEADER_SIZE)
 
-  // Allocate memory in WASM
-  const queryPtr = wasmModule.alloc(queryLen)
-  const targetPtr = wasmModule.alloc(targetLen)
-
-  // Copy strings to WASM memory
   const memory = new Uint8Array(wasmModule.memory.buffer)
   memory.set(queryBytes, queryPtr)
   memory.set(targetBytes, targetPtr)
 
-  // Call WASM alignment function
-  const resultPtr = wasmModule.alignSequences(
-    queryPtr, queryLen,
-    targetPtr, targetLen,
-    match, mismatch, gapOpen, gapExtend
-  )
+  const status = invoke({
+    queryPtr,
+    queryLen: queryBytes.length,
+    targetPtr,
+    targetLen: targetBytes.length,
+    queryOutPtr,
+    targetOutPtr,
+    outCapacity,
+    resultPtr
+  })
 
-  // Read result from WASM memory
-  const result = readAlignmentResult(resultPtr)
+  if (status !== WASM_STATUS_OK) {
+    wasmModule.free(queryPtr)
+    wasmModule.free(targetPtr)
+    wasmModule.free(queryOutPtr)
+    wasmModule.free(targetOutPtr)
+    wasmModule.free(resultPtr)
 
-  // Free allocated memory
+    return { status }
+  }
+
+  const result = readAlignmentResultHeader(resultPtr, queryOutPtr, targetOutPtr)
+
   wasmModule.free(queryPtr)
   wasmModule.free(targetPtr)
-  wasmModule.freeResult(resultPtr)
+  wasmModule.free(queryOutPtr)
+  wasmModule.free(targetOutPtr)
+  wasmModule.free(resultPtr)
 
   return result
 }
 
 /**
- * Read alignment result from WASM memory.
+ * Read scalar alignment metadata and caller-owned output buffers.
  */
-function readAlignmentResult(ptr) {
+function readAlignmentResultHeader(ptr, queryOutPtr, targetOutPtr) {
   const memory = new Uint8Array(wasmModule.memory.buffer)
   const view = new DataView(wasmModule.memory.buffer)
 
@@ -164,12 +287,10 @@ function readAlignmentResult(ptr) {
   // i32 queryEnd           (offset 8)
   // i32 targetStart        (offset 12)
   // i32 targetEnd          (offset 16)
-  // u32 queryAlignedPtr    (offset 20)
-  // i32 queryAlignedLen    (offset 24)
-  // u32 targetAlignedPtr   (offset 28)
-  // i32 targetAlignedLen   (offset 32)
-  // u32 _padding           (offset 36) - for f64 alignment
-  // f64 identity           (offset 40)
+  // i32 queryAlignedLen    (offset 20)
+  // i32 targetAlignedLen   (offset 24)
+  // u32 targetOriginOffset (offset 28)
+  // f64 identity           (offset 32)
 
   let offset = ptr
   const score = view.getInt32(offset, true); offset += 4
@@ -177,18 +298,15 @@ function readAlignmentResult(ptr) {
   const queryEnd = view.getInt32(offset, true); offset += 4
   const targetStart = view.getInt32(offset, true); offset += 4
   const targetEnd = view.getInt32(offset, true); offset += 4
-  const queryAlignedPtr = view.getUint32(offset, true); offset += 4
   const queryAlignedLen = view.getInt32(offset, true); offset += 4
-  const targetAlignedPtr = view.getUint32(offset, true); offset += 4
   const targetAlignedLen = view.getInt32(offset, true); offset += 4
-  offset += 4  // skip padding
+  const targetOriginOffset = view.getInt32(offset, true); offset += 4
   const identity = view.getFloat64(offset, true)
 
-  const decoder = new TextDecoder()
-  const queryAligned = decoder.decode(memory.slice(queryAlignedPtr, queryAlignedPtr + queryAlignedLen))
-  const targetAligned = decoder.decode(memory.slice(targetAlignedPtr, targetAlignedPtr + targetAlignedLen))
+  const queryAligned = textDecoder.decode(memory.subarray(queryOutPtr, queryOutPtr + queryAlignedLen))
+  const targetAligned = textDecoder.decode(memory.subarray(targetOutPtr, targetOutPtr + targetAlignedLen))
 
-  return {
+  const result = {
     score,
     queryStart,
     queryEnd,
@@ -198,6 +316,12 @@ function readAlignmentResult(ptr) {
     targetAligned,
     identity
   }
+
+  if (targetOriginOffset !== 0) {
+    result.targetOriginOffset = targetOriginOffset
+  }
+
+  return result
 }
 
 /**
@@ -244,20 +368,72 @@ export function mapCoordinate(originalPos, coordinateMap, originalStart = 0) {
 }
 
 /**
+ * Normalize a virtual coordinate into a physical circular sequence coordinate.
+ *
+ * @param {number} position - Virtual position
+ * @param {number} sequenceLength - Physical sequence length
+ * @returns {number} Physical position in [0, sequenceLength)
+ */
+export function normalizeCircularPosition(position, sequenceLength) {
+  if (!sequenceLength) return position
+  return ((position % sequenceLength) + sequenceLength) % sequenceLength
+}
+
+function mapVirtualPosition(position, options = {}) {
+  if (!options.circular) return position
+  return normalizeCircularPosition(position, options.sequenceLength)
+}
+
+/**
+ * Build a coordinate map from aligned string index to original sequence position.
+ *
+ * Gap columns are represented as null. Circular mappings expose physical
+ * modulo coordinates while preserving the aligned string order.
+ *
+ * @param {string} alignedSequence - Sequence with gaps ('-')
+ * @param {number} originalStart - Start position in original/virtual sequence
+ * @param {Object} [options]
+ * @param {boolean} [options.circular=false] - Whether to wrap positions
+ * @param {number} [options.sequenceLength] - Physical circular sequence length
+ * @returns {Array<number|null>} Map from aligned position to original position
+ */
+export function buildAlignedToOriginalMap(alignedSequence, originalStart, options = {}) {
+  const map = []
+  let origPos = originalStart
+
+  for (let alignedPos = 0; alignedPos < alignedSequence.length; alignedPos++) {
+    if (alignedSequence[alignedPos] !== '-') {
+      map.push(mapVirtualPosition(origPos, options))
+      origPos++
+    } else {
+      map.push(null)
+    }
+  }
+
+  return map
+}
+
+/**
  * Build a reverse coordinate map from original position to aligned position.
  * This creates an object where keys are original positions and values are aligned positions.
  *
  * @param {string} alignedSequence - Sequence with gaps ('-')
  * @param {number} originalStart - Start position in original sequence
+ * @param {Object} [options]
+ * @param {boolean} [options.circular=false] - Whether to wrap positions
+ * @param {number} [options.sequenceLength] - Physical circular sequence length
  * @returns {Object} Map from original position to aligned position
  */
-export function buildReverseCoordinateMap(alignedSequence, originalStart) {
+export function buildReverseCoordinateMap(alignedSequence, originalStart, options = {}) {
   const map = {}
   let origPos = originalStart
 
   for (let alignedPos = 0; alignedPos < alignedSequence.length; alignedPos++) {
     if (alignedSequence[alignedPos] !== '-') {
-      map[origPos] = alignedPos
+      const mappedPos = mapVirtualPosition(origPos, options)
+      if (map[mappedPos] === undefined) {
+        map[mappedPos] = alignedPos
+      }
       origPos++
     }
   }
@@ -270,9 +446,12 @@ export function buildReverseCoordinateMap(alignedSequence, originalStart) {
  *
  * @param {string} alignedSequence - Sequence with gaps ('-')
  * @param {number} originalStart - Start position in original sequence
+ * @param {Object} [options]
+ * @param {boolean} [options.circular=false] - Whether to wrap positions
+ * @param {number} [options.sequenceLength] - Physical circular sequence length
  * @returns {Array<{position: number, length: number}>} Array of gap objects
  */
-export function extractGaps(alignedSequence, originalStart) {
+export function extractGaps(alignedSequence, originalStart, options = {}) {
   const gaps = []
   let originalPos = originalStart
   let i = 0
@@ -285,7 +464,7 @@ export function extractGaps(alignedSequence, originalStart) {
         gapLength++
         i++
       }
-      gaps.push({ position: originalPos, length: gapLength })
+      gaps.push({ position: mapVirtualPosition(originalPos, options), length: gapLength })
     } else {
       // Non-gap character
       originalPos++
@@ -303,12 +482,78 @@ export function extractGaps(alignedSequence, originalStart) {
  * @param {Object} reverseMap - Map from original to aligned positions
  * @param {number} originalStart - Start position in original sequence
  * @param {number} originalEnd - End position in original sequence (exclusive)
+ * @param {Object} [options]
+ * @param {boolean} [options.circular=false] - Whether original coordinates are circular physical positions
+ * @param {number} [options.sequenceLength] - Physical circular sequence length
  * @returns {Object|null} Annotation with mapped coordinates, or null if outside alignment
  */
-export function mapAnnotationThroughAlignment(annotation, reverseMap, originalStart, originalEnd) {
+export function mapAnnotationThroughAlignment(annotation, reverseMap, originalStart, originalEnd, options = {}) {
   if (!annotation.span || !annotation.span.ranges) return null
 
   const mappedRanges = []
+
+  if (options.circular && options.sequenceLength) {
+    for (const range of annotation.span.ranges) {
+      let runStart = null
+      let previousAligned = null
+
+      for (let originalPos = range.start; originalPos < range.end; originalPos++) {
+        const physicalPos = normalizeCircularPosition(originalPos, options.sequenceLength)
+        const alignedPos = reverseMap[physicalPos]
+
+        if (alignedPos === undefined) {
+          if (runStart !== null) {
+            mappedRanges.push({
+              start: runStart,
+              end: previousAligned + 1,
+              orientation: range.orientation
+            })
+            runStart = null
+            previousAligned = null
+          }
+          continue
+        }
+
+        if (runStart === null) {
+          runStart = alignedPos
+          previousAligned = alignedPos
+        } else if (alignedPos === previousAligned + 1) {
+          previousAligned = alignedPos
+        } else {
+          mappedRanges.push({
+            start: runStart,
+            end: previousAligned + 1,
+            orientation: range.orientation
+          })
+          runStart = alignedPos
+          previousAligned = alignedPos
+        }
+      }
+
+      if (runStart !== null) {
+        mappedRanges.push({
+          start: runStart,
+          end: previousAligned + 1,
+          orientation: range.orientation
+        })
+      }
+    }
+
+    if (mappedRanges.length === 0) return null
+
+    const ranges = mappedRanges.map(r => new Range(r.start, r.end, r.orientation))
+
+    return new Annotation({
+      id: annotation.id,
+      caption: annotation.caption,
+      type: annotation.type,
+      span: new Span(ranges),
+      attributes: {
+        ...annotation.attributes,
+        _originalAnnotation: annotation
+      }
+    })
+  }
 
   for (const range of annotation.span.ranges) {
     // Check if range overlaps with aligned region

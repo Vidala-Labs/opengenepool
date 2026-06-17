@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .freestanding,
+        .cpu_features_add = std.Target.wasm.featureSet(&.{.simd128}),
     });
 
     const optimize = b.standardOptimizeOption(.{});
@@ -30,8 +31,8 @@ pub fn build(b: *std.Build) void {
     lib.entry = .disabled;
     lib.rdynamic = true;
     lib.export_memory = true;
-    lib.initial_memory = 128 * 65536; // 8MB initial (must be > 4MB heap + stack + code)
-    lib.max_memory = 512 * 65536; // 32MB max
+    lib.initial_memory = 1024 * 65536; // 64MB initial (must be > heap + stack + code)
+    lib.max_memory = 1024 * 65536; // 64MB max
 
     // Install to parent utils directory
     // Note: The path is relative to zig-out, so we need to go up more levels
