@@ -170,3 +170,77 @@ test "circular path with no actual rotation matches plain banded" {
     try testing.expectEqual(banded.header.score, circ.header.score);
     try testing.expectEqual(banded.header.identity, circ.header.identity);
 }
+
+// ---------------------------------------------------------------------------
+// Regression: large rotation + small indels (the real-plasmid failure mode)
+//
+// Two circular sequences that are the SAME plasmid linearized at different
+// origins, related by a large rotation (far outside the alignment band) AND a
+// few small indels. The indels make every matching k-mer downstream of an indel
+// vote for a slightly different diagonal, so the votes for the single true
+// rotation SMEAR across adjacent offset buckets. The old exact-bucket vote +
+// "winner must be 1.5x the runner-up" gate treated that smear as competing
+// origins and gave up (offset 0), so only the non-wrapping fragment aligned.
+//
+// A seed-and-chain estimator consolidates near-diagonal seeds into one chain and
+// recovers the rotation. All sequence data here is SYNTHETIC and deterministic.
+// ---------------------------------------------------------------------------
+
+const BASES = "ACGT";
+
+/// Deterministic xorshift-based pseudo-random sequence (no Math.random / Date,
+/// which would break reproducibility and aren't available in this context).
+fn makeRandomSeq(buf: []u8, seed: u64) void {
+    var x = seed | 1;
+    for (buf) |*b| {
+        // xorshift64
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        b.* = BASES[@intCast(x & 3)];
+    }
+}
+
+/// Rotate `src` left by `offset` into `dst` (both same length).
+fn rotateInto(dst: []u8, src: []const u8, offset: usize) void {
+    for (0..src.len) |i| dst[i] = src[(i + offset) % src.len];
+}
+
+const SEQ_LEN = 4000;
+const ROTATION = 1500; // far beyond the 128-wide band
+
+test "REGRESSION: large rotation + small indels recovers full identity" {
+    var base: [SEQ_LEN]u8 = undefined;
+    makeRandomSeq(&base, 0x9E3779B97F4A7C15);
+
+    // target = base. query = base rotated by ROTATION, then with two small
+    // deletions punched in (so the diagonal steps partway through).
+    const target = base;
+
+    var rotated: [SEQ_LEN]u8 = undefined;
+    rotateInto(&rotated, &base, ROTATION);
+
+    // Build query by copying `rotated` but dropping 1 base at ~1/3 and 1 base at
+    // ~2/3 — two single-base deletions => two diagonal steps.
+    var query_buf: [SEQ_LEN]u8 = undefined;
+    var w: usize = 0;
+    const del1 = SEQ_LEN / 3;
+    const del2 = (SEQ_LEN * 2) / 3;
+    for (0..SEQ_LEN) |i| {
+        if (i == del1 or i == del2) continue;
+        query_buf[w] = rotated[i];
+        w += 1;
+    }
+    const query = query_buf[0..w]; // SEQ_LEN - 2
+
+    const r = run(.circular, query, &target);
+
+    // The whole query is present in the target (modulo 2 deleted bases), so a
+    // correct circular alignment should cover essentially the entire query at
+    // very high identity. The OLD estimator returns offset 0 here and aligns
+    // only the non-wrapping fragment (~ROTATION/SEQ_LEN of it).
+    try testing.expectEqual(STATUS_OK, r.status);
+    const coverage = r.coverage();
+    try testing.expect(coverage >= @as(i32, @intCast(query.len - 10)));
+    try testing.expect(r.header.identity >= 99.0);
+}

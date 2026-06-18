@@ -921,19 +921,35 @@ describe('banded alignment fast path', () => {
     expect(result.targetEnd).toBe(originOffset + target.length)
   })
 
-  it('aligns 128-base A/T blocks across a circular origin shift', () => {
-    const query = `${'A'.repeat(128)}${'T'.repeat(128)}`
-    const target = `${'T'.repeat(128)}${'A'.repeat(128)}`
+  it('recovers a rotation larger than the band width', () => {
+    // Rotation magnitude never bounds what circular alignment can recover: the
+    // detected offset is removed by rotating the target *before* banded
+    // alignment, so the band only absorbs indel drift, not the rotation. Use a
+    // non-degenerate (unique-k-mer) sequence with a rotation well past the
+    // 128-base default band to confirm a clean, exact recovery. Deterministic
+    // xorshift, no Math.random.
+    const BASES = 'ACGT'
+    const LEN = 600
+    const OFFSET = 320 // > DEFAULT_BAND_WIDTH (128)
+    let x = 0x12345678 >>> 0
+    let target = ''
+    for (let i = 0; i < LEN; i++) {
+      x ^= x << 13; x >>>= 0
+      x ^= x >> 17
+      x ^= x << 5; x >>>= 0
+      target += BASES[x & 3]
+    }
+    const query = target.slice(OFFSET) + target.slice(0, OFFSET)
 
-    const result = align(query, target, { circular: true, originKmerSize: 16 })
+    const result = align(query, target, { circular: true })
 
     expect(result.score).toBe(query.length * 2)
     expect(result.identity).toBe(100)
     expect(result.queryStart).toBe(0)
-    expect(result.queryEnd).toBe(256)
-    expect(result.targetOriginOffset).toBe(128)
-    expect(result.targetStart).toBe(128)
-    expect(result.targetEnd).toBe(384)
+    expect(result.queryEnd).toBe(LEN)
+    expect(result.targetOriginOffset).toBe(OFFSET)
+    expect(result.targetStart).toBe(OFFSET)
+    expect(result.targetEnd).toBe(OFFSET + LEN)
     expect(result.queryAligned).toBe(query)
     expect(result.targetAligned).toBe(query)
   })
@@ -957,6 +973,41 @@ describe('banded alignment fast path', () => {
       expect(result.queryAligned).toBe(query)
       expect(result.targetAligned).toBe(query)
     }
+  })
+
+  it('recovers a large rotation when small indels smear the diagonal', () => {
+    // Two circular sequences that are the same plasmid linearized at different
+    // origins, related by a large rotation AND a few small indels. The indels
+    // make each downstream matching k-mer vote for a slightly different offset,
+    // smearing one true rotation's votes across adjacent buckets. The old
+    // exact-bucket vote + "1.5x runner-up" gate mistook that smear for competing
+    // origins and gave up (offset 0), so only the non-wrapping fragment aligned.
+    // Seed-and-chain diagonal clustering recovers it. Sequence is synthetic and
+    // deterministic (xorshift), no Math.random.
+    const BASES = 'ACGT'
+    const SEQ_LEN = 4000
+    const ROTATION = 1500
+    let x = 0x9e3779b9 >>> 0
+    let base = ''
+    for (let i = 0; i < SEQ_LEN; i++) {
+      x ^= x << 13; x >>>= 0
+      x ^= x >> 17
+      x ^= x << 5; x >>>= 0
+      base += BASES[x & 3]
+    }
+    const target = base
+    const rotated = base.slice(ROTATION) + base.slice(0, ROTATION)
+    // Two single-base deletions => two diagonal steps.
+    const del1 = Math.floor(SEQ_LEN / 3)
+    const del2 = Math.floor((SEQ_LEN * 2) / 3)
+    const query = rotated.slice(0, del1) + rotated.slice(del1 + 1, del2) + rotated.slice(del2 + 1)
+
+    const result = align(query, target, { circular: true })
+
+    // Essentially the whole query is present in the target (minus 2 deleted
+    // bases): correct circular alignment should cover nearly all of it.
+    expect(result.identity).toBeGreaterThanOrEqual(99)
+    expect(result.queryEnd - result.queryStart).toBeGreaterThanOrEqual(query.length - 10)
   })
 
   it('does not rotate target origin unless circular alignment is requested', () => {
