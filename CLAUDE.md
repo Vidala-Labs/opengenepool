@@ -34,8 +34,9 @@ to the remote unless explicitly asked. (This policy will be amended in the futur
 
 ```
 src/
-├── components/      # 23 Vue SFC components
-├── composables/     # 7 Vue 3 composables for state management
+├── components/      # Vue SFC components
+├── composables/     # Vue 3 composables (state management + the SequenceDocument
+│                    #   model and its SequenceDocumentRC reverse-complement wrapper)
 ├── utils/           # Utility modules (dna.js, annotation.js, translation.js, circular.js)
 ├── backends/        # Backend adapters (readonly, IndexedDB)
 └── index.js         # Public exports
