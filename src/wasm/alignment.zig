@@ -52,7 +52,7 @@ const TRACE_E: u8 = 2;
 const TRACE_F: u8 = 3;
 const TRACE_H: u8 = 4;
 
-const NormalizedSequence = struct {
+pub const NormalizedSequence = struct {
     text: []u8,
     masks: []u8,
 };
@@ -114,7 +114,7 @@ fn kmerKeyLinear(text: []const u8, start: usize, kmer_size: usize) ?u64 {
     return key;
 }
 
-fn estimateCircularTargetOffset(query_text: []const u8, target_text: []const u8, requested_kmer_size: usize, requested_min_votes: u32) usize {
+pub fn estimateCircularTargetOffset(query_text: []const u8, target_text: []const u8, requested_kmer_size: usize, requested_min_votes: u32) usize {
     const n = target_text.len;
     if (query_text.len == 0 or n == 0) return 0;
 
@@ -203,7 +203,7 @@ fn scoreMasks(mask1: u8, mask2: u8, match_score: i32, mismatch_score: i32) i32 {
     return 1;
 }
 
-fn normalizeSequence(sequence: []const u8) ?NormalizedSequence {
+pub fn normalizeSequence(sequence: []const u8) ?NormalizedSequence {
     const text_ptr = wasmAlloc(sequence.len) orelse return null;
     const masks_ptr = wasmAlloc(sequence.len) orelse return null;
     const text = text_ptr[0..sequence.len];
@@ -703,7 +703,7 @@ fn hirschbergAlign(
 
 // Main linear-space alignment function. Writes aligned strings into caller-owned
 // output buffers and scalar metadata into result.
-export fn alignSequencesInto(
+pub export fn alignSequencesInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
@@ -841,7 +841,7 @@ fn reverseBytes(bytes: []u8) void {
 
 // Banded Smith-Waterman local alignment. Returns null when the band is unsafe,
 // allowing JS to retry with the canonical linear implementation.
-export fn alignSequencesBandedInto(
+pub export fn alignSequencesBandedInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
@@ -1093,7 +1093,7 @@ export fn alignSequencesBandedInto(
 
 // Circular target alignment. Estimates the target origin offset, virtually
 // rotates the target, then uses the banded path with linear fallback.
-export fn alignSequencesBandedCircularInto(
+pub export fn alignSequencesBandedCircularInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
@@ -1165,15 +1165,69 @@ export fn alignSequencesBandedCircularInto(
 }
 
 // Memory management exports for JS
-export fn reset() void {
+pub export fn reset() void {
     resetHeap();
 }
 
-export fn alloc(size: usize) ?[*]u8 {
+pub export fn alloc(size: usize) ?[*]u8 {
     return wasmAlloc(size);
 }
 
 export fn free(ptr: [*]u8) void {
     _ = ptr;
     // No-op for bump allocator
+}
+
+// ---------------------------------------------------------------------------
+// Basic unit tests (white-box)
+//
+// These compile for the HOST (`zig test alignment.zig`), not wasm32. They reach
+// directly into internal helpers to test them in isolation. Broader end-to-end
+// alignment scenarios that drive the WASM ABI live in alignment_test.zig.
+// ---------------------------------------------------------------------------
+
+const testing = std.testing;
+
+const UNIT_PLASMID = "ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATCAGTTACGGATCCGTACGTTAGCGCATTAGCCGATCGGATCCATGCATGCTAGCTAGGCATGCA";
+
+fn rotateComptime(comptime s: []const u8, comptime n: usize) [s.len]u8 {
+    var out: [s.len]u8 = undefined;
+    for (0..s.len) |i| out[i] = s[(i + n) % s.len];
+    return out;
+}
+
+test "normalizeSequence uppercases and masks single bases" {
+    resetHeap();
+    const ns = normalizeSequence("acgt").?;
+    try testing.expectEqualSlices(u8, "ACGT", ns.text);
+    try testing.expectEqual(MASK_A, ns.masks[0]);
+    try testing.expectEqual(MASK_C, ns.masks[1]);
+    try testing.expectEqual(MASK_G, ns.masks[2]);
+    try testing.expectEqual(MASK_T, ns.masks[3]);
+}
+
+test "scoreMasks: match, mismatch, and ambiguous overlap" {
+    // exact single-base match
+    try testing.expectEqual(@as(i32, 2), scoreMasks(MASK_A, MASK_A, 2, -1));
+    // disjoint -> mismatch
+    try testing.expectEqual(@as(i32, -1), scoreMasks(MASK_A, MASK_C, 2, -1));
+    // ambiguous overlap (N vs A) -> partial credit of 1
+    try testing.expectEqual(@as(i32, 1), scoreMasks(MASK_A | MASK_C | MASK_G | MASK_T, MASK_A, 2, -1));
+}
+
+test "estimateCircularTargetOffset recovers a 37bp rotation" {
+    const rotated = comptime rotateComptime(UNIT_PLASMID, 37);
+    resetHeap();
+    const q = normalizeSequence(&rotated).?;
+    const t = normalizeSequence(UNIT_PLASMID).?;
+    const offset = estimateCircularTargetOffset(q.text, t.text, DEFAULT_ORIGIN_KMER_SIZE, DEFAULT_ORIGIN_MIN_VOTES);
+    try testing.expectEqual(@as(usize, 37), offset);
+}
+
+test "estimateCircularTargetOffset returns 0 when no rotation" {
+    resetHeap();
+    const q = normalizeSequence(UNIT_PLASMID).?;
+    const t = normalizeSequence(UNIT_PLASMID).?;
+    const offset = estimateCircularTargetOffset(q.text, t.text, DEFAULT_ORIGIN_KMER_SIZE, DEFAULT_ORIGIN_MIN_VOTES);
+    try testing.expectEqual(@as(usize, 0), offset);
 }
