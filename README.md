@@ -280,7 +280,9 @@ const result = align('ATCGATCG', 'ATCGAATCG', {
   match: 2,       // Score for matching bases (default: 2)
   mismatch: -1,   // Penalty for mismatches (default: -1)
   gapOpen: -3,    // Gap opening penalty (default: -3)
-  gapExtend: -1   // Gap extension penalty (default: -1)
+  gapExtend: -1,  // Gap extension penalty (default: -1)
+  // circular: true,             // detect a rotated origin (plasmids)
+  // tryReverseComplement: true  // also try the antisense query strand
 })
 
 // result = {
@@ -292,6 +294,15 @@ const result = align('ATCGATCG', 'ATCGAATCG', {
 //   identity: 88.9
 // }
 ```
+
+With `{ tryReverseComplement: true }`, `align` aligns both strands of the query
+and keeps the higher-scoring orientation, tagging the result with
+`reverseComplement: true | false`. This composes with `{ circular: true }`, which
+detects a rotated linearization origin (common for plasmids) before aligning.
+The `AlignmentEditor` enables both automatically: when the query matches only on
+the antisense strand, it shows a reverse-complement badge, displays the query row
+in the matching orientation with true (descending) coordinates, and round-trips
+edits back to the original query document.
 
 ## Coordinate System
 

@@ -111,10 +111,13 @@ function getMatchBarSegments(line) {
 
 // Handle context menu on match line — the parent (AlignmentEditor) resolves the
 // aligned position and the alignment contributor supplies the gap/mutation items.
-function handleContextMenu(event, lineIndex) {
+// `lineStart` is the line's ALIGNED start column (line.start), not its ordinal —
+// the editor maps clientX to an aligned position relative to this offset. Emitted
+// under the `lineIndex` key the editor's contextmenu handler expects.
+function handleContextMenu(event, lineStart) {
   event.preventDefault()
   event.stopPropagation()
-  emit('contextmenu', { event, lineIndex })
+  emit('contextmenu', { event, lineIndex: lineStart })
 }
 </script>
 
@@ -171,7 +174,7 @@ function handleContextMenu(event, lineIndex) {
           data-layer="alignment-match"
           :data-line-index="line.index"
           :data-line-start="line.start"
-          @contextmenu="handleContextMenu($event, line.index)"
+          @contextmenu="handleContextMenu($event, line.start)"
         />
       </g>
     </g>

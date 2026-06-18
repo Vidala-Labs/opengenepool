@@ -592,6 +592,20 @@ describe('iterateSequence', () => {
       expect(bases.map(b => b.letter)).toEqual(['T', 'A', 'C', 'X', 'A', 'T'])
     })
 
+    it('passes alignment gaps through unchanged (gap complements to gap)', () => {
+      // In alignment mode the sequence contains '-' gap columns. A minus-strand
+      // CDS spanning a gap must not throw: a gap has no base to complement, so it
+      // passes through as '-' (the consumer filters gaps out afterward).
+      const span = ezSpan(0, 5, Orientation.MINUS)
+      const sequence = 'AT-GA'
+
+      const bases = [...iterateSequence(span, sequence)]
+
+      expect(bases.map(b => b.position)).toEqual([4, 3, 2, 1, 0])
+      // A→T, G→C, -→-, T→A, A→T
+      expect(bases.map(b => b.letter)).toEqual(['T', 'C', '-', 'A', 'T'])
+    })
+
     it('handles three ranges in scrambled order', () => {
       const span = new Span([new Range(4, 6, Orientation.MINUS), new Range(0, 2, Orientation.MINUS), new Range(8, 10, Orientation.MINUS)])
       const sequence = 'ATXXCGXXTA'

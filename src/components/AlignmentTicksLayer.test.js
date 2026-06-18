@@ -16,15 +16,19 @@ function createMockGraphics(textMode = true) {
   }
 }
 
-// Mock alignment lines
+// Mock alignment lines. `start` is the ALIGNED column the line begins at
+// (index * zoom); for index 1 at zoom 100 that is 100 — deliberately different
+// from the ordinal so a contextmenu emit can't accidentally pass the index.
 function createMockAlignmentLines() {
   return [
     {
       index: 0,
+      start: 0,
       matchText: '|||  ||'
     },
     {
       index: 1,
+      start: 100,
       matchText: '||||||||'
     }
   ]
@@ -163,5 +167,35 @@ describe('AlignmentTicksLayer', () => {
     const matchText = wrapper.find('.alignment-match-text')
     // Spaces are converted to non-breaking spaces (\u00A0) to prevent SVG collapse
     expect(matchText.text()).toBe('||\u00A0\u00A0\u00A0\u00A0||')
+  })
+
+  it('contextmenu emits the line ALIGNED START, not the ordinal index', () => {
+    // Regression: the editor maps a match-line right-click's clientX to an aligned
+    // column relative to the line's start offset. The overlay must therefore emit
+    // line.start (e.g. 100 for the second line), not line.index (1). Emitting the
+    // ordinal placed the resolved column near 0 \u2014 a matching column \u2014 so the
+    // "Annotate mutation/indel" item never appeared.
+    const alignmentLines = createMockAlignmentLines()
+
+    const wrapper = mount(AlignmentTicksLayer, {
+      global: {
+        provide: {
+          graphics: createMockGraphics(true),
+          isAlignmentMode: ref(true),
+          alignmentLines: ref(alignmentLines),
+          alignmentBlockHeight: ref(48)
+        }
+      }
+    })
+
+    // Second line: index 1, start 100.
+    const overlay = wrapper.findAll('rect.alignment-match-overlay')[1]
+    expect(overlay.exists()).toBe(true)
+
+    overlay.trigger('contextmenu')
+
+    const emitted = wrapper.emitted('contextmenu')
+    expect(emitted).toBeTruthy()
+    expect(emitted[0][0].lineIndex).toBe(100) // line.start, not the ordinal 1
   })
 })

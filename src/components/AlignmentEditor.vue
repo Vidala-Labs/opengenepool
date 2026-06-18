@@ -9,6 +9,7 @@ import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { useContextMenu } from '../composables/useContextMenu.js'
 import { useAlignmentRunner } from '../composables/useAlignmentRunner.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
+import { SequenceDocumentRC } from '../composables/SequenceDocumentRC.js'
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
 import { ANNOTATION_COLORS, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
@@ -95,9 +96,21 @@ watchEffect(() => {
 // Document Access
 // ============================================
 
-// Direct access to documents from props
+// Direct access to documents from props.
 const targetDoc = computed(() => props.target)
-const queryDoc = computed(() => props.query)
+
+// The query, presented in whichever orientation matched. When the kernel
+// detected a reverse-complement match, queryDoc is a SequenceDocumentRC *view*
+// of props.query: it reads RC'd and writes back to the underlying doc, so the
+// entire downstream pipeline (position maps, annotations, selection, rendering)
+// runs the plain forward logic regardless of strand. The orientation lives
+// entirely in this one wrapper. NOTE: the alignment runner below reads
+// props.query directly (not this), so wrapping never feeds back into alignment.
+const queryDoc = computed(() =>
+  alignmentResult.value?.reverseComplement
+    ? new SequenceDocumentRC(props.query)
+    : props.query
+)
 
 // Is the sequence circular? (from target document)
 const isCircular = computed(() => targetDoc.value?.circular ?? false)
@@ -138,10 +151,26 @@ const selection = useSelection(editorState, graphics, eventBus)
 // value is null until the first run settles; `aligning` is true while a run is
 // pending. Downstream computeds already guard on a falsy result. The options getter
 // supplies the circular flag (circular-aware alignment) to the worker/fallback.
+// Reads props.query/props.target directly — NOT queryDoc. queryDoc may be an RC
+// view selected by the alignment result; feeding that back into alignment would
+// flip-flop (the RC'd sequence matches forward → reverseComplement=false →
+// unwrap → re-align). The runner always aligns the original prop sequences.
 const { result: alignmentResult, pending: aligning, whenSettled } = useAlignmentRunner(
-  () => queryDoc.value?.sequenceRef?.value ?? '',
-  () => targetDoc.value?.sequenceRef?.value ?? '',
-  () => ({ circular: Boolean(targetDoc.value?.circular || queryDoc.value?.circular) })
+  () => props.query?.sequenceRef?.value ?? '',
+  () => props.target?.sequenceRef?.value ?? '',
+  () => ({
+    circular: Boolean(props.target?.circular || props.query?.circular),
+    // Also try the antisense strand of the query; the kernel keeps whichever
+    // orientation scores higher and tags result.reverseComplement.
+    tryReverseComplement: true
+  })
+)
+
+// True when the query matched the target on the opposite strand. The aligned
+// query string in the result is then the reverse complement of the query
+// document's sequence (already lined up with the target under the match bars).
+const queryIsReverseComplement = computed(() =>
+  Boolean(alignmentResult.value?.reverseComplement)
 )
 
 // Check if alignment found a match
@@ -215,7 +244,10 @@ const alignmentMatchLine = computed(() => {
   return line
 })
 
-// Position mapping: aligned index -> original position for query
+// Position mapping: aligned index -> position in the query document. queryDoc is
+// orientation-correct (a SequenceDocumentRC view when the match was antisense),
+// so this is plain-forward for both strands — the wrapper already presents the
+// query in the orientation the alignment used.
 const queryPositionMap = computed(() => {
   if (!hasAlignment.value) return []
   return buildAlignedToOriginalMap(
@@ -261,6 +293,14 @@ const alignmentLines = computed(() => {
       if (queryLabelPos !== null && targetLabelPos !== null) break
     }
 
+    // The query label shows the TRUE underlying base index. queryDoc exposes
+    // coordinateLabel only when it is a reverse-complement view (descending true
+    // coords); a plain document has no such method, so the position passes
+    // through unchanged. This keeps the orientation knowledge inside the wrapper.
+    const queryLabel = queryLabelPos !== null
+      ? (queryDoc.value?.coordinateLabel ? queryDoc.value.coordinateLabel(queryLabelPos) : queryLabelPos)
+      : null
+
     lines.push({
       index: lines.length,
       start: i,
@@ -269,7 +309,7 @@ const alignmentLines = computed(() => {
       targetText: targetSeq.slice(i, end),
       matchText: matchLine.slice(i, end),
       // Convert to 1-based GenBank positions for display
-      queryPosition: queryLabelPos !== null ? queryLabelPos + 1 : null,
+      queryPosition: queryLabel !== null ? queryLabel + 1 : null,
       targetPosition: targetLabelPos !== null ? targetLabelPos + 1 : null
     })
   }
@@ -287,13 +327,22 @@ const targetReverseMap = computed(() => {
   )
 })
 
+// Original query position -> aligned column. This MUST be the exact inverse of
+// queryPositionMap, which is RC-aware (for a reverse-complement query it returns
+// descending original coordinates). buildReverseCoordinateMap walks the aligned
+// string forward and would key on RC-STRING positions instead of original query
+// positions, mirroring the highlight (leftmost selected -> rightmost drawn). So
+// invert queryPositionMap directly to stay consistent for both orientations.
 const queryReverseMap = computed(() => {
   if (!hasAlignment.value) return {}
-  return buildReverseCoordinateMap(
-    alignedQuerySequence.value,
-    alignmentResult.value.queryStart,
-    queryCoordinateOptions.value
-  )
+  const posMap = queryPositionMap.value
+  const map = {}
+  for (let col = 0; col < posMap.length; col++) {
+    const orig = posMap[col]
+    if (orig === null || orig === undefined) continue
+    if (map[orig] === undefined) map[orig] = col
+  }
+  return map
 })
 
 // Inverted maps: aligned position -> original position (for converting selection to annotation)
@@ -353,6 +402,9 @@ const alignedQueryAnnotations = computed(() => {
   if (!hasAlignment.value || !queryAnnotations) return []
 
   const result = alignmentResult.value
+  // queryDoc.annotations are already in the orientation the alignment used (the
+  // SequenceDocumentRC wrapper reflects them when the match was antisense), so
+  // projection is plain-forward for both strands.
   const mapped = []
 
   for (const ann of queryAnnotations) {
@@ -456,6 +508,25 @@ function detectAlignmentFeatureAt(alignedPos) {
 }
 
 /**
+ * Build the query-document Span for an annotation created from two inclusive
+ * endpoints pulled from queryPositionMap.
+ *
+ * These are coordinates in the query document as the alignment sees it (queryDoc
+ * — a SequenceDocumentRC view when the match was antisense). They are forward
+ * and ascending, so the span is plain [start, end+1) PLUS. When queryDoc is an
+ * RC wrapper, its addAnnotation reflects this span back onto the underlying
+ * document (flipping coordinates and strand) — so RC-ness is handled in the one
+ * wrapper, not here.
+ *
+ * @param {number} origStart - Inclusive start endpoint (in queryDoc coords)
+ * @param {number} origEnd - Inclusive end endpoint (in queryDoc coords)
+ * @returns {Span}
+ */
+function makeQuerySpan(origStart, origEnd) {
+  return new Span([new Range(origStart, origEnd + 1, Orientation.PLUS)])
+}
+
+/**
  * Create annotation for deletion (gap in query).
  * Annotates the flanking bases around the gap.
  * Caption format: Δ(genbank_pos) or Δ(genbank_start..genbank_end)
@@ -502,7 +573,7 @@ async function createDeletionAnnotation(alignedStart, alignedEnd) {
     ? `Δ(${genbankStart})`
     : `Δ(${genbankStart}..${genbankEnd})`
 
-  const span = new Span([new Range(origLeft, origRight + 1)])
+  const span = makeQuerySpan(origLeft, origRight)
 
   await queryDoc.value.addAnnotation({
     type: 'deletion',
@@ -532,7 +603,7 @@ async function createInsertionAnnotation(alignedStart, alignedEnd) {
   if (origStart === null || origEnd === null) return
 
   const caption = `+${insertedBases}`
-  const span = new Span([new Range(origStart, origEnd + 1)])
+  const span = makeQuerySpan(origStart, origEnd)
 
   await queryDoc.value.addAnnotation({
     type: 'insertion',
@@ -786,7 +857,7 @@ async function createMutationAnnotation(alignedStart, alignedEnd) {
     }
   }
 
-  const span = new Span([new Range(origStart, origEnd + 1)])
+  const span = makeQuerySpan(origStart, origEnd)
 
   await queryDoc.value.addAnnotation({
     type: 'mutation',
@@ -927,7 +998,11 @@ const selectionStatusText = computed(() => {
       const length = selectedText.length
       const baseWord = length === 1 ? 'base' : 'bases'
       const rowLabel = selection.source.value === 'target' ? 'Target' : 'Query'
-      return `${rowLabel} selected: ${range.start + 1}..${range.end} (${length} ${baseWord})`
+      // Coordinate notation reflects the selection's strand: a complement
+      // (minus) selection reads complement(a..b), a forward one reads a..b. This
+      // is independent of which row and of the green/red selection color (which
+      // tracks copy/paste content / drag direction, not strand).
+      return `${rowLabel} selected: ${rangeToGenBank(range)} (${length} ${baseWord})`
     }
   }
 
@@ -1966,12 +2041,16 @@ defineExpose({
   querySequenceLayerRef,
   // For testing context menu building (contributor service)
   contextMenu,
+  // Live context-menu state (what an actual right-click produced)
+  contextMenuVisible,
+  contextMenuItems,
   // Gap annotation feature
   detectAlignmentFeatureAt,
   createDeletionAnnotation,
   createInsertionAnnotation,
   createMutationAnnotation,
   getAlignmentMenuItems,
+  getAlignedPositionFromEvent,
   findContiguousFeatureRegion,
   // CDS mutation annotation helpers
   findCdsContainingRange,
@@ -2007,6 +2086,7 @@ const toolbarHelpText = `Selection Controls:
         <slot name="title">
           Alignment · {{ editorState.sequenceLength.value.toLocaleString() }} bp
         </slot>
+        <span v-if="queryIsReverseComplement" class="rc-badge">⟲ reverse complement</span>
       </template>
 
       <template v-if="$slots.info" #info>
@@ -2093,6 +2173,7 @@ const toolbarHelpText = `Selection Controls:
               :y-offset="graphics.lineHeight.value * 2"
               :block-height="alignmentBlockHeight"
               :original-sequence-length="queryDoc?.sequence?.length || 0"
+              :reverse-complement="queryIsReverseComplement"
               @select="handleSelectionChange"
               @contextmenu="handleSequenceLayerContextMenu"
             />
@@ -2334,6 +2415,12 @@ const toolbarHelpText = `Selection Controls:
   pointer-events: none;
 }
 
+/* The reverse-complement (query) row's index numbers are colored red to flag
+   that this row is the antisense strand. */
+:deep(.position-label.reverse-complement) {
+  fill: rgba(255, 0, 0, 1);
+}
+
 :deep(.sequence-text) {
   font-family: "Lucida Console", Monaco, monospace;
   font-size: 16px;
@@ -2434,6 +2521,15 @@ const toolbarHelpText = `Selection Controls:
 .empty-state {
   fill: #999;
   font-size: 16px;
+}
+
+.rc-badge {
+  margin-left: 0.5em;
+  /* Same red as a minus-strand selection boundary (SelectionLayer
+     .selection.minus stroke). */
+  color: rgba(255, 0, 0, 1);
+  font-size: 0.9em;
+  font-weight: 600;
 }
 
 .editor-svg:focus {

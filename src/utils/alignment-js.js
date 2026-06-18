@@ -183,7 +183,15 @@ function estimateCircularTargetOffset(queryText, targetText, options) {
     }
   }
 
-  const votes = new Map()
+  // Seed-and-chain (see the matching Zig implementation in
+  // src/wasm/alignment.zig for the full rationale). Each query k-mer that hits
+  // the target index produces SEEDS on diagonal d = (targetPos - i) mod n. A
+  // true rotation — even with indels — yields many seeds whose diagonals
+  // cluster within a narrow band (an indel only STEPS the diagonal, it doesn't
+  // scatter it). We find the densest diagonal band (the dominant chain) rather
+  // than counting exact-offset buckets, so indel-induced smear across adjacent
+  // offsets no longer looks like competing origins.
+  const diagonals = []
   const queryLimit = queryText.length - kmerSize
   for (let i = 0; i <= queryLimit; i++) {
     const kmer = queryText.slice(i, i + kmerSize)
@@ -191,29 +199,76 @@ function estimateCircularTargetOffset(queryText, targetText, options) {
     if (!positions) continue
 
     for (const targetPos of positions) {
-      const offset = (targetPos - i + n) % n
-      votes.set(offset, (votes.get(offset) || 0) + 1)
-    }
-  }
-
-  let bestOffset = 0
-  let bestVotes = 0
-  let secondBestVotes = 0
-  for (const [offset, count] of votes) {
-    if (count > bestVotes) {
-      secondBestVotes = bestVotes
-      bestVotes = count
-      bestOffset = offset
-    } else if (count > secondBestVotes) {
-      secondBestVotes = count
+      diagonals.push((targetPos - i + n) % n)
     }
   }
 
   const minVotes = options.originMinVotes ?? 3
-  if (bestVotes < minVotes) return 0
-  if (secondBestVotes > 0 && bestVotes < secondBestVotes * 1.5) return 0
+  if (diagonals.length < minVotes) return 0
 
-  return bestOffset
+  diagonals.sort((a, b) => a - b)
+
+  // Diagonal tolerance for "same chain": ~6% of length with a floor. Captures
+  // one rotation's seeds while keeping a genuinely different origin (offset by a
+  // large fraction of n) in a separate chain.
+  const band = Math.max(Math.floor(n / 16), 64)
+
+  // Sliding window over sorted diagonals: widest [lo, hi] with
+  // diagonals[hi] - diagonals[lo] <= band holds the dominant chain.
+  let lo = 0
+  let bestLo = 0
+  let bestHi = 0 // exclusive
+  let bestLen = 0
+  for (let hi = 0; hi < diagonals.length; hi++) {
+    while (diagonals[hi] - diagonals[lo] > band) lo++
+    const len = hi - lo + 1
+    if (len > bestLen) {
+      bestLen = len
+      bestLo = lo
+      bestHi = hi + 1
+    }
+  }
+
+  if (bestLen < minVotes) return 0
+
+  // Representative diagonal: the MODE (densest exact diagonal) within the
+  // dominant chain's window — not the positional median. A true rotation peaks
+  // sharply at one diagonal even when an indel shoulder spreads votes across the
+  // band; the median would land mid-shoulder (and bias toward smaller offsets),
+  // whereas the mode reports the true peak. diagonals[bestLo..bestHi) is sorted,
+  // so equal values are contiguous — one linear pass finds the longest run.
+  let dominant = diagonals[bestLo]
+  let runValue = diagonals[bestLo]
+  let runLen = 0
+  let bestRunLen = 0
+  for (let i = bestLo; i < bestHi; i++) {
+    if (diagonals[i] === runValue) {
+      runLen++
+    } else {
+      runValue = diagonals[i]
+      runLen = 1
+    }
+    if (runLen > bestRunLen) {
+      bestRunLen = runLen
+      dominant = runValue
+    }
+  }
+
+  // Confidence gate: the dominant chain must clearly beat any chain on a
+  // far-away diagonal (a different candidate origin, not this chain's spread).
+  let rivalLo = 0
+  let rivalBest = 0
+  for (let hi = 0; hi < diagonals.length; hi++) {
+    while (diagonals[hi] - diagonals[rivalLo] > band) rivalLo++
+    const d = diagonals[hi]
+    if (Math.abs(d - dominant) <= band) continue // same chain neighborhood
+    const len = hi - rivalLo + 1
+    if (len > rivalBest) rivalBest = len
+  }
+
+  if (rivalBest > 0 && bestLen < rivalBest * 1.5) return 0
+
+  return dominant
 }
 
 function isConcreteDna(sequence) {

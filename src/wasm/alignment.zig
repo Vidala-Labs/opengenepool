@@ -52,7 +52,7 @@ const TRACE_E: u8 = 2;
 const TRACE_F: u8 = 3;
 const TRACE_H: u8 = 4;
 
-const NormalizedSequence = struct {
+pub const NormalizedSequence = struct {
     text: []u8,
     masks: []u8,
 };
@@ -114,62 +114,194 @@ fn kmerKeyLinear(text: []const u8, start: usize, kmer_size: usize) ?u64 {
     return key;
 }
 
-fn estimateCircularTargetOffset(query_text: []const u8, target_text: []const u8, requested_kmer_size: usize, requested_min_votes: u32) usize {
+// --- Seed-and-chain origin offset estimation -------------------------------
+//
+// Two circular sequences that are the "same" plasmid linearized at different
+// origins are related by a rotation. We recover that rotation by k-mer SEEDING
+// and diagonal CHAINING (the robust part of how minimap2 finds collinear
+// matches):
+//
+//   1. Index every target k-mer in a hash table (key -> target positions).
+//   2. For each query k-mer, look its key up; each (query_pos, target_pos)
+//      match is a SEED on diagonal d = (target_pos - query_pos) mod n.
+//   3. A true rotation (even with indels) produces many seeds whose diagonals
+//      cluster within a narrow band: an indel only STEPS the diagonal by the
+//      indel size, it does not scatter it across the whole range. So we find
+//      the densest band of diagonals (the dominant chain); its representative
+//      diagonal is the offset.
+//
+// This fixes the failure of the old exact-bucket vote: indels there smeared a
+// single rotation's votes across adjacent buckets, and a "winner must beat the
+// runner-up by 1.5x" gate then mistook that smear for competing origins and
+// gave up. Chaining consolidates the band instead of competing within it.
+
+// Repeated motifs (MCS, multiple replication origins) make some k-mers occur
+// many times; cap positions stored per key so a repeat can't dominate the seed
+// set or blow up memory. Genuine collinear seeds are plentiful regardless.
+const MAX_POS_PER_KMER: usize = 8;
+// Diagonal tolerance for "same chain", as a fraction of sequence length, plus a
+// floor. Indels shift the diagonal by their own size; total indel drift along a
+// plasmid is small relative to its length, so a few-percent band captures one
+// rotation's seeds while keeping a genuinely different origin (typically offset
+// by a large fraction of n) in a separate chain.
+fn diagonalBand(n: usize) usize {
+    const frac = n / 16; // ~6% of length
+    return @max(frac, 64);
+}
+
+const KmerSlot = struct {
+    key: u64,
+    count: u8,
+    positions: [MAX_POS_PER_KMER]u32,
+};
+
+pub fn estimateCircularTargetOffset(query_text: []const u8, target_text: []const u8, requested_kmer_size: usize, requested_min_votes: u32) usize {
     const n = target_text.len;
     if (query_text.len == 0 or n == 0) return 0;
 
     const kmer_size = @min(if (requested_kmer_size == 0) DEFAULT_ORIGIN_KMER_SIZE else requested_kmer_size, @min(query_text.len, n));
     if (kmer_size < 4) return 0;
 
-    const query_limit = query_text.len - kmer_size;
-    const target_keys_ptr = wasmAlloc(n * @sizeOf(u64)) orelse return 0;
-    const target_key_valid_ptr = wasmAlloc(n * @sizeOf(u8)) orelse return 0;
-    const target_keys: [*]u64 = @ptrCast(@alignCast(target_keys_ptr));
-    const target_key_valid = target_key_valid_ptr[0..n];
-    for (0..n) |i| {
-        if (kmerKeyCircular(target_text, i, kmer_size)) |key| {
-            target_keys[i] = key;
-            target_key_valid[i] = 1;
-        } else {
-            target_keys[i] = 0;
-            target_key_valid[i] = 0;
+    const heap_mark = heapMark();
+    defer resetHeapTo(heap_mark);
+
+    // --- 1. Build an open-addressing hash index of target k-mers. ----------
+    // Power-of-two capacity >= 2*n keeps the load factor < 0.5.
+    var cap: usize = 16;
+    while (cap < n * 2) cap <<= 1;
+    const mask = cap - 1;
+
+    const slots_ptr = wasmAlloc(cap * @sizeOf(KmerSlot)) orelse return 0;
+    const slots: [*]KmerSlot = @ptrCast(@alignCast(slots_ptr));
+    for (0..cap) |i| slots[i].count = 0;
+
+    var indexed: bool = false;
+    for (0..n) |tp| {
+        const key = kmerKeyCircular(target_text, tp, kmer_size) orelse continue;
+        var h: usize = @intCast((key *% 0x9E3779B97F4A7C15) & mask);
+        while (true) {
+            const slot = &slots[h];
+            if (slot.count == 0) {
+                slot.key = key;
+                slot.count = 1;
+                slot.positions[0] = @intCast(tp);
+                indexed = true;
+                break;
+            }
+            if (slot.key == key) {
+                if (slot.count < MAX_POS_PER_KMER) {
+                    slot.positions[slot.count] = @intCast(tp);
+                    slot.count += 1;
+                }
+                indexed = true;
+                break;
+            }
+            h = (h + 1) & mask;
         }
     }
+    if (!indexed) return 0;
 
-    const votes_ptr = wasmAlloc(n * @sizeOf(u32)) orelse return 0;
-    const votes: [*]u32 = @ptrCast(@alignCast(votes_ptr));
-    for (0..n) |i| {
-        votes[i] = 0;
-    }
+    // --- 2. Seed: each query k-mer that hits the index emits diagonals. ----
+    // Collect (diagonal) values; we only need the diagonal for chaining since a
+    // dense diagonal band == a collinear run.
+    const query_limit = query_text.len - kmer_size;
+    const max_seeds = (query_limit + 1) * MAX_POS_PER_KMER;
+    const diags_ptr = wasmAlloc(max_seeds * @sizeOf(u32)) orelse return 0;
+    const diags: [*]u32 = @ptrCast(@alignCast(diags_ptr));
+    var seed_count: usize = 0;
 
     for (0..query_limit + 1) |i| {
         const key = kmerKeyLinear(query_text, i, kmer_size) orelse continue;
-        for (0..n) |target_pos| {
-            if (target_key_valid[target_pos] == 0 or target_keys[target_pos] != key) continue;
-            const offset = (target_pos + n - (i % n)) % n;
-            votes[offset] += 1;
-        }
-    }
-
-    var best_offset: usize = 0;
-    var best_votes: u32 = 0;
-    var second_best_votes: u32 = 0;
-    for (0..n) |offset| {
-        const count = votes[offset];
-        if (count > best_votes) {
-            second_best_votes = best_votes;
-            best_votes = count;
-            best_offset = offset;
-        } else if (count > second_best_votes) {
-            second_best_votes = count;
+        var h: usize = @intCast((key *% 0x9E3779B97F4A7C15) & mask);
+        while (true) {
+            const slot = &slots[h];
+            if (slot.count == 0) break; // not present
+            if (slot.key == key) {
+                for (0..slot.count) |k| {
+                    const tp: usize = slot.positions[k];
+                    const d = (tp + n - (i % n)) % n;
+                    diags[seed_count] = @intCast(d);
+                    seed_count += 1;
+                }
+                break;
+            }
+            h = (h + 1) & mask;
         }
     }
 
     const min_votes = if (requested_min_votes == 0) DEFAULT_ORIGIN_MIN_VOTES else requested_min_votes;
-    if (best_votes < min_votes) return 0;
-    if (second_best_votes > 0 and best_votes * 2 < second_best_votes * 3) return 0;
+    if (seed_count < min_votes) return 0;
 
-    return best_offset;
+    // --- 3. Chain: sort diagonals, sweep a band window, find the densest. --
+    const diag_slice = diags[0..seed_count];
+    std.sort.pdq(u32, diag_slice, {}, std.sort.asc(u32));
+
+    const band = diagonalBand(n);
+
+    // Sliding window over sorted diagonals: [lo, hi] with diag[hi]-diag[lo] <=
+    // band. Track the window holding the most seeds (the dominant chain) and,
+    // separately, the best window that is fully OUTSIDE the dominant chain's
+    // span (a genuinely different candidate origin) for the confidence gate.
+    var lo: usize = 0;
+    var best_lo: usize = 0;
+    var best_hi: usize = 0; // exclusive
+    var best_len: usize = 0;
+    for (0..seed_count) |hi| {
+        while (diag_slice[hi] - diag_slice[lo] > band) lo += 1;
+        const len = hi - lo + 1;
+        if (len > best_len) {
+            best_len = len;
+            best_lo = lo;
+            best_hi = hi + 1;
+        }
+    }
+
+    if (best_len < min_votes) return 0;
+
+    // Representative diagonal of the dominant chain: the MODE (densest exact
+    // diagonal) within its window, not the positional median. A true rotation
+    // peaks sharply at one diagonal even when an indel shoulder spreads votes
+    // across the band; the median would land mid-shoulder (and bias toward
+    // smaller offsets), whereas the mode reports the true peak. The slice is
+    // sorted, so equal values are contiguous — one pass finds the longest run.
+    var dominant = diag_slice[best_lo];
+    var run_value = diag_slice[best_lo];
+    var run_len: usize = 0;
+    var best_run_len: usize = 0;
+    for (best_lo..best_hi) |i| {
+        if (diag_slice[i] == run_value) {
+            run_len += 1;
+        } else {
+            run_value = diag_slice[i];
+            run_len = 1;
+        }
+        if (run_len > best_run_len) {
+            best_run_len = run_len;
+            dominant = run_value;
+        }
+    }
+
+    // --- 4. Confidence gate: the dominant chain must clearly beat any chain on
+    // a far-away diagonal. Re-sweep, but only consider windows whose seeds are
+    // all more than `band` away from `dominant` (i.e. a different origin, not
+    // the same chain's spread). ----------------------------------------------
+    var rival_lo: usize = 0;
+    var rival_best: usize = 0;
+    for (0..seed_count) |hi| {
+        while (diag_slice[hi] - diag_slice[rival_lo] > band) rival_lo += 1;
+        // skip windows that overlap the dominant chain's diagonal neighborhood
+        const d = diag_slice[hi];
+        const near_dominant = (d >= dominant and d - dominant <= band) or
+            (d < dominant and dominant - d <= band);
+        if (near_dominant) continue;
+        const len = hi - rival_lo + 1;
+        if (len > rival_best) rival_best = len;
+    }
+
+    // Require the dominant chain to be at least 1.5x the best distant rival.
+    if (rival_best > 0 and best_len * 2 < rival_best * 3) return 0;
+
+    return dominant;
 }
 
 fn rotateBytes(sequence: []const u8, offset: usize) ?[*]u8 {
@@ -203,7 +335,7 @@ fn scoreMasks(mask1: u8, mask2: u8, match_score: i32, mismatch_score: i32) i32 {
     return 1;
 }
 
-fn normalizeSequence(sequence: []const u8) ?NormalizedSequence {
+pub fn normalizeSequence(sequence: []const u8) ?NormalizedSequence {
     const text_ptr = wasmAlloc(sequence.len) orelse return null;
     const masks_ptr = wasmAlloc(sequence.len) orelse return null;
     const text = text_ptr[0..sequence.len];
@@ -703,7 +835,7 @@ fn hirschbergAlign(
 
 // Main linear-space alignment function. Writes aligned strings into caller-owned
 // output buffers and scalar metadata into result.
-export fn alignSequencesInto(
+pub export fn alignSequencesInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
@@ -841,7 +973,7 @@ fn reverseBytes(bytes: []u8) void {
 
 // Banded Smith-Waterman local alignment. Returns null when the band is unsafe,
 // allowing JS to retry with the canonical linear implementation.
-export fn alignSequencesBandedInto(
+pub export fn alignSequencesBandedInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
@@ -1093,7 +1225,7 @@ export fn alignSequencesBandedInto(
 
 // Circular target alignment. Estimates the target origin offset, virtually
 // rotates the target, then uses the banded path with linear fallback.
-export fn alignSequencesBandedCircularInto(
+pub export fn alignSequencesBandedCircularInto(
     query_ptr: [*]const u8,
     query_len: usize,
     target_ptr: [*]const u8,
@@ -1165,15 +1297,69 @@ export fn alignSequencesBandedCircularInto(
 }
 
 // Memory management exports for JS
-export fn reset() void {
+pub export fn reset() void {
     resetHeap();
 }
 
-export fn alloc(size: usize) ?[*]u8 {
+pub export fn alloc(size: usize) ?[*]u8 {
     return wasmAlloc(size);
 }
 
 export fn free(ptr: [*]u8) void {
     _ = ptr;
     // No-op for bump allocator
+}
+
+// ---------------------------------------------------------------------------
+// Basic unit tests (white-box)
+//
+// These compile for the HOST (`zig test alignment.zig`), not wasm32. They reach
+// directly into internal helpers to test them in isolation. Broader end-to-end
+// alignment scenarios that drive the WASM ABI live in alignment_test.zig.
+// ---------------------------------------------------------------------------
+
+const testing = std.testing;
+
+const UNIT_PLASMID = "ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATCAGTTACGGATCCGTACGTTAGCGCATTAGCCGATCGGATCCATGCATGCTAGCTAGGCATGCA";
+
+fn rotateComptime(comptime s: []const u8, comptime n: usize) [s.len]u8 {
+    var out: [s.len]u8 = undefined;
+    for (0..s.len) |i| out[i] = s[(i + n) % s.len];
+    return out;
+}
+
+test "normalizeSequence uppercases and masks single bases" {
+    resetHeap();
+    const ns = normalizeSequence("acgt").?;
+    try testing.expectEqualSlices(u8, "ACGT", ns.text);
+    try testing.expectEqual(MASK_A, ns.masks[0]);
+    try testing.expectEqual(MASK_C, ns.masks[1]);
+    try testing.expectEqual(MASK_G, ns.masks[2]);
+    try testing.expectEqual(MASK_T, ns.masks[3]);
+}
+
+test "scoreMasks: match, mismatch, and ambiguous overlap" {
+    // exact single-base match
+    try testing.expectEqual(@as(i32, 2), scoreMasks(MASK_A, MASK_A, 2, -1));
+    // disjoint -> mismatch
+    try testing.expectEqual(@as(i32, -1), scoreMasks(MASK_A, MASK_C, 2, -1));
+    // ambiguous overlap (N vs A) -> partial credit of 1
+    try testing.expectEqual(@as(i32, 1), scoreMasks(MASK_A | MASK_C | MASK_G | MASK_T, MASK_A, 2, -1));
+}
+
+test "estimateCircularTargetOffset recovers a 37bp rotation" {
+    const rotated = comptime rotateComptime(UNIT_PLASMID, 37);
+    resetHeap();
+    const q = normalizeSequence(&rotated).?;
+    const t = normalizeSequence(UNIT_PLASMID).?;
+    const offset = estimateCircularTargetOffset(q.text, t.text, DEFAULT_ORIGIN_KMER_SIZE, DEFAULT_ORIGIN_MIN_VOTES);
+    try testing.expectEqual(@as(usize, 37), offset);
+}
+
+test "estimateCircularTargetOffset returns 0 when no rotation" {
+    resetHeap();
+    const q = normalizeSequence(UNIT_PLASMID).?;
+    const t = normalizeSequence(UNIT_PLASMID).?;
+    const offset = estimateCircularTargetOffset(q.text, t.text, DEFAULT_ORIGIN_KMER_SIZE, DEFAULT_ORIGIN_MIN_VOTES);
+    try testing.expectEqual(@as(usize, 0), offset);
 }

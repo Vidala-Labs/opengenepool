@@ -44,6 +44,12 @@ const props = defineProps({
   getAlignmentMenuItems: {
     type: Function,
     default: null
+  },
+  /** When true, this row aligned as a reverse complement; its left-margin
+   *  position labels are marked so CSS can color them (red) to flag the strand. */
+  reverseComplement: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -380,7 +386,7 @@ defineExpose({
         :y="lineHeight / 2"
         text-anchor="end"
         dominant-baseline="middle"
-        class="position-label"
+        :class="['position-label', { 'reverse-complement': reverseComplement }]"
       >
         {{ getPositionLabel(line) }}
       </text>

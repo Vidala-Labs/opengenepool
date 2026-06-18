@@ -10,7 +10,8 @@ import {
   mapCoordinate,
   buildReverseCoordinateMap,
   extractGaps,
-  mapAnnotationThroughAlignment
+  mapAnnotationThroughAlignment,
+  reverseComplementAnnotation
 } from './alignment.js'
 import { Range, Span, Orientation } from './dna.js'
 
@@ -166,6 +167,70 @@ describe('align', () => {
       expect(result.queryEnd).toBe(7)
       expect(result.targetStart).toBe(0)
       expect(result.targetEnd).toBe(4)
+    })
+  })
+
+  describe('reverse-complement query', () => {
+    // When the query only matches the target on the opposite strand, `align`
+    // with { tryReverseComplement: true } should detect it: try both
+    // orientations, keep the better-scoring one, and report which won. The
+    // returned queryAligned/targetAligned and coordinates describe the WINNING
+    // orientation (so the rows line up under the match bars), and
+    // result.reverseComplement flags that the query was flipped.
+    it('detects a query that matches only as reverse complement', () => {
+      const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG'
+      // reverseComplement(target) — the antisense strand of the target.
+      const query = 'CTGCAGGAATTCCGGATCCGATTAGCCTAGGCTAACGTACGCAT'
+
+      const result = align(query, target, { tryReverseComplement: true })
+
+      expect(result.reverseComplement).toBe(true)
+      expect(result.identity).toBe(100)
+      // The aligned query equals the RC of the original query (== target here),
+      // so it lines up base-for-base with the target.
+      expect(result.queryAligned).toBe(target)
+      expect(result.targetAligned).toBe(target)
+    })
+
+    it('keeps forward orientation when the forward match is better', () => {
+      const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG'
+      const query = target // identical, forward
+
+      const result = align(query, target, { tryReverseComplement: true })
+
+      expect(result.reverseComplement).toBe(false)
+      expect(result.identity).toBe(100)
+      expect(result.queryAligned).toBe(target)
+    })
+
+    it('does not try reverse complement unless requested', () => {
+      const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG'
+      const query = 'CTGCAGGAATTCCGGATCCGATTAGCCTAGGCTAACGTACGCAT' // RC of target
+
+      const result = align(query, target) // no flag
+
+      // Without the flag the antisense query should NOT align well.
+      expect(result.reverseComplement).toBeUndefined()
+      expect(result.identity).toBeLessThan(100)
+    })
+
+    it('composes reverse complement with circular origin rotation', () => {
+      // Query is the reverse complement of the target AND linearized at a
+      // different origin: both transforms must be undone to recover identity.
+      const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG'
+      const rc = 'CTGCAGGAATTCCGGATCCGATTAGCCTAGGCTAACGTACGCAT' // RC(target)
+      const offset = 19
+      const query = rc.slice(offset) + rc.slice(0, offset)
+
+      const result = align(query, target, { tryReverseComplement: true, circular: true, originKmerSize: 8 })
+
+      expect(result.reverseComplement).toBe(true)
+      expect(result.identity).toBe(100)
+      // Full-length match recovered: the rows line up base-for-base (circular
+      // rotation means the aligned strings start at a rotated origin, so they
+      // equal each other rather than the un-rotated `target`).
+      expect(result.queryAligned).toBe(result.targetAligned)
+      expect(result.queryEnd - result.queryStart).toBe(target.length)
     })
   })
 
@@ -812,6 +877,150 @@ describe('linear operation compatibility regressions', () => {
     expect(mapped.span.ranges[0].end).toBe(6)
     expect(mapped.span.ranges[0].orientation).toBe(Orientation.MINUS)
   })
+
+  describe('query annotation projection across an insertion, deletion, and mutation', () => {
+    // A query that differs from the target by all three edit kinds at once:
+    //   - SNP at query/target position 10 (C -> A)
+    //   - a deletion in the query around position 20 (target has a base the
+    //     query lacks -> a gap in queryAligned)
+    //   - a 3bp insertion in the query around position 30 (query has bases the
+    //     target lacks -> a gap in targetAligned)
+    // This exercises mapAnnotationThroughAlignment for the query row: positions
+    // before the deletion map straight through; positions after it shift by the
+    // gap, and the insertion widens the aligned span.
+    const target = 'ATCGATCGATCAATCGATCGCGTACGTACGTAAGCTAGCTA'
+    const queryArr = target.split('')
+    queryArr[10] = 'A' // SNP
+    queryArr.splice(30, 0, 'T', 'T', 'T') // insertion (do before deletion so indices below are target-based)
+    queryArr.splice(20, 1) // deletion
+    const query = queryArr.join('')
+
+    let result
+    let queryReverseMap
+    beforeAll(() => {
+      result = align(query, target)
+      queryReverseMap = buildReverseCoordinateMap(result.queryAligned, result.queryStart)
+    })
+
+    it('aligns with a deletion gap, an insertion gap, and a single mismatch', () => {
+      // gap in the query (deletion), gap in the target (insertion), 100%-ish identity
+      expect(result.queryAligned).toContain('-')
+      expect(result.targetAligned).toContain('-')
+      expect(result.identity).toBeGreaterThan(95)
+      expect(result.identity).toBeLessThan(100)
+    })
+
+    it('projects a query annotation before the deletion at identity coordinates', () => {
+      // Query positions 5..15 are upstream of the deletion (col 20), so no gap
+      // shift applies — they map straight through.
+      const ann = {
+        id: 'q-upstream',
+        caption: 'q-upstream',
+        type: 'misc_feature',
+        span: new Span([new Range(5, 15, Orientation.PLUS)])
+      }
+      const mapped = mapAnnotationThroughAlignment(ann, queryReverseMap, result.queryStart, result.queryEnd, {})
+
+      expect(mapped).not.toBeNull()
+      expect(mapped.span.ranges).toHaveLength(1)
+      expect(mapped.span.ranges[0].start).toBe(5)
+      expect(mapped.span.ranges[0].end).toBe(15)
+      expect(mapped.span.ranges[0].orientation).toBe(Orientation.PLUS)
+    })
+
+    it('shifts a query annotation downstream of the deletion by the gap width', () => {
+      // Query positions 28..34 sit after the deletion, so the aligned columns are
+      // pushed by +1 (one deleted target base => one gap column in queryAligned).
+      const ann = {
+        id: 'q-downstream',
+        caption: 'q-downstream',
+        type: 'misc_feature',
+        span: new Span([new Range(28, 34, Orientation.PLUS)])
+      }
+      const mapped = mapAnnotationThroughAlignment(ann, queryReverseMap, result.queryStart, result.queryEnd, {})
+
+      expect(mapped).not.toBeNull()
+      expect(mapped.span.ranges).toHaveLength(1)
+      expect(mapped.span.ranges[0].start).toBe(29)
+      expect(mapped.span.ranges[0].end).toBe(35)
+    })
+  })
+})
+
+describe('reverseComplementAnnotation', () => {
+  // When the query aligned on the antisense strand, the aligned query row shows
+  // reverseComplement(query). A query annotation in forward query coordinates
+  // must be flipped into that RC frame BEFORE it is projected through the
+  // alignment: each range [s, e) over a length-L query becomes [L - e, L - s),
+  // and its strand orientation inverts (the displayed bases are the other
+  // strand). This is a pure transform; gap-projection happens afterward.
+  it('flips a plus-strand range into reverse-complement coordinates and inverts orientation', () => {
+    const ann = {
+      id: 'f',
+      caption: 'f',
+      type: 'misc_feature',
+      span: new Span([new Range(5, 15, Orientation.PLUS)])
+    }
+
+    const flipped = reverseComplementAnnotation(ann, 44)
+
+    expect(flipped.span.ranges).toHaveLength(1)
+    expect(flipped.span.ranges[0].start).toBe(29) // 44 - 15
+    expect(flipped.span.ranges[0].end).toBe(39) // 44 - 5
+    expect(flipped.span.ranges[0].orientation).toBe(Orientation.MINUS)
+  })
+
+  it('inverts a minus-strand range back to plus', () => {
+    const ann = {
+      id: 'r',
+      caption: 'r',
+      type: 'CDS',
+      span: new Span([new Range(0, 4, Orientation.MINUS)])
+    }
+
+    const flipped = reverseComplementAnnotation(ann, 10)
+
+    expect(flipped.span.ranges[0].start).toBe(6) // 10 - 4
+    expect(flipped.span.ranges[0].end).toBe(10) // 10 - 0
+    expect(flipped.span.ranges[0].orientation).toBe(Orientation.PLUS)
+  })
+
+  it('leaves NONE orientation unchanged and preserves identity metadata', () => {
+    const ann = {
+      id: 'keep-me',
+      caption: 'keep-me',
+      type: 'misc_feature',
+      span: new Span([new Range(2, 6, Orientation.NONE)])
+    }
+
+    const flipped = reverseComplementAnnotation(ann, 20)
+
+    expect(flipped.id).toBe('keep-me')
+    expect(flipped.span.ranges[0].start).toBe(14) // 20 - 6
+    expect(flipped.span.ranges[0].end).toBe(18) // 20 - 2
+    expect(flipped.span.ranges[0].orientation).toBe(Orientation.NONE)
+  })
+
+  it('flips a multi-range span and reverses range order', () => {
+    const ann = {
+      id: 'joined',
+      caption: 'joined',
+      type: 'misc_feature',
+      span: new Span([
+        new Range(0, 3, Orientation.PLUS),
+        new Range(10, 14, Orientation.PLUS)
+      ])
+    }
+
+    const flipped = reverseComplementAnnotation(ann, 20)
+
+    // After flipping, the originally-later range becomes the earlier one.
+    const sorted = [...flipped.span.ranges].sort((a, b) => a.start - b.start)
+    expect(sorted[0].start).toBe(6) // 20 - 14
+    expect(sorted[0].end).toBe(10) // 20 - 10
+    expect(sorted[1].start).toBe(17) // 20 - 3
+    expect(sorted[1].end).toBe(20) // 20 - 0
+  })
 })
 
 describe('large sequence handling', () => {
@@ -921,19 +1130,35 @@ describe('banded alignment fast path', () => {
     expect(result.targetEnd).toBe(originOffset + target.length)
   })
 
-  it('aligns 128-base A/T blocks across a circular origin shift', () => {
-    const query = `${'A'.repeat(128)}${'T'.repeat(128)}`
-    const target = `${'T'.repeat(128)}${'A'.repeat(128)}`
+  it('recovers a rotation larger than the band width', () => {
+    // Rotation magnitude never bounds what circular alignment can recover: the
+    // detected offset is removed by rotating the target *before* banded
+    // alignment, so the band only absorbs indel drift, not the rotation. Use a
+    // non-degenerate (unique-k-mer) sequence with a rotation well past the
+    // 128-base default band to confirm a clean, exact recovery. Deterministic
+    // xorshift, no Math.random.
+    const BASES = 'ACGT'
+    const LEN = 600
+    const OFFSET = 320 // > DEFAULT_BAND_WIDTH (128)
+    let x = 0x12345678 >>> 0
+    let target = ''
+    for (let i = 0; i < LEN; i++) {
+      x ^= x << 13; x >>>= 0
+      x ^= x >> 17
+      x ^= x << 5; x >>>= 0
+      target += BASES[x & 3]
+    }
+    const query = target.slice(OFFSET) + target.slice(0, OFFSET)
 
-    const result = align(query, target, { circular: true, originKmerSize: 16 })
+    const result = align(query, target, { circular: true })
 
     expect(result.score).toBe(query.length * 2)
     expect(result.identity).toBe(100)
     expect(result.queryStart).toBe(0)
-    expect(result.queryEnd).toBe(256)
-    expect(result.targetOriginOffset).toBe(128)
-    expect(result.targetStart).toBe(128)
-    expect(result.targetEnd).toBe(384)
+    expect(result.queryEnd).toBe(LEN)
+    expect(result.targetOriginOffset).toBe(OFFSET)
+    expect(result.targetStart).toBe(OFFSET)
+    expect(result.targetEnd).toBe(OFFSET + LEN)
     expect(result.queryAligned).toBe(query)
     expect(result.targetAligned).toBe(query)
   })
@@ -957,6 +1182,41 @@ describe('banded alignment fast path', () => {
       expect(result.queryAligned).toBe(query)
       expect(result.targetAligned).toBe(query)
     }
+  })
+
+  it('recovers a large rotation when small indels smear the diagonal', () => {
+    // Two circular sequences that are the same plasmid linearized at different
+    // origins, related by a large rotation AND a few small indels. The indels
+    // make each downstream matching k-mer vote for a slightly different offset,
+    // smearing one true rotation's votes across adjacent buckets. The old
+    // exact-bucket vote + "1.5x runner-up" gate mistook that smear for competing
+    // origins and gave up (offset 0), so only the non-wrapping fragment aligned.
+    // Seed-and-chain diagonal clustering recovers it. Sequence is synthetic and
+    // deterministic (xorshift), no Math.random.
+    const BASES = 'ACGT'
+    const SEQ_LEN = 4000
+    const ROTATION = 1500
+    let x = 0x9e3779b9 >>> 0
+    let base = ''
+    for (let i = 0; i < SEQ_LEN; i++) {
+      x ^= x << 13; x >>>= 0
+      x ^= x >> 17
+      x ^= x << 5; x >>>= 0
+      base += BASES[x & 3]
+    }
+    const target = base
+    const rotated = base.slice(ROTATION) + base.slice(0, ROTATION)
+    // Two single-base deletions => two diagonal steps.
+    const del1 = Math.floor(SEQ_LEN / 3)
+    const del2 = Math.floor((SEQ_LEN * 2) / 3)
+    const query = rotated.slice(0, del1) + rotated.slice(del1 + 1, del2) + rotated.slice(del2 + 1)
+
+    const result = align(query, target, { circular: true })
+
+    // Essentially the whole query is present in the target (minus 2 deleted
+    // bases): correct circular alignment should cover nearly all of it.
+    expect(result.identity).toBeGreaterThanOrEqual(99)
+    expect(result.queryEnd - result.queryStart).toBeGreaterThanOrEqual(query.length - 10)
   })
 
   it('does not rotate target origin unless circular alignment is requested', () => {

@@ -24,8 +24,6 @@ bun run build:wasm
 cd example && bun run dev
 ```
 
-`bun test` was intentionally not completed during this overview because the user interrupted it and said not to worry about that.
-
 ## Critical Domain Invariants
 
 Coordinates are fenced coordinates throughout core code: 0-based, half-open intervals `[start, end)`, matching JavaScript `slice(start, end)`.
@@ -82,13 +80,17 @@ Circular rendering is SVG/plasmid-map oriented:
 
 Alignment code lives in `src/utils/alignment.js` and `src/utils/alignment-js.js`.
 
-`align(query, target)` uses WASM if `loadWasm()` succeeds; otherwise it falls back to JavaScript. The WASM source is in `src/wasm/alignment.zig`, and the built artifact is `src/utils/alignment.wasm`.
+`align(query, target, options)` uses WASM if `loadWasm()` succeeds; otherwise it falls back to JavaScript. The WASM source is in `src/wasm/alignment.zig`, and the built artifact is `src/utils/alignment.wasm`. Options include `circular` (detect a rotated linearization origin via k-mer seed-and-chain) and `tryReverseComplement` (align both query strands, keep the higher-scoring one, and tag `result.reverseComplement`).
+
+Reverse-complement query support lives in one seam: `src/composables/SequenceDocumentRC.js` wraps a `SequenceDocument` and presents the same API reverse-complemented (reads RC'd, writes translated back to the underlying doc). When the kernel reports an antisense match, `AlignmentEditor` swaps in this wrapper so the rest of the pipeline stays orientation-blind. Do not re-scatter RC special-cases through the editor; extend the wrapper instead.
 
 Coordinate mapping helpers:
 - `buildCoordinateMap`
+- `buildAlignedToOriginalMap`
 - `mapCoordinate`
 - `buildReverseCoordinateMap`
 - `mapAnnotationThroughAlignment`
+- `reverseComplementAnnotation`
 - `extractGaps`
 
 ## Extensions
