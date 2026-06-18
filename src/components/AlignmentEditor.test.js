@@ -341,6 +341,115 @@ describe('AlignmentEditor Status Text', () => {
     const statusText = wrapper.vm.selectionStatusText
     expect(statusText).toContain('Query selected')
   })
+
+  it('uses plain GenBank coordinates for a forward (plus) selection', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
+    })
+    await settle(wrapper)
+
+    // Forward drag (pos > anchor) => PLUS orientation.
+    wrapper.vm.selection.startSelection(0, false, 'target')
+    wrapper.vm.selection.updateSelection(4)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+
+    const statusText = wrapper.vm.selectionStatusText
+    expect(statusText).toContain('Target selected: 1..4')
+    expect(statusText).not.toContain('complement')
+  })
+
+  it('wraps a complement (minus) selection coordinate in complement(...)', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
+    })
+    await settle(wrapper)
+
+    // Backward drag (pos < anchor) => MINUS orientation, i.e. a complement selection.
+    wrapper.vm.selection.startSelection(4, false, 'target')
+    wrapper.vm.selection.updateSelection(0)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+
+    const statusText = wrapper.vm.selectionStatusText
+    expect(statusText).toContain('Target selected: complement(1..4)')
+  })
+
+  it('applies the same complement() coordinate notation on the query row', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
+    })
+    await settle(wrapper)
+
+    wrapper.vm.selection.startSelection(4, false, 'query')
+    wrapper.vm.selection.updateSelection(0)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+
+    const statusText = wrapper.vm.selectionStatusText
+    expect(statusText).toContain('Query selected: complement(1..4)')
+  })
+
+  it('shows the target-strand sequence for a forward target selection', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
+    })
+    await settle(wrapper)
+
+    wrapper.vm.selection.startSelection(0, false, 'target')
+    wrapper.vm.selection.updateSelection(4)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+
+    // Forward target selection -> the actual target-strand bases at [0,4).
+    expect(wrapper.vm.getSelectedAlignmentSequenceText()).toBe('ATCG')
+  })
+
+  it('reverse-complements the sequence for a complement target selection (copy content)', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
+    })
+    await settle(wrapper)
+
+    wrapper.vm.selection.startSelection(4, false, 'target')
+    wrapper.vm.selection.updateSelection(0)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+
+    // complement(1..4): the copy/paste content is the reverse complement of ATCG.
+    const { reverseComplement } = await import('../utils/dna.js')
+    expect(wrapper.vm.getSelectedAlignmentSequenceText()).toBe(reverseComplement('ATCG'))
+  })
+
+  it('INVARIANT: selection orientation tracks drag direction (copy/paste color), not RC', async () => {
+    // Green/red selection color is driven by range.orientation, which encodes the
+    // drag direction (= the copy/paste content), NOT the alignment strand. On a
+    // reverse-complement query, a forward drag must still produce a PLUS (green)
+    // selection and a backward drag a MINUS (red) one — identical to a forward
+    // alignment. This must not regress when the info-box notation changes.
+    const { reverseComplement, Orientation } = await import('../utils/dna.js')
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAA'
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc(reverseComplement(fwd)), query: createDoc(fwd), initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+
+    // Forward drag on the RC query row -> PLUS (green).
+    wrapper.vm.selection.startSelection(2, false, 'query')
+    wrapper.vm.selection.updateSelection(8)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+    expect(wrapper.vm.selection.domain.value.ranges[0].orientation).toBe(Orientation.PLUS)
+
+    // Backward drag on the RC query row -> MINUS (red).
+    wrapper.vm.selection.startSelection(8, false, 'query')
+    wrapper.vm.selection.updateSelection(2)
+    wrapper.vm.selection.endSelection()
+    await settle(wrapper)
+    expect(wrapper.vm.selection.domain.value.ranges[0].orientation).toBe(Orientation.MINUS)
+  })
 })
 
 describe('AlignmentEditor Reactivity', () => {
@@ -683,6 +792,316 @@ describe('Annotation alignment mapping', () => {
     expect(queryAnns.length).toBe(1)
     expect(queryAnns[0].span.ranges[0].start).toBe(4)
     expect(queryAnns[0].span.ranges[0].end).toBe(6)
+  })
+
+  it('projects query annotations through a target with an insertion, a deletion, and a mutation', async () => {
+    // The query differs from the target by all three edit kinds at once:
+    //   - SNP at position 6 (target C -> query A)
+    //   - a 2bp deletion in the query around position 16 (gap in queryAligned)
+    //   - a 2bp insertion in the query around position 28 (gap in targetAligned)
+    //
+    //   col:    0         1         2         3         4
+    //           0123456789012345678901234567890123456789012345
+    //   target: ATCGATCGATCGATCGAAAATTTTCCCCGGGG--TACGTACGTACG
+    //   query:  ATCGATAGATCGATCG--AATTTTCCCCGGGGGGTACGTACGTACG
+    //   match:  |||||| |||||||||  ||||||||||||||  ||||||||||||
+    //
+    // A query annotation upstream of every edit maps at identity; one downstream
+    // of the deletion shifts by the 2bp gap width.
+    const { Annotation } = await import('../utils/annotation.js')
+
+    const target = 'ATCGATCGATCGATCGAAAATTTTCCCCGGGGTACGTACGTACG'
+    const arr = target.split('')
+    arr[6] = 'A' // SNP
+    arr.splice(28, 0, 'G', 'G') // insertion (before deletion so target indices below hold)
+    arr.splice(16, 2) // deletion
+    const query = arr.join('')
+
+    const targetDoc = new SequenceDocument({ sequence: target })
+    const queryDoc = new SequenceDocument({
+      sequence: query,
+      annotations: [
+        new Annotation({ id: 'qUp', span: ezSpan(2, 6), type: 'misc_feature', label: 'upstream' }),
+        new Annotation({ id: 'qDown', span: ezSpan(20, 26), type: 'misc_feature', label: 'downstream' })
+      ]
+    })
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+
+    const result = wrapper.vm.alignmentResult
+    expect(result.targetAligned).toBe('ATCGATCGATCGATCGAAAATTTTCCCCGGGG--TACGTACGTACG')
+    expect(result.queryAligned).toBe('ATCGATAGATCGATCG--AATTTTCCCCGGGGGGTACGTACGTACG')
+
+    const queryAnns = wrapper.vm.alignedQueryAnnotations
+    expect(queryAnns.length).toBe(2)
+
+    const up = queryAnns.find(a => a.id === 'qUp')
+    expect(up.span.ranges[0].start).toBe(2)
+    expect(up.span.ranges[0].end).toBe(6)
+
+    const down = queryAnns.find(a => a.id === 'qDown')
+    expect(down.span.ranges[0].start).toBe(22)
+    expect(down.span.ranges[0].end).toBe(28)
+  })
+
+  it('projects query annotations onto the reverse-complement query row', async () => {
+    // The query is the antisense strand of the target, so it aligns as a reverse
+    // complement: the aligned query row shows reverseComplement(query) lined up
+    // under the target. A forward-strand query annotation must still appear on
+    // that row, flipped into RC coordinates with its strand inverted.
+    const { Annotation } = await import('../utils/annotation.js')
+    const { reverseComplement } = await import('../utils/dna.js')
+
+    const target = 'ATGCGTACGTTAGCCTAGGCTAATCGGATCCGGAATTCCTGCAG' // 44 bp
+    const query = reverseComplement(target)
+
+    const targetDoc = new SequenceDocument({ sequence: target })
+    const queryDoc = new SequenceDocument({
+      sequence: query,
+      annotations: [
+        // Forward (+) feature on the query document, original coords [5, 15).
+        new Annotation({ id: 'qFeat', span: ezSpan(5, 15), type: 'misc_feature', label: 'q' })
+      ]
+    })
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+
+    // Sanity: it aligned as reverse complement.
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+    expect(wrapper.vm.queryIsReverseComplement).toBe(true)
+
+    // The query annotation must NOT be suppressed; it appears flipped:
+    //   original [5,15) over a 44bp query -> RC coords [29, 39), strand inverted.
+    const queryAnns = wrapper.vm.alignedQueryAnnotations
+    expect(queryAnns.length).toBe(1)
+    expect(queryAnns[0].span.ranges[0].start).toBe(29)
+    expect(queryAnns[0].span.ranges[0].end).toBe(39)
+    expect(queryAnns[0].span.ranges[0].orientation).toBe(Orientation.MINUS)
+  })
+
+  it('renders an RC alignment with a query CDS that spans alignment gaps', async () => {
+    // Regression: a CDS on the query projects to a MINUS-strand span in the RC
+    // view. TranslationLayer iterates that span over the *gapped* aligned query
+    // string; iterating a minus-strand range complements each base, and a gap
+    // column ('-') has no complement. Previously this threw "Invalid DNA base: -"
+    // mid-render and corrupted the vnode tree (TypeError: ... 'emitsOptions').
+    // The query/target differ by an indel so the alignment genuinely has a gap
+    // inside the CDS region.
+    const { Annotation } = await import('../utils/annotation.js')
+    const { reverseComplement, Span, Range, Orientation: O } = await import('../utils/dna.js')
+
+    // A forward sequence with a CDS; insert a base so the alignment has a gap.
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATCAGTTACGGATCCGTACGTTAGC'
+    const targetSeq = reverseComplement(fwd) // query (fwd) will align as RC
+    // target also has a 1bp deletion relative to fwd so the alignment gaps.
+    const targetGapped = reverseComplement(fwd.slice(0, 30) + fwd.slice(31))
+
+    const targetDoc = new SequenceDocument({ sequence: targetGapped, circular: true })
+    const queryDoc = new SequenceDocument({
+      sequence: fwd,
+      circular: true,
+      annotations: [
+        new Annotation({ id: 'cds', span: new Span([new Range(0, 60, O.PLUS)]), type: 'CDS', label: 'gene' })
+      ]
+    })
+
+    // The mount + settle must NOT throw (the render crash happened on update).
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+    // The CDS projected onto the query row as a MINUS-strand feature.
+    expect(wrapper.vm.alignedQueryCdsAnnotations.length).toBe(1)
+    expect(wrapper.vm.alignedQueryCdsAnnotations[0].span.ranges[0].orientation).toBe(Orientation.MINUS)
+    // And the query translation rendered without error.
+    expect(wrapper.find('.editor-svg').exists()).toBe(true)
+  })
+
+  it('creates an RC-aware indel annotation on a reverse-complement query', async () => {
+    // When the query aligns as a reverse complement, the annotation created from a
+    // gap must be RC-aware: it lands on the correct FORWARD document interval of
+    // the original query and is marked minus-strand (the feature is on the
+    // antisense strand that matched). It must NOT feed descending coordinates
+    // into Range (which would throw) nor silently min/max them without orientation.
+    const { reverseComplement, Orientation } = await import('../utils/dna.js')
+
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGAT' // length 37
+    // Query (fwd) aligns as RC against a target = RC(fwd) missing 3 bases at 18..21,
+    // so the query carries a 3bp insertion relative to the target. From the probe:
+    // the inserted query bases occupy original query positions {16,17,18}.
+    const target = reverseComplement(fwd.slice(0, 18) + fwd.slice(21))
+
+    const targetDoc = createDoc(target)
+    const queryDoc = createDoc(fwd)
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+
+    const r = wrapper.vm.alignmentResult
+    let gap = -1
+    for (let i = 0; i < r.targetAligned.length; i++) {
+      if (r.targetAligned[i] === '-' && r.queryAligned[i] !== '-') { gap = i; break }
+    }
+    expect(gap).toBeGreaterThan(-1)
+    const region = wrapper.vm.findContiguousFeatureRegion(gap, 'insertion')
+    expect(region.end - region.start).toBeGreaterThan(1) // genuinely multi-base
+
+    const before = queryDoc.annotations.length
+    await wrapper.vm.createInsertionAnnotation(region.start, region.end)
+    await settle(wrapper)
+
+    expect(queryDoc.annotations.length).toBe(before + 1)
+    const ann = queryDoc.annotations[queryDoc.annotations.length - 1]
+    expect(ann.type).toBe('insertion')
+    // Correct forward interval over the original query: positions 16,17,18 -> [16,19).
+    expect(ann.span.ranges[0].start).toBe(16)
+    expect(ann.span.ranges[0].end).toBe(19)
+    // And marked as an antisense-strand feature.
+    expect(ann.span.ranges[0].orientation).toBe(Orientation.MINUS)
+  })
+
+  it('creates a forward (plus-strand) indel annotation when not reverse complement', async () => {
+    const { Orientation } = await import('../utils/dna.js')
+    // Forward: query has a 1bp insertion relative to target.
+    const targetDoc = createDoc('ATCGATCG')
+    const queryDoc = createDoc('ATCGAATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(false)
+
+    const r = wrapper.vm.alignmentResult
+    let gap = -1
+    for (let i = 0; i < r.targetAligned.length; i++) {
+      if (r.targetAligned[i] === '-' && r.queryAligned[i] !== '-') { gap = i; break }
+    }
+    const region = wrapper.vm.findContiguousFeatureRegion(gap, 'insertion')
+    await wrapper.vm.createInsertionAnnotation(region.start, region.end)
+    await settle(wrapper)
+
+    const ann = queryDoc.annotations[queryDoc.annotations.length - 1]
+    expect(ann.span.ranges[0].end).toBeGreaterThan(ann.span.ranges[0].start)
+    expect(ann.span.ranges[0].orientation).toBe(Orientation.PLUS)
+  })
+
+  it('keeps the query reverse map the true inverse of the query position map (RC)', async () => {
+    // SelectionLayer draws a query selection by converting ORIGINAL query coords
+    // back to aligned columns via queryReverseMap. A selection is stored in
+    // original coords (queryPositionMap is RC-aware). For the highlight to land
+    // under the cursor, queryReverseMap must be the inverse of queryPositionMap:
+    //   queryReverseMap[queryPositionMap[col]] === col   (for every non-gap col)
+    // Before the fix queryReverseMap was keyed on RC-STRING positions, so e.g.
+    // original base 0 mapped to the LAST aligned column — selecting the leftmost
+    // base highlighted the rightmost.
+    const { reverseComplement } = await import('../utils/dna.js')
+
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAA' // query, 26 bp
+    const target = reverseComplement(fwd) // gapless RC
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc(target), query: createDoc(fwd), initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+
+    const posMap = wrapper.vm.queryPositionMap // aligned col -> original query pos
+    const revMap = wrapper.vm.queryReverseMap // original query pos -> aligned col
+
+    // The two maps must round-trip for every non-gap aligned column.
+    for (let col = 0; col < posMap.length; col++) {
+      const orig = posMap[col]
+      if (orig === null) continue
+      expect(revMap[orig]).toBe(col)
+    }
+
+    // Concretely: the leftmost aligned column (0) holds some original base; that
+    // base must map back to column 0, not the last column.
+    const leftmostOrig = posMap[0]
+    expect(revMap[leftmostOrig]).toBe(0)
+  })
+
+  it('highlights the leftmost RC query base on the left (not mirrored)', async () => {
+    // The motivating selection bug: a selection on the RC query row is stored in
+    // queryDoc (wrapped-forward) coordinates and drawn by converting back through
+    // queryReverseMap. The displayed leftmost query base (the one whose wrapped
+    // position is queryPositionMap[0]) must map to the leftmost aligned column 0,
+    // i.e. the highlight lands under the cursor, not on the opposite end.
+    const { reverseComplement } = await import('../utils/dna.js')
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAA'
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc(reverseComplement(fwd)), query: createDoc(fwd), initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+
+    const leftmostQueryPos = wrapper.vm.queryPositionMap[0]
+    // queryReverseMap drives SelectionLayer.convertRangeToAligned; the leftmost
+    // displayed base must convert to aligned column 0.
+    expect(wrapper.vm.queryReverseMap[leftmostQueryPos]).toBe(0)
+  })
+
+  it('does not flip-flop the reverse-complement decision across settles', async () => {
+    // The alignment runner reads props.query directly, NOT the wrapped queryDoc.
+    // If it read the wrapped (RC'd) sequence, that would match forward, flip
+    // reverseComplement false, unwrap, re-align, and oscillate. Settling twice
+    // must leave the decision stable.
+    const { reverseComplement } = await import('../utils/dna.js')
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAA'
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc(reverseComplement(fwd)), query: createDoc(fwd), initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    const first = wrapper.vm.alignmentResult.reverseComplement
+    expect(first).toBe(true)
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+    // queryDoc is the RC wrapper view and stays so.
+    expect(wrapper.vm.queryDoc.constructor.name).toBe('SequenceDocumentRC')
+  })
+
+  it('edits on the reverse-complement query row mutate the correct underlying bases', async () => {
+    // End-to-end round-trip: deleting a displayed range on the RC query row must
+    // remove the reverse-complemented bases from the UNDERLYING (props.query)
+    // document — closing the loop the wrapper unit tests open.
+    const { reverseComplement } = await import('../utils/dna.js')
+    const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAA' // 26 bp, the underlying query
+    const queryDoc = createDoc(fwd)
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc(reverseComplement(fwd)), query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } }
+    })
+    await settle(wrapper)
+    expect(wrapper.vm.alignmentResult.reverseComplement).toBe(true)
+
+    // Delete displayed (wrapped) range [0,3) on the RC query row, via the wrapper.
+    const before = fwd.length
+    wrapper.vm.queryDoc.delete([{ start: 0, end: 3 }])
+
+    // Underlying lost 3 bases; the removed bases correspond to the inner range
+    // [N-3, N) = the LAST 3 bases of the original forward query.
+    expect(queryDoc.sequence.length).toBe(before - 3)
+    expect(queryDoc.sequence).toBe(fwd.slice(0, before - 3))
   })
 })
 
@@ -2051,6 +2470,48 @@ describe('AlignmentTicksLayer context menu integration', () => {
     const items = wrapper.vm.getAlignmentMenuItems(4, 'query')
     expect(items.length).toBeGreaterThan(0)
     expect(items.some(item => item.label === 'Annotate mutation')).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('resolves a match-line click on a LATER line to the correct aligned column', async () => {
+    // Regression: the match-line overlay maps a click's clientX to an aligned
+    // column relative to the line's START offset (line.start), not its ordinal
+    // index. On a multi-line alignment a mismatch on line 1 (aligned columns
+    // 100..199) is only reachable if 100 — not the ordinal 1 — is used as the
+    // line offset. getAlignedPositionFromEvent(event, lineStart) returns
+    // lineStart + charIndex, so passing the ordinal landed clicks near column 0
+    // (a matching region) and the Annotate-mutation item never appeared.
+    //
+    // happy-dom has no layout (charWidth is degenerate), so we exercise the
+    // composition directly: with the SVG rect mocked and a clientX one char-width
+    // past the left margin, the resolved column must be lineStart + 1.
+    const targetDoc = createDoc('ATCGATCGATCGATCGATCG')
+    const queryDoc = createDoc('ATCGATCGATCGATCGATCG')
+
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: targetDoc, query: queryDoc, initialZoom: 100 },
+      global: { stubs: { Teleport: true } },
+      attachTo: document.body
+    })
+    await settle(wrapper)
+
+    const svg = wrapper.find('svg.editor-svg')
+    svg.element.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 2000, bottom: 1000, width: 2000, height: 1000
+    })
+    const lmargin = wrapper.vm.graphics.metrics.value.lmargin
+    const charWidth = wrapper.vm.graphics.metrics.value.charWidth
+
+    // The resolved column is lineStart + charIndex. The charIndex depends only on
+    // clientX (not on lineStart), so passing 100 vs 0 must differ by exactly 100 —
+    // i.e. the line's START offset is added, not its ordinal. (Robust to
+    // happy-dom's degenerate charWidth, which makes the absolute charIndex
+    // unreliable but identical across both calls.)
+    const event = { clientX: lmargin + (3 * charWidth), clientY: 50 }
+    const atStart100 = wrapper.vm.getAlignedPositionFromEvent(event, 100)
+    const atStart0 = wrapper.vm.getAlignedPositionFromEvent(event, 0)
+    expect(atStart100 - atStart0).toBe(100)
 
     wrapper.unmount()
   })

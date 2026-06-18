@@ -11,7 +11,7 @@
  * on mobile devices.
  */
 
-import { Range, Span } from './dna.js'
+import { Range, Span, reverseComplement } from './dna.js'
 import { Annotation } from './annotation.js'
 
 // Re-export scoreMatch from the JS implementation
@@ -101,6 +101,32 @@ export function isWasmReady() {
  * @returns {AlignmentResult}
  */
 export function align(query, target, options = {}) {
+  // Opt-in: also align the reverse complement of the query and keep whichever
+  // orientation scores higher. The query may be the antisense strand of the
+  // target (a common case for reads / GenBank entries sequenced off the other
+  // strand). We RC the *query string* and run the full pipeline again, so this
+  // composes with circular origin detection for free. The winning result's
+  // queryAligned/coordinates already describe the chosen orientation; we only
+  // tag which one it was so callers can map back to the original query and
+  // label the view.
+  if (options.tryReverseComplement) {
+    const fwd = alignForward(query, target, options)
+    const rev = alignForward(reverseComplement(query), target, options)
+    if ((rev?.score ?? -Infinity) > (fwd?.score ?? -Infinity)) {
+      return { ...rev, reverseComplement: true }
+    }
+    return { ...fwd, reverseComplement: false }
+  }
+
+  return alignForward(query, target, options)
+}
+
+/**
+ * Align the query against the target in its given orientation (the original
+ * single-orientation entry point). Dispatches to WASM when available, with JS
+ * fallback. See `align` for the orientation-trying wrapper.
+ */
+function alignForward(query, target, options = {}) {
   if (wasmModule) {
     if (options.circular || options.circularTarget) {
       const result = alignWasmCircular(query, target, options)
@@ -595,5 +621,38 @@ export function mapAnnotationThroughAlignment(annotation, reverseMap, originalSt
       ...annotation.attributes,
       _originalAnnotation: annotation
     }
+  })
+}
+
+/**
+ * Reflect an annotation from forward sequence coordinates into the reverse
+ * complement frame of a length-`sequenceLength` sequence.
+ *
+ * Used when a query aligned on the antisense strand: the aligned query row shows
+ * reverseComplement(query), so a query annotation in forward coordinates must be
+ * flipped before being projected through the alignment. Each range [s, e) maps
+ * to [sequenceLength - e, sequenceLength - s), and the strand orientation
+ * inverts (PLUS<->MINUS; NONE unchanged) because the displayed strand is the
+ * opposite one.
+ *
+ * @param {Object} annotation - Annotation with a `span.ranges` array
+ * @param {number} sequenceLength - Length of the (forward) sequence
+ * @returns {Object} A new Annotation reflected into RC coordinates
+ */
+export function reverseComplementAnnotation(annotation, sequenceLength) {
+  const ranges = annotation.span.ranges.map(r => new Range(
+    sequenceLength - r.end,
+    sequenceLength - r.start,
+    // Orientation values are +1 / -1 / 0, so negation is the strand flip.
+    // `+ 0` normalizes -0 (from negating 0/NONE) back to 0.
+    -r.orientation + 0
+  ))
+
+  return new Annotation({
+    id: annotation.id,
+    caption: annotation.caption,
+    type: annotation.type,
+    span: new Span(ranges),
+    attributes: { ...annotation.attributes }
   })
 }

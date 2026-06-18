@@ -289,6 +289,57 @@ describe('SequenceLayer', () => {
       expect(label.exists()).toBe(true)
       expect(label.text()).toBe('1')
     })
+
+    it('marks position labels reverse-complement when the prop is set', () => {
+      const alignmentLines = createMockAlignmentLines()
+
+      const wrapper = mount(SequenceLayer, {
+        props: {
+          mode: 'query',
+          lines: alignmentLines,
+          positionMap: [0, 1, 2, 3, 4, 5, null, 6],
+          yOffset: 32,
+          blockHeight: 48,
+          reverseComplement: true
+        },
+        global: {
+          provide: {
+            editorState: createMockEditorState([]),
+            graphics: createMockGraphics(true),
+            selection: createMockSelection()
+          }
+        }
+      })
+
+      const label = wrapper.find('.position-label')
+      expect(label.exists()).toBe(true)
+      // The RC marker class lets CSS color these index numbers red.
+      expect(label.classes()).toContain('reverse-complement')
+    })
+
+    it('does not mark position labels reverse-complement by default', () => {
+      const alignmentLines = createMockAlignmentLines()
+
+      const wrapper = mount(SequenceLayer, {
+        props: {
+          mode: 'query',
+          lines: alignmentLines,
+          positionMap: [0, 1, 2, 3, 4, 5, null, 6],
+          yOffset: 32,
+          blockHeight: 48
+        },
+        global: {
+          provide: {
+            editorState: createMockEditorState([]),
+            graphics: createMockGraphics(true),
+            selection: createMockSelection()
+          }
+        }
+      })
+
+      const label = wrapper.find('.position-label')
+      expect(label.classes()).not.toContain('reverse-complement')
+    })
   })
 
   describe('Bar mode in alignment', () => {

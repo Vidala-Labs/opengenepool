@@ -31,6 +31,9 @@ const COMPLEMENT_MAP = {
   'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C',
   // Wildcards
   'n': 'n', 'x': 'x', 'N': 'N', 'X': 'X',
+  // Alignment gap: a gap column has no base to complement, so it passes through.
+  // This lets minus-strand features be iterated over gapped (aligned) sequences.
+  '-': '-',
   // IUPAC two-letter codes
   'r': 'y', 'y': 'r', 'm': 'k', 'k': 'm', 's': 's', 'w': 'w',
   'R': 'Y', 'Y': 'R', 'M': 'K', 'K': 'M', 'S': 'S', 'W': 'W',

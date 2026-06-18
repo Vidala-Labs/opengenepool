@@ -8,7 +8,7 @@ import Sidebar from './Sidebar.vue'
 import { ArrowDownTrayIcon, DocumentDuplicateIcon } from '@heroicons/vue/24/outline'
 import { listSequences, getSequence, saveSequence, deleteSequence, isEmpty } from './db.js'
 import { snapshotDoc } from './persistence.js'
-import { pUC19, testAlignmentSequence } from './seed.js'
+import { pUC19, testAlignmentSequence, testAlignmentSequenceRC } from './seed.js'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
 import { SearchExtension } from '../src/extensions/SearchExtension/index.js'
@@ -118,9 +118,10 @@ watch(
 onMounted(async () => {
   const empty = await isEmpty()
   if (empty) {
-    // Seed with pUC19 and test alignment sequence
+    // Seed with pUC19 and test alignment sequences (forward + reverse complement)
     await saveSequence(pUC19)
     await saveSequence(testAlignmentSequence)
+    await saveSequence(testAlignmentSequenceRC)
   } else {
     // Always update seed sequences to ensure latest data
     const existing = await getSequence(pUC19.id)
@@ -130,6 +131,10 @@ onMounted(async () => {
     const existingTest = await getSequence(testAlignmentSequence.id)
     if (!existingTest) {
       await saveSequence(testAlignmentSequence)
+    }
+    const existingRC = await getSequence(testAlignmentSequenceRC.id)
+    if (!existingRC) {
+      await saveSequence(testAlignmentSequenceRC)
     }
   }
   await refreshList()
