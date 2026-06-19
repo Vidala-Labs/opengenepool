@@ -187,6 +187,19 @@ export class SequenceDocument {
 
   /**
    * Insert text at a position.
+   *
+   * Backend events fired (see the Backend Adapter Protocol in CLAUDE.md):
+   * - `insert` always. The backend is expected to insert the bases AND adjust
+   *   annotations from this event alone. Insertion never changes an annotation's
+   *   length unless the site strictly straddles it (low < site < high, which grows
+   *   it by the insert length); at a boundary (site === low shifts the annotation
+   *   right, site === high leaves it) and outside, length is preserved. Because the
+   *   backend can infer all of that, OGP does NOT re-report a plain shift.
+   * - `annotationUpdate`, once per id in extendStartIds/extendEndIds. An extend is
+   *   the deliberate exception to length-preservation: it keeps/grows a boundary the
+   *   insert-shift would otherwise move/leave. The backend cannot infer it, so it is
+   *   reported. With no extend ids, no annotationUpdate fires.
+   *
    * @param {number} position - 0-based position to insert at
    * @param {string} text - DNA sequence to insert
    * @param {Object} options - Optional settings
@@ -203,10 +216,22 @@ export class SequenceDocument {
     this._sequence.value = seq.slice(0, position) + text + seq.slice(position)
 
     // 2. Adjust annotations
-    this._adjustAnnotationsForInsert(position, text.length, extendStartIds, extendEndIds)
+    const modified = this._adjustAnnotationsForInsert(position, text.length, extendStartIds, extendEndIds)
 
-    // 3. Notify backend
+    // 3. Notify backend. Insert FIRST (it adds the bases). The backend is
+    // expected to shift downstream annotations from the insert itself, so we do
+    // NOT report a plain shift. We report ONLY annotations the caller explicitly
+    // extended (the extend-on-insert checkboxes): an extend keeps a boundary the
+    // insert-shift would otherwise move (or grows one it would leave), which the
+    // backend cannot infer from the insert alone. The annotationUpdate payload
+    // matches the shape updateAnnotation() emits.
+    const extendedIds = new Set([...extendStartIds, ...extendEndIds])
     this._notifyBackend('insert', { editId: generateIdSync(), position, text })
+    for (const ann of modified) {
+      if (extendedIds.has(ann.id)) {
+        this._notifyBackend('annotationUpdate', { ...ann, editId: `update-${generateIdSync()}` })
+      }
+    }
 
     return text
   }
@@ -415,10 +440,13 @@ export class SequenceDocument {
    * @param {number} insertionLength - The length of the inserted sequence
    * @param {Array<string>} extendStartIds - IDs of annotations to extend at their start boundary
    * @param {Array<string>} extendEndIds - IDs of annotations to extend at their end boundary
+   * @returns {Array<Object>} The annotations whose span was changed (post-insert),
+   *   so the caller can report each over the annotation channel.
    */
   _adjustAnnotationsForInsert(insertionSite, insertionLength, extendStartIds = [], extendEndIds = []) {
-    if (this._annotations.value.length === 0) return
+    if (this._annotations.value.length === 0) return []
 
+    const changed = []
     const updatedAnnotations = this._annotations.value.map(ann => {
       const span = ann.span
       let modified = false
@@ -466,12 +494,15 @@ export class SequenceDocument {
       })
 
       if (modified) {
-        return { ...ann, span: new Span(newRanges) }
+        const updated = { ...ann, span: new Span(newRanges) }
+        changed.push(updated)
+        return updated
       }
       return ann
     })
 
     this._annotations.value = updatedAnnotations
+    return changed
   }
 
   /**
