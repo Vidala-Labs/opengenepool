@@ -178,6 +178,13 @@ const hasAlignment = computed(() => {
   return alignmentResult.value && alignmentResult.value.score > 0
 })
 
+// "No alignment found" is a *settled, empty* state — distinct from "still
+// computing". On large sequences the worker/async run can take a noticeable
+// while; showing the empty-state placeholder during that window wrongly claims
+// there is no alignment when there is simply no alignment YET. Only show it once
+// the run has settled (aligning === false) and produced no match.
+const showNoAlignment = computed(() => !aligning.value && !hasAlignment.value)
+
 const queryCoordinateOptions = computed(() => ({}))
 
 const targetCoordinateOptions = computed(() => {
@@ -2021,6 +2028,7 @@ defineExpose({
   targetDoc,
   queryDoc,
   hasAlignment,
+  showNoAlignment,
   alignmentResult,
   aligning,
   whenSettled,
@@ -2139,9 +2147,20 @@ const toolbarHelpText = `Selection Controls:
             class="sequence-text"
           >aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</text>
 
-          <!-- No alignment found state -->
+          <!-- Pending state: a run is in flight (worker / async fallback). -->
           <text
-            v-if="!hasAlignment"
+            v-if="aligning"
+            :x="graphics.metrics.value.fullWidth / 2"
+            y="50"
+            text-anchor="middle"
+            class="empty-state"
+          >
+            Aligning…
+          </text>
+
+          <!-- No alignment found state: settled with no match (not still pending). -->
+          <text
+            v-else-if="showNoAlignment"
             :x="graphics.metrics.value.fullWidth / 2"
             y="50"
             text-anchor="middle"
