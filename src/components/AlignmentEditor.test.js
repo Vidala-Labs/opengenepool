@@ -115,6 +115,37 @@ describe('AlignmentEditor Component', () => {
     expect(wrapper.findComponent({ name: 'Indicator' }).props('text')).not.toBe('Aligning…')
   })
 
+  it('does not show "No alignment found" while an alignment is still pending', async () => {
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('ATCGATCGATCG'), query: createDoc('ATCGATCGATCG') }
+    })
+
+    // Synchronously after mount the run is pending (worker/async fallback in flight).
+    expect(wrapper.vm.aligning).toBe(true)
+
+    // The empty-state placeholder must NOT claim "No alignment found" yet — the
+    // alignment simply hasn't settled. (Pending and genuinely-empty are distinct.)
+    const emptyText = wrapper.find('.empty-state').exists()
+      ? wrapper.find('.empty-state').text()
+      : ''
+    expect(emptyText).not.toBe('No alignment found')
+
+    await settle(wrapper)
+  })
+
+  it('shows "No alignment found" only once settled with no match', async () => {
+    // Two sequences with no meaningful local alignment (score 0).
+    const wrapper = mount(AlignmentEditor, {
+      props: { target: createDoc('AAAAAAAAAAAA'), query: createDoc('GGGGGGGGGGGG') }
+    })
+
+    await settle(wrapper)
+
+    expect(wrapper.vm.aligning).toBe(false)
+    expect(wrapper.vm.hasAlignment).toBe(false)
+    expect(wrapper.find('.empty-state').text()).toBe('No alignment found')
+  })
+
   it('computes alignment for partial match', async () => {
     const target = 'CGAGTCAGT'
     const query = 'AGTCAGT'
