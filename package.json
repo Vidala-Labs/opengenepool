@@ -9,8 +9,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "test": "bun test",
-    "test:watch": "bun test --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build:wasm": "cd src/wasm && zig build -Doptimize=ReleaseSmall"
   },
   "dependencies": {
@@ -18,9 +18,12 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
-    "@happy-dom/global-registrator": "^15.0.0",
     "@playwright/test": "^1.60.0",
+    "@vitejs/plugin-vue": "^6.0.7",
     "@vue/compiler-sfc": "^3.5.26",
-    "@vue/test-utils": "^2.4.0"
+    "@vue/test-utils": "^2.4.0",
+    "happy-dom": "^20.10.6",
+    "vite": "^8.1.0",
+    "vitest": "^4.1.9"
   }
 }

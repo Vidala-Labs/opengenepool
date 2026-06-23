@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { SequenceDocument } from './SequenceDocument.js'
 import { Span, Range, Orientation } from '../utils/dna.js'
 import { setUuidGenerator } from '../utils/uuid.js'

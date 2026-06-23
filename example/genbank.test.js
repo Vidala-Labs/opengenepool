@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { parseGenBank } from './genbank-parser.js'
 import { toGenBank } from './genbank-writer.js'
 import { ezSpan, Span, Range, Orientation } from '../test/span-helpers.js'

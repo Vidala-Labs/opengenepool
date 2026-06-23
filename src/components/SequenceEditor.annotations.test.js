@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { readFileSync } from 'fs'
 import { join } from 'path'
@@ -1306,7 +1306,7 @@ describe('SequenceEditor annotations', () => {
 
       it('calls backend.annotationCreated when backend provided', async () => {
         const mockBackend = {
-          annotationCreated: mock(() => {})
+          annotationCreated: vi.fn(() => {})
         }
         const wrapper = mount(SequenceEditor, {
           props: { sequence: createDoc('A'.repeat(100), [], false, mockBackend), initialZoom: 100 }
@@ -1376,7 +1376,7 @@ describe('SequenceEditor annotations', () => {
 
       it('calls backend.annotationUpdate when backend provided', async () => {
         const mockBackend = {
-          annotationUpdate: mock(() => {})
+          annotationUpdate: vi.fn(() => {})
         }
         const annotations = [
           { id: 'ann1', caption: 'Original', type: 'gene', span: ezSpan(10, 50) }
@@ -1450,7 +1450,7 @@ describe('SequenceEditor annotations', () => {
 
       it('calls backend.annotationDeleted when backend provided', async () => {
         const mockBackend = {
-          annotationDeleted: mock(() => {})
+          annotationDeleted: vi.fn(() => {})
         }
         const annotations = [
           { id: 'ann1', caption: 'Gene1', type: 'gene', span: ezSpan(10, 50) }
@@ -1914,7 +1914,7 @@ describe('SequenceEditor annotations', () => {
 
       it('calls backend.annotationUpdate when splitting', async () => {
         const mockBackend = {
-          annotationUpdate: mock(() => {})
+          annotationUpdate: vi.fn(() => {})
         }
         const annotations = [
           { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(10, 30) }

@@ -14,14 +14,14 @@ Key entry points:
 
 ## Commands
 
-The project uses Bun.
+The project uses npm.
 
 ```bash
-bun install
-bun test
-bun test --watch
-bun run build:wasm
-cd example && bun run dev
+npm install
+npm test
+npm run test:watch
+npm run build:wasm
+cd example && npm run dev
 ```
 
 ## Critical Domain Invariants
@@ -123,13 +123,14 @@ Extension components consume `extensionAPI` via Vue injection. Useful methods in
 
 ## Testing Setup
 
-Tests are colocated with source files and use Bun's test runner plus `@vue/test-utils`.
+Tests are colocated with source files and use Vitest plus `@vue/test-utils`.
 
 `test/setup.js` registers:
-- custom Vue SFC loader from `test/vue-plugin.js`
-- Happy DOM globals
+- Happy DOM globals and Storage shims for Node/Vitest
 
-There are broad tests across utilities, composables, components, backends, alignment, and extensions. Use targeted tests while iterating, then `bun test` before finishing larger changes.
+Vue SFCs are compiled by `@vitejs/plugin-vue` through `vitest.config.js`.
+
+There are broad tests across utilities, composables, components, backends, alignment, and extensions. Use targeted tests while iterating, then `npm test` before finishing larger changes.
 
 ## Common Gotchas
 

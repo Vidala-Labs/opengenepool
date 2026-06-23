@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { snapshotDoc } from './persistence.js'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
 import { Span, Range, Orientation } from '../src/utils/dna.js'

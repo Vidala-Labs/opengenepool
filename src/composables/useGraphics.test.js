@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics, GraphicsSpan, Shell, layoutLine, sortByWidth } from './useGraphics.js'
 import { Range, Orientation } from '../utils/dna.js'

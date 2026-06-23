@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, vi } from 'vitest'
 import { annotationMenuItems } from './annotationMenuContributor.js'
 import { Span, Range, Orientation } from '../../utils/dna.js'
 
@@ -81,7 +81,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('routes edit/delete/hide through deps', () => {
-    const onEdit = mock(() => {}), onDelete = mock(() => {}), onToggleHidden = mock(() => {})
+    const onEdit = vi.fn(() => {}), onDelete = vi.fn(() => {}), onToggleHidden = vi.fn(() => {})
     const a = ann()
     const c = ctx({ annotation: a })
     const items = annotationMenuItems(c, { onEdit, onDelete, onToggleHidden })
@@ -92,7 +92,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('unhide routes onToggleHidden with false', () => {
-    const onToggleHidden = mock(() => {})
+    const onToggleHidden = vi.fn(() => {})
     const a = ann({ attributes: { 'ogp:hidden': true } })
     const items = annotationMenuItems(ctx({ annotation: a }), { onToggleHidden })
     items.find(i => i.id === 'unhide-annotation').action()
@@ -100,7 +100,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('offers subtract-from-selection when annotation overlaps selection, routed via deps', () => {
-    const onSubtract = mock(() => {})
+    const onSubtract = vi.fn(() => {})
     const selection = makeSelection({ ranges: [new Range(20, 40, Orientation.PLUS)] })
     const items = annotationMenuItems(ctx({ selection }), { onSubtract })
     const sub = items.find(i => i.id === 'subtract-from-selection')
@@ -115,7 +115,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('offers merge for adjacent same-orientation segments and routes via deps', () => {
-    const onMergeRight = mock(() => {})
+    const onMergeRight = vi.fn(() => {})
     const multi = ann({ span: new Span([new Range(10, 20, Orientation.PLUS), new Range(20, 30, Orientation.PLUS)]) })
     const items = annotationMenuItems(ctx({ annotation: multi, rangeIndex: 0 }), { onMergeRight })
     const m = items.find(i => i.id === 'merge-with-right-segment')
@@ -130,7 +130,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('offers split when a cursor is strictly inside a range and routes via deps', () => {
-    const onSplit = mock(() => {})
+    const onSplit = vi.fn(() => {})
     const selection = makeSelection({ ranges: [new Range(25, 25, Orientation.PLUS)] })
     const multi = ann({ span: new Span([new Range(10, 20, Orientation.PLUS), new Range(20, 30, Orientation.PLUS)]) })
     const items = annotationMenuItems(ctx({ annotation: multi, rangeIndex: 1, selection }), { onSplit })
@@ -147,7 +147,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('offers clip-primer-binding (forward primer) with correct bind length', () => {
-    const onClipPrimer = mock(() => {})
+    const onClipPrimer = vi.fn(() => {})
     // primer 10..30 plus; selection exactly matches it; clicked annotation has one end inside
     const primer = ann({ id: 'p', caption: 'M13', type: 'primer', span: new Span([new Range(10, 30, Orientation.PLUS)]) })
     const clicked = ann({ id: 'g', type: 'gene', span: new Span([new Range(20, 60, Orientation.PLUS)]) }) // start=20 inside (10,30)
@@ -165,7 +165,7 @@ describe('annotationMenuItems', () => {
   })
 
   it('offers clip-this-primer when clicking the primer itself with one terminus inside', () => {
-    const onClipPrimer = mock(() => {})
+    const onClipPrimer = vi.fn(() => {})
     const primer = ann({ id: 'p', caption: 'M13', type: 'primer', span: new Span([new Range(10, 30, Orientation.PLUS)]) })
     const selection = makeSelection({ ranges: [new Range(20, 40, Orientation.PLUS)] }) // start 20 inside (10,30), end 40 outside
     const items = annotationMenuItems(

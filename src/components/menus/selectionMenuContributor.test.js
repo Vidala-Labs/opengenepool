@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, vi } from 'vitest'
 import { selectionMenuItems } from './selectionMenuContributor.js'
 import { Range, Orientation } from '../../utils/dna.js'
 
@@ -51,7 +51,7 @@ describe('selectionMenuItems — selection-state items (selection exists, any cl
   })
 
   it('routes copy/select-none/replace/delete/create via deps', () => {
-    const deps = { onCopy: mock(()=>{}), onSelectNone: mock(()=>{}), onReplace: mock(()=>{}), onDelete: mock(()=>{}), onCreateAnnotation: mock(()=>{}) }
+    const deps = { onCopy: vi.fn(()=>{}), onSelectNone: vi.fn(()=>{}), onReplace: vi.fn(()=>{}), onDelete: vi.fn(()=>{}), onCreateAnnotation: vi.fn(()=>{}) }
     const range = new Range(5, 15)
     const items = selectionMenuItems(stateCtx(sel({ ranges: [range] })), deps)
     const byId = Object.fromEntries(items.map(i => [i.id, i]))
@@ -91,7 +91,7 @@ describe('selectionMenuItems — clicked on a selection range', () => {
   })
 
   it('routes strand + range ops via deps', () => {
-    const deps = { onFlip: mock(()=>{}), onSetOrientation: mock(()=>{}), onDeleteRange: mock(()=>{}), onMoveRange: mock(()=>{}) }
+    const deps = { onFlip: vi.fn(()=>{}), onSetOrientation: vi.fn(()=>{}), onDeleteRange: vi.fn(()=>{}), onMoveRange: vi.fn(()=>{}) }
     const ranges = [new Range(5, 15, Orientation.PLUS), new Range(20, 30, Orientation.PLUS)]
     const items = selectionMenuItems(rangeCtx(sel({ ranges }), { rangeIndex: 0 }), deps)
     const byId = Object.fromEntries(items.map(i => [i.id, i]))
@@ -102,7 +102,7 @@ describe('selectionMenuItems — clicked on a selection range', () => {
   })
 
   it('offers extend-to-position for a handle and routes it (when supported)', () => {
-    const onExtendHandle = mock(()=>{})
+    const onExtendHandle = vi.fn(()=>{})
     const range = new Range(5, 15, Orientation.PLUS)
     const items = selectionMenuItems(rangeCtx(sel({ ranges: [range] }), { rangeIndex: 0, handleType: 'start' }), { onExtendHandle })
     // handle menu: only the extend item (selection-state copy etc. still present from state)

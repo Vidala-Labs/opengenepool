@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, nextTick, watch } from 'vue'
 import SearchPanel from './SearchPanel.vue'

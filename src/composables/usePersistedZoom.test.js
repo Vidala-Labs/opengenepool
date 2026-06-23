@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { usePersistedZoom, STORAGE_KEY } from './usePersistedZoom.js'
 
 // Create a mock storage for testing

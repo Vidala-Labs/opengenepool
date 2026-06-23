@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { SequenceDocument } from '../src/composables/SequenceDocument.js'
 import { Span, Range } from '../src/utils/dna.js'
 import { ezSpan } from '../test/span-helpers.js'

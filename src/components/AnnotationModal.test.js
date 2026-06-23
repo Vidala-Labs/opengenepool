@@ -1,6 +1,7 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AnnotationModal from './AnnotationModal.vue'
+import { PrimerBindExtension } from '../extensions/PrimerBindExtension/index.js'
 import { Span, Range, Orientation } from '../utils/dna.js'
 import { ezSpan } from '../../test/span-helpers.js'
 
@@ -1365,9 +1366,6 @@ describe('AnnotationModal', () => {
   })
 
   describe('PrimerBindExtension integration', () => {
-    // Import real extension for integration test
-    const { PrimerBindExtension } = require('../extensions/PrimerBindExtension/index.js')
-
     it('shows primer_bind field with number input for primer type', async () => {
       const wrapper = mount(AnnotationModal, {
         props: {

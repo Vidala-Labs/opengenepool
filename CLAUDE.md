@@ -7,21 +7,22 @@ OpenGenePool is a Vue.js 3 DNA sequence editor component library. It provides bi
 ## Tech Stack
 
 - **Vue.js 3.4+** with `<script setup>` Composition API
-- **Bun** - Runtime, package manager, and test runner
+- **npm / Node.js** - Package management and test runtime
+- **Vitest** - Test runner
 - **Heroicons Vue** - Icon library
 - **Happy DOM** - DOM polyfill for testing
 
 ## Commands
 
 ```bash
-bun install          # Install dependencies
-bun test             # Run all tests
-bun test --watch     # Watch mode for development
+npm install          # Install dependencies
+npm test             # Run all tests
+npm run test:watch   # Watch mode for development
 ```
 
 To run the example app:
 ```bash
-cd example && bun install && bun run dev
+cd example && npm install && npm run dev
 ```
 
 ## Git Practice
@@ -112,10 +113,10 @@ All state flows through composables:
 
 ## Testing
 
-Tests use Bun's built-in test runner with `@vue/test-utils`:
+Tests use Vitest with `@vue/test-utils`:
 
 ```javascript
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 
 describe('Feature', () => {
   it('should do something', () => {
@@ -181,7 +182,7 @@ const ann = new Annotation({
 To start the example app for browser testing:
 
 ```bash
-cd example && bun run dev &
+cd example && npm run dev &
 ```
 
 The server runs on port 5174 (5173 is used by another project). Use the Playwright MCP tools to interact with the browser:

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { effect } from 'vue'
 import { SequenceDocument } from './SequenceDocument.js'
 import { SequenceDocumentRC } from './SequenceDocumentRC.js'

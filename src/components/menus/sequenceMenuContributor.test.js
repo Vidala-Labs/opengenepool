@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, vi } from 'vitest'
 import { sequenceMenuItems } from './sequenceMenuContributor.js'
 import { Range } from '../../utils/dna.js'
 
@@ -29,7 +29,7 @@ describe('sequenceMenuItems', () => {
   })
 
   it('offers Insert at the cursor when the selection is zero-length', () => {
-    const onInsert = mock(()=>{})
+    const onInsert = vi.fn(()=>{})
     const items = sequenceMenuItems(seqCtx({ sequenceLength: 100, selection: sel({ ranges: [new Range(42, 42)] }) }), { onInsert })
     expect(ids(items)).toEqual(['select-all', 'insert-sequence'])
     items.find(i => i.id === 'insert-sequence').action()
@@ -45,7 +45,7 @@ describe('sequenceMenuItems', () => {
   })
 
   it('routes Select all with the layer mode for alignment attribution', () => {
-    const onSelectAll = mock(()=>{})
+    const onSelectAll = vi.fn(()=>{})
     const items = sequenceMenuItems(seqCtx({ sequenceLength: 100, mode: 'query', layerMode: 'query' }), { onSelectAll })
     items.find(i => i.id === 'select-all').action()
     expect(onSelectAll).toHaveBeenCalledWith('query')

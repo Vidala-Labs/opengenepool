@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
 import AnnotationLayer, { __resetModuleState, allAnnotationTypes } from './AnnotationLayer.vue'

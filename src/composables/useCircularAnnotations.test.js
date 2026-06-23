@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { ref } from 'vue'
 import { useCircularAnnotations } from './useCircularAnnotations.js'
 import { useCircularGraphics } from './useCircularGraphics.js'

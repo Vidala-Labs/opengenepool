@@ -1,5 +1,5 @@
 import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { Annotation, AnnotationFragment, ANNOTATION_COLORS, getAnnotationColor, OGP_ATTR_PREFIX, OGP_HIDDEN_ATTR, isOgpAttr, isAnnotationHidden } from './annotation.js'
 
 /**

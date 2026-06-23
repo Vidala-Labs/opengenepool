@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { generateBlastnUrl, generateBlastpUrl } from './blast.js'
 
 describe('BLAST URL Generation', () => {
