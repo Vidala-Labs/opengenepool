@@ -359,6 +359,33 @@ Backend adapters must implement these methods (all optional):
 - `getClipboard()` - Get clipboard content
 - `setClipboard(content)` - Set clipboard content
 
+### Insert vs. annotation events (length-preservation contract)
+
+Sequence events (`insert`/`delete`) and annotation events (`annotationCreated`/
+`annotationUpdate`/`annotationDeleted`) are **separate channels**. On an `insert`,
+the backend is responsible for adjusting annotations from the insert alone — OGP
+does not re-report adjustments it expects the backend to infer.
+
+The governing rule: **an insert never changes an annotation's length unless the
+insertion site strictly straddles it** (`low < site < high`, which grows it by the
+insert length). Equivalently, at a boundary:
+
+- `site === low` (the annotation's start coordinate) → annotation shifts right (both
+  ends move); length preserved.
+- `site === high` (the annotation's end coordinate) → annotation unchanged.
+- `site < low` (entirely before) → shifts right; `site > high` (entirely after) →
+  untouched.
+
+This is **geometric and strand-agnostic**: it depends on the low/high coordinates,
+not on whether the annotation is forward or reverse, and not on which marker
+(`Start`/`End`) happens to sit at a coordinate. A backend that stores annotations as
+marker pairs must apply gravity by low/high coordinate, not by marker type.
+
+`annotationUpdate` fires on insert **only** for annotations the caller explicitly
+extended (`extendStartIds`/`extendEndIds`) — the one deliberate exception to
+length-preservation, which the backend cannot infer from the insert. No extend ids
+→ no `annotationUpdate`.
+
 ## IMPORTANT NOTE
 
 When applicable, always use TDD for new features or debugging:

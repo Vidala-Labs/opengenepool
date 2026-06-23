@@ -558,6 +558,129 @@ describe('SequenceDocument', () => {
     })
   })
 
+  describe('insert reports ONLY explicitly-extended annotations over the annotation channel', () => {
+    // Backend contract: on insert(), the backend inserts the bases AND adjusts
+    // annotations from the insert alone — insertion never changes an annotation's
+    // length unless the site strictly straddles it (low < site < high, which grows
+    // it). At a boundary (site === low shifts the annotation right; site === high
+    // leaves it) and outside, length is preserved. The backend infers all of that
+    // from the `insert` event, so OGP does NOT re-report plain shifts.
+    //
+    // `annotationUpdate` on insert fires ONLY for annotations the caller explicitly
+    // extended via extendStartIds/extendEndIds — the deliberate exception to
+    // length-preservation that the backend cannot infer from the insert. No extend
+    // ids -> no annotationUpdate at all.
+    //
+    // These cover all eight conditions:
+    //   (extend / no-extend) x (start / end boundary) x (forward / reverse).
+    // The seed annotation is fenced 2..4; insert "GG" (length 2). Orientation is
+    // preserved in any emitted span — hence both strands.
+    //
+    // Record the callback name as `kind` and keep the raw payload under `data`, so
+    // the annotation's own `type` field (e.g. 'gene') can't clobber the marker.
+    const recordingBackend = () => {
+      const calls = []
+      return {
+        calls,
+        backend: {
+          insert: (data) => calls.push({ kind: 'insert', data }),
+          annotationUpdate: (data) => calls.push({ kind: 'annotationUpdate', data })
+        }
+      }
+    }
+
+    const seedDoc = (orientation) => {
+      const { calls, backend } = recordingBackend()
+      const doc = new SequenceDocument({
+        sequence: 'ATCGATCG',
+        annotations: [
+          { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(2, 4, orientation) }
+        ],
+        backend
+      })
+      return { doc, calls }
+    }
+
+    // Assert a backend-payload span is a Span object (never a string) whose single
+    // range matches the expected fenced coordinates and orientation.
+    const expectSpan = (span, start, end, orientation) => {
+      expect(span).toBeInstanceOf(Span)
+      expect(span.ranges.length).toBe(1)
+      const range = span.ranges[0]
+      expect(range.start).toBe(start)
+      expect(range.end).toBe(end)
+      expect(range.orientation).toBe(orientation)
+    }
+
+    for (const [strand, orientation] of [['forward', Orientation.PLUS], ['reverse', Orientation.MINUS]]) {
+      describe(`${strand} strand`, () => {
+        it('start boundary, no extend: plain shift, fires NO annotationUpdate', () => {
+          const { doc, calls } = seedDoc(orientation)
+          // Insert at position 2 (the start boundary). The annotation shifts to
+          // 4..6, but the backend infers that from the insert, so no annotationUpdate.
+          doc.insert(2, 'GG')
+
+          expect(calls.map(c => c.kind)).toEqual(['insert'])
+          expect(calls[0].data.position).toBe(2)
+          expect(calls[0].data.text).toBe('GG')
+        })
+
+        it('start boundary, extend: keeps start, fires annotationUpdate after insert', () => {
+          const { doc, calls } = seedDoc(orientation)
+          // Extend start: keep start at 2, shift only end -> 2..6. This is the
+          // deliberate length change the backend can't infer, so it IS reported.
+          doc.insert(2, 'GG', { extendStartIds: ['ann1'] })
+
+          expect(calls.map(c => c.kind)).toEqual(['insert', 'annotationUpdate'])
+          const update = calls[1].data
+          expect(update.id).toBe('ann1')
+          expect(update.editId.startsWith('update-')).toBe(true)
+          expectSpan(update.span, 2, 6, orientation)
+        })
+
+        it('end boundary, no extend: unchanged, fires NO annotationUpdate', () => {
+          const { doc, calls } = seedDoc(orientation)
+          // Insert at position 4 (the end boundary). The annotation is unchanged.
+          doc.insert(4, 'GG')
+
+          expect(calls.map(c => c.kind)).toEqual(['insert'])
+        })
+
+        it('end boundary, extend: grows end, fires annotationUpdate after insert', () => {
+          const { doc, calls } = seedDoc(orientation)
+          // Extend end: grow end to include insert -> 2..6.
+          doc.insert(4, 'GG', { extendEndIds: ['ann1'] })
+
+          expect(calls.map(c => c.kind)).toEqual(['insert', 'annotationUpdate'])
+          const update = calls[1].data
+          expect(update.id).toBe('ann1')
+          expectSpan(update.span, 2, 6, orientation)
+        })
+      })
+    }
+
+    it('reports only the extended annotation, staying silent on plain shifts', () => {
+      const { calls, backend } = recordingBackend()
+      const doc = new SequenceDocument({
+        sequence: 'ATCGATCGATCG',
+        annotations: [
+          // Extended: ends at the insertion site and is named in extendEndIds.
+          { id: 'extended', caption: 'A', type: 'gene', span: ezSpan(2, 4) },
+          // Plain shift: lies entirely after the insertion site (backend infers it).
+          { id: 'shifted', caption: 'B', type: 'gene', span: ezSpan(8, 10) },
+          // Untouched: lies entirely before the insertion site.
+          { id: 'before', caption: 'C', type: 'gene', span: ezSpan(0, 1) }
+        ],
+        backend
+      })
+      doc.insert(4, 'GG', { extendEndIds: ['extended'] })
+
+      const updates = calls.filter(c => c.kind === 'annotationUpdate')
+      expect(updates.map(u => u.data.id)).toEqual(['extended'])
+      expect(calls[0].kind).toBe('insert')
+    })
+  })
+
   describe('annotation adjustment on insert', () => {
     it('shifts annotations after insertion point', () => {
       const doc = new SequenceDocument({
