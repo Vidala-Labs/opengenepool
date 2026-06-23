@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { markRaw } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
@@ -994,7 +994,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1035,7 +1035,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1070,7 +1070,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1104,7 +1104,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1145,7 +1145,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1175,7 +1175,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1210,7 +1210,7 @@ describe('SequenceEditor', () => {
       await wrapper.vm.$nextTick()
 
       // Mock clipboard
-      const mockClipboard = { writeText: mock(() => Promise.resolve()) }
+      const mockClipboard = { writeText: vi.fn(() => Promise.resolve()) }
       Object.defineProperty(navigator, 'clipboard', {
         value: mockClipboard,
         writable: true,
@@ -1525,9 +1525,9 @@ describe('SequenceEditor', () => {
       }
 
       const mockBackend = {
-        annotationCreated: mock(() => {}),
-        onAck: mock(() => () => {}),
-        onError: mock(() => () => {}),
+        annotationCreated: vi.fn(() => {}),
+        onAck: vi.fn(() => () => {}),
+        onError: vi.fn(() => () => {}),
       }
 
       const wrapper = mount(SequenceEditor, {
@@ -1608,7 +1608,7 @@ describe('SequenceEditor', () => {
 
     it('does not warn when rendering extension panel components', async () => {
       const originalConsoleWarn = console.warn
-      console.warn = mock(() => {})
+      console.warn = vi.fn(() => {})
 
       const TestPanel = markRaw({
         template: '<div class="test-extension-panel"></div>'

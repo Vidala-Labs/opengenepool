@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { PrimerBindExtension } from './index.js'
 import PrimerBindEditor from './PrimerBindEditor.vue'

@@ -1,5 +1,5 @@
 import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import {
   CODON_TABLE,
   START_CODONS,

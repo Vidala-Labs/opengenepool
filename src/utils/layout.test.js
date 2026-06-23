@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { rangesOverlap, anyRangesOverlap, assignToRows } from './layout.js'
 
 describe('rangesOverlap', () => {

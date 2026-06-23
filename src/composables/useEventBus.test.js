@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createEventBus } from './useEventBus.js'
 
 describe('createEventBus', () => {
@@ -10,7 +10,7 @@ describe('createEventBus', () => {
 
   describe('on/emit', () => {
     it('calls handler when event is emitted', () => {
-      const handler = mock(() => {})
+      const handler = vi.fn(() => {})
       bus.on('test', handler)
       bus.emit('test', { data: 'value' })
 
@@ -19,8 +19,8 @@ describe('createEventBus', () => {
     })
 
     it('supports multiple handlers for same event', () => {
-      const handler1 = mock(() => {})
-      const handler2 = mock(() => {})
+      const handler1 = vi.fn(() => {})
+      const handler2 = vi.fn(() => {})
 
       bus.on('test', handler1)
       bus.on('test', handler2)
@@ -31,7 +31,7 @@ describe('createEventBus', () => {
     })
 
     it('does not call handlers for different events', () => {
-      const handler = mock(() => {})
+      const handler = vi.fn(() => {})
       bus.on('other', handler)
       bus.emit('test', {})
 
@@ -41,7 +41,7 @@ describe('createEventBus', () => {
 
   describe('off', () => {
     it('removes specific handler', () => {
-      const handler = mock(() => {})
+      const handler = vi.fn(() => {})
       bus.on('test', handler)
       bus.off('test', handler)
       bus.emit('test', {})
@@ -50,8 +50,8 @@ describe('createEventBus', () => {
     })
 
     it('does not affect other handlers', () => {
-      const handler1 = mock(() => {})
-      const handler2 = mock(() => {})
+      const handler1 = vi.fn(() => {})
+      const handler2 = vi.fn(() => {})
 
       bus.on('test', handler1)
       bus.on('test', handler2)
@@ -66,8 +66,8 @@ describe('createEventBus', () => {
   describe('plugin registration', () => {
     it('registers plugin with token handlers', () => {
       const handlers = {
-        _initialize: mock(() => {}),
-        _ready: mock(() => {})
+        _initialize: vi.fn(() => {}),
+        _ready: vi.fn(() => {})
       }
 
       bus.registerPlugin('test', handlers)
@@ -80,7 +80,7 @@ describe('createEventBus', () => {
 
     it('unregisters plugin handlers', () => {
       const handlers = {
-        _initialize: mock(() => {})
+        _initialize: vi.fn(() => {})
       }
 
       bus.registerPlugin('test', handlers)
@@ -92,7 +92,7 @@ describe('createEventBus', () => {
 
     it('adds source to token data when broadcasting', () => {
       const handlers = {
-        _test: mock(() => {})
+        _test: vi.fn(() => {})
       }
 
       bus.registerPlugin('myPlugin', handlers)
@@ -114,7 +114,7 @@ describe('createEventBus', () => {
         'render', 'rendered', 'zoomed', 'resize', 'contextmenu'
       ]
 
-      const handler = mock(() => {})
+      const handler = vi.fn(() => {})
 
       for (const token of tokens) {
         bus.on(token, handler)

@@ -339,12 +339,12 @@ Ranges are always specified start ≤ end, regardless of strand.
 ## Development
 
 ```bash
-bun install
-bun test
-bun test --watch
+npm install
+npm test
+npm run test:watch
 
 # Run example app
-cd example && bun run dev
+cd example && npm run dev
 ```
 
 ## Support

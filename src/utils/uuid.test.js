@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'bun:test'
+import { describe, it, expect, afterEach } from 'vitest'
 import { setUuidGenerator, generateId, generateIdSync } from './uuid.js'
 
 afterEach(() => {
@@ -54,15 +54,20 @@ describe('uuid util', () => {
     })
 
     it('does not throw when crypto.randomUUID is unavailable', () => {
-      const original = globalThis.crypto
+      const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
       try {
         // Simulate an environment without crypto.randomUUID
-        globalThis.crypto = undefined
+        Object.defineProperty(globalThis, 'crypto', {
+          value: undefined,
+          configurable: true
+        })
         const id = generateIdSync()
         expect(typeof id).toBe('string')
         expect(id.length).toBeGreaterThan(0)
       } finally {
-        globalThis.crypto = original
+        if (original) {
+          Object.defineProperty(globalThis, 'crypto', original)
+        }
       }
     })
 

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll } from 'bun:test'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { join } from 'path'
 import {
   align,
@@ -1378,8 +1379,8 @@ describe('WASM implementation', () => {
 
   // Load WASM before tests
   beforeAll(async () => {
-    const wasmPath = new URL('./alignment.wasm', import.meta.url)
-    const wasmBytes = await Bun.file(wasmPath).arrayBuffer()
+    const wasmPath = join(process.cwd(), 'src/utils/alignment.wasm')
+    const wasmBytes = await readFile(wasmPath)
     const { instance } = await WebAssembly.instantiate(wasmBytes, {})
     wasmModule = instance.exports
   })

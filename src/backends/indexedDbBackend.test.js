@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Span, Range, Orientation } from '../utils/dna.js'
 import { createIndexedDbBackend } from './indexedDbBackend.js'
 
 // In-memory store seam with an artificial async delay, to exercise operation
-// ordering without a real IndexedDB (Node/Bun/happy-dom have none).
+// ordering without a real IndexedDB (Node/happy-dom have none).
 function makeFakeStore(initial = null, { delay = 5 } = {}) {
   let record = initial
   const sleep = (ms) => new Promise(r => setTimeout(r, ms))

@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import MetadataModal from './MetadataModal.vue'
 
@@ -76,7 +76,7 @@ describe('MetadataModal', () => {
     })
 
     it('calls backend.metadataUpdate on save with full metadata', async () => {
-      const mockBackend = { metadataUpdate: mock(() => {}) }
+      const mockBackend = { metadataUpdate: vi.fn(() => {}) }
       const wrapper = mount(MetadataModal, {
         props: {
           open: true,
@@ -114,7 +114,7 @@ describe('MetadataModal', () => {
     })
 
     it('returns to view mode after save', async () => {
-      const mockBackend = { metadataUpdate: mock(() => {}) }
+      const mockBackend = { metadataUpdate: vi.fn(() => {}) }
       const wrapper = mount(MetadataModal, {
         props: {
           open: true,

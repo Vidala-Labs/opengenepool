@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { useAnnotations, generateArrowPath, AnnotationElement } from './useAnnotations.js'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics } from './useGraphics.js'

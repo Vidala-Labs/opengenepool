@@ -1,5 +1,5 @@
 import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
@@ -17,19 +17,19 @@ describe('SequenceEditor backend', () => {
 
   function createMockBackend() {
     return {
-      insert: mock(() => {}),
-      delete: mock(() => {}),
-      annotationCreated: mock(() => {}),
-      annotationUpdate: mock(() => {}),
-      annotationDeleted: mock(() => {}),
-      titleUpdate: mock(() => {}),
-      metadataUpdate: mock(() => {}),
-      onAck: mock((callback) => {
+      insert: vi.fn(() => {}),
+      delete: vi.fn(() => {}),
+      annotationCreated: vi.fn(() => {}),
+      annotationUpdate: vi.fn(() => {}),
+      annotationDeleted: vi.fn(() => {}),
+      titleUpdate: vi.fn(() => {}),
+      metadataUpdate: vi.fn(() => {}),
+      onAck: vi.fn((callback) => {
         // Store callback for manual triggering in tests
         createMockBackend._ackCallback = callback
         return () => {}
       }),
-      onError: mock((callback) => {
+      onError: vi.fn((callback) => {
         createMockBackend._errorCallback = callback
         return () => {}
       }),

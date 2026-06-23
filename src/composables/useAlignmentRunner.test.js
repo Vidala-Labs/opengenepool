@@ -1,10 +1,14 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { ref, effectScope, nextTick } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { useAlignmentRunner, canUseWorker } from './useAlignmentRunner.js'
 
-// In the Bun/happy-dom test env, import.meta.url is a file: URL, so the runner uses
+// In the Vitest/happy-dom test env, import.meta.url is a file: URL, so the runner uses
 // its async main-thread fallback (no real Worker). These tests exercise that path.
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('canUseWorker', () => {
   it('is false for a file: url (test/SSR)', () => {
@@ -12,6 +16,8 @@ describe('canUseWorker', () => {
   })
 
   it('is true for http/https/blob urls', () => {
+    vi.stubGlobal('Worker', function Worker() {})
+
     expect(canUseWorker('http://localhost:5174/x.js')).toBe(true)
     expect(canUseWorker('https://example.com/x.js')).toBe(true)
     expect(canUseWorker('blob:https://example.com/abc')).toBe(true)

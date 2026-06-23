@@ -5,7 +5,7 @@ import { align } from '../utils/alignment.js'
  * Whether a real Web Worker should be used for alignment.
  *
  * Keyed on the MODULE url's protocol, not `typeof Worker`: the test runtime
- * (Bun) provides a constructable `Worker`, but its module url is `file:` — and
+ * Node provides a constructable `Worker`, but its module url is `file:` — and
  * SSR is `file:` too. Only a browser-served context (`http(s):`/`blob:`) gets a
  * real worker; everything else uses the async main-thread fallback.
  *

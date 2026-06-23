@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 import ContextMenu from './ContextMenu.vue'
@@ -86,7 +86,7 @@ describe('ContextMenu', () => {
     })
 
     it('calls action when item is clicked', async () => {
-      const actionFn = mock(() => {})
+      const actionFn = vi.fn(() => {})
       const items = [
         { label: 'Select All', action: actionFn }
       ]
@@ -113,7 +113,7 @@ describe('ContextMenu', () => {
     })
 
     it('does not call action for disabled items', async () => {
-      const actionFn = mock(() => {})
+      const actionFn = vi.fn(() => {})
       const items = [
         { label: 'Disabled Item', action: actionFn, disabled: true }
       ]

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
@@ -229,7 +229,7 @@ describe('SequenceEditor keyboard', () => {
     }
 
     it('opens insert modal with clipboard content on Ctrl+V', async () => {
-      const restore = mockClipboard(mock(() => Promise.resolve('GATTACA')))
+      const restore = mockClipboard(vi.fn(() => Promise.resolve('GATTACA')))
 
       const wrapper = mount(SequenceEditor, {
         props: { initialZoom: 100 }
@@ -254,7 +254,7 @@ describe('SequenceEditor keyboard', () => {
     })
 
     it('does nothing when readonly', async () => {
-      const mockReadText = mock(() => Promise.resolve('GATTACA'))
+      const mockReadText = vi.fn(() => Promise.resolve('GATTACA'))
       const restore = mockClipboard(mockReadText)
 
       const wrapper = mount(SequenceEditor, {
@@ -277,8 +277,8 @@ describe('SequenceEditor keyboard', () => {
 
     it('handles clipboard read error gracefully', async () => {
       const originalConsoleWarn = console.warn
-      console.warn = mock(() => {})
-      const restore = mockClipboard(mock(() => Promise.reject(new Error('Clipboard access denied'))))
+      console.warn = vi.fn(() => {})
+      const restore = mockClipboard(vi.fn(() => Promise.reject(new Error('Clipboard access denied'))))
 
       const wrapper = mount(SequenceEditor, {
         props: { initialZoom: 100 }
@@ -305,7 +305,7 @@ describe('SequenceEditor keyboard', () => {
     })
 
     it('does nothing when clipboard is empty', async () => {
-      const restore = mockClipboard(mock(() => Promise.resolve('')))
+      const restore = mockClipboard(vi.fn(() => Promise.resolve('')))
 
       const wrapper = mount(SequenceEditor, {
         props: { initialZoom: 100 }
@@ -329,7 +329,7 @@ describe('SequenceEditor keyboard', () => {
     })
 
     it('works with Cmd+V on Mac', async () => {
-      const restore = mockClipboard(mock(() => Promise.resolve('ACGT')))
+      const restore = mockClipboard(vi.fn(() => Promise.resolve('ACGT')))
 
       const wrapper = mount(SequenceEditor, {
         props: { initialZoom: 100 }
@@ -354,7 +354,7 @@ describe('SequenceEditor keyboard', () => {
     })
 
     it('opens in replace mode when there is a selection', async () => {
-      const restore = mockClipboard(mock(() => Promise.resolve('GATTACA')))
+      const restore = mockClipboard(vi.fn(() => Promise.resolve('GATTACA')))
 
       const wrapper = mount(SequenceEditor, {
         props: { initialZoom: 100 }
