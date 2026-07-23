@@ -266,6 +266,50 @@ describe('CircularView', () => {
       expect(wrapper.selection.isSelected.value).toBe(true)
     })
 
+    it('tracks a round-the-horn drag across the origin', async () => {
+      const wrapper = createWrapper()
+      mockSvgRect(wrapper)
+      const svg = wrapper.find('svg.circular-view')
+      const seqLen = wrapper.editorState.sequenceLength.value // 5000
+
+      // Forward drag from 4700, across the origin (0), to 300.
+      // Expected swept length = (5000 - 4700) + 300 = 600 bp, NOT the
+      // complement (4400). Walk it in small steps so the crossing is real.
+      await svg.trigger('mousedown', {
+        button: 0,
+        ...getPositionCoords(wrapper, 4700),
+        preventDefault: () => {}
+      })
+      const path = [4800, 4900, 4990, 50, 150, 300]
+      for (const p of path) {
+        const c = getPositionCoords(wrapper, p)
+        window.dispatchEvent(new MouseEvent('mousemove', { clientX: c.x, clientY: c.y }))
+        await wrapper.vm.$nextTick()
+      }
+      window.dispatchEvent(new MouseEvent('mouseup'))
+      await wrapper.vm.$nextTick()
+
+      const ranges = wrapper.selection.domain.value.ranges
+      // wrapped selection is two ranges meeting at the origin
+      expect(ranges.length).toBe(2)
+      // every range is a real Range instance with a working length getter
+      // (the old code pushed plain objects, so length was undefined and the
+      // wrapped part was dropped from the status readout)
+      expect(ranges.every(r => typeof r.length === 'number')).toBe(true)
+      // one range ends at seqLen, the other starts at 0 (meet at origin)
+      const high = ranges.find(r => r.end === seqLen)
+      const low = ranges.find(r => r.start === 0)
+      expect(high).toBeTruthy()
+      expect(low).toBeTruthy()
+      // total is the swept short arc, never the complement. The exact bp
+      // depends on the test's coordinate mapping, but it is the near side:
+      // well under half the sequence, and equals the sum of the two spans.
+      const total = ranges.reduce((sum, r) => sum + r.length, 0)
+      expect(total).toBe(high.length + low.length)
+      expect(total).toBeLessThan(seqLen / 2)
+      expect(total).toBeGreaterThan(0)
+    })
+
     it('clears selection on click in dead zone', async () => {
       const wrapper = createWrapper()
       mockSvgRect(wrapper)

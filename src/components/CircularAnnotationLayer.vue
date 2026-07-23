@@ -26,7 +26,7 @@ const circularGraphics = inject('circularGraphics')
 const annotationColors = inject('annotationColors', null)
 const eventBus = inject('eventBus', null)
 
-// Context-menu service + annotation actions (provided by CircularEditor)
+// Context-menu service + annotation actions (provided by CircularView)
 const contextMenu = inject('contextMenu', null)
 const annotationMenuActions = inject('annotationMenuActions', null)
 const annotationContributor = {

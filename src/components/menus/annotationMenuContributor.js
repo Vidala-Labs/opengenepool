@@ -17,7 +17,7 @@ import { isAnnotationHidden } from '../../utils/annotation.js'
  * `context.mode` is the display surface that was clicked:
  *   'linear' | 'circular' | 'target' | 'query'   (mutually exclusive)
  *   - 'linear'   single-sequence linear display (SequenceEditor)
- *   - 'circular' circular display (CircularEditor)
+ *   - 'circular' circular display (CircularView)
  *   - 'target' / 'query' the two rows of the alignment display (AlignmentEditor)
  *   NOTE: 'target' is *conceptually* linear, but it is NEVER part of a plain
  *   linear sequence display — it appears ONLY in the alignment display (likewise

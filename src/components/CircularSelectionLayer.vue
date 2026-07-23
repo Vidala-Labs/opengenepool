@@ -19,7 +19,7 @@ const editorState = inject('editorState')
 const circularGraphics = inject('circularGraphics')
 const selection = inject('selection')
 
-// Context-menu service + selection actions (provided by CircularEditor)
+// Context-menu service + selection actions (provided by CircularView)
 const contextMenu = inject('contextMenu', null)
 const selectionMenuActions = inject('selectionMenuActions', null)
 const selectionContributor = {
