@@ -1,6 +1,9 @@
 <script setup>
 import { computed, inject, ref, provide } from 'vue'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
+import { SelectionDomain } from '../composables/useSelection.js'
+import { Range } from '../utils/dna.js'
+import { circularDragOffset, offsetToSegments } from '../utils/circular.js'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
 import CircularSelectionLayer from './CircularSelectionLayer.vue'
 
@@ -77,7 +80,11 @@ const lengthPosition = computed(() => ({
 const isDragging = ref(false)
 const dragStart = ref(null)
 const lastDragPos = ref(null)
-const isWrapped = ref(false)
+// Cumulative signed arc swept since mousedown (see circularDragOffset). Its
+// magnitude is the true selection length even when the drag rounds the horn.
+const dragOffset = ref(0)
+// Ranges from earlier ctrl-selections, preserved while the active range drags.
+const dragBaseRanges = ref([])
 
 function handleMouseDown(event) {
   const coords = getCoordsFromEvent(event)
@@ -104,7 +111,7 @@ function handleMouseDown(event) {
   isDragging.value = true
   dragStart.value = pos
   lastDragPos.value = pos
-  isWrapped.value = false
+  dragOffset.value = 0
 
   // Shift-click extends selection (circular mode - closes gaps, no directional extend for multi-range)
   if (event.shiftKey && selection.isSelected.value) {
@@ -112,8 +119,11 @@ function handleMouseDown(event) {
     return
   }
 
-  // Start a new selection (or add range with Ctrl)
+  // Start a new selection (or add range with Ctrl). startSelection appends a
+  // single cursor range at the tail; everything before it is a prior
+  // ctrl-selection we hold fixed while the active (last) range drags.
   selection.startSelection(pos, event.ctrlKey)
+  dragBaseRanges.value = selection.domain.value.ranges.slice(0, -1)
 
   window.addEventListener('mousemove', handleMouseMove)
   window.addEventListener('mouseup', handleMouseUp)
@@ -128,84 +138,33 @@ function handleMouseMove(event) {
   const seqLen = editorState.sequenceLength.value
   const anchor = selection.anchor.value
 
-  // Detect origin crossing: if position jumps by more than half the sequence
+  // Integrate the pointer motion into a cumulative signed arc. This tracks the
+  // true swept length across the origin without guessing at a crossing from a
+  // single frame's jump (the old heuristic false-triggered on fast drags and
+  // missed slow crossings, leaving stale plain-object ranges the status box
+  // could not read).
   if (lastDragPos.value !== null) {
-    const delta = pos - lastDragPos.value
-    if (Math.abs(delta) > seqLen / 2) {
-      // We crossed the origin - toggle wrapped state
-      isWrapped.value = !isWrapped.value
-
-      const ranges = selection.domain.value.ranges
-      const currentRange = ranges[ranges.length - 1]
-      const originalOrientation = currentRange.orientation || 1
-
-      if (isWrapped.value) {
-        // Create second range for the wrap
-        const wentClockwise = delta < 0
-
-        if (wentClockwise) {
-          // Selection goes from anchor clockwise past origin to pos
-          // Range 1: anchor to seqLen, Range 2: 0 to pos
-          currentRange.start = anchor
-          currentRange.end = seqLen
-          currentRange.orientation = originalOrientation
-
-          ranges.push({
-            start: 0,
-            end: pos,
-            orientation: originalOrientation
-          })
-        } else {
-          // Selection goes from anchor counter-clockwise past origin to pos
-          // Range 1: 0 to anchor, Range 2: pos to seqLen
-          currentRange.start = 0
-          currentRange.end = anchor
-          currentRange.orientation = originalOrientation
-
-          ranges.push({
-            start: pos,
-            end: seqLen,
-            orientation: originalOrientation
-          })
-        }
-      } else {
-        // Unwrap: remove the second range
-        if (ranges.length > 1) {
-          ranges.pop()
-        }
-      }
-    }
+    dragOffset.value = circularDragOffset(dragOffset.value, lastDragPos.value, pos, seqLen)
   }
-
   lastDragPos.value = pos
 
-  // Update range(s) based on wrapped state
-  if (isWrapped.value && selection.domain.value.ranges.length > 1) {
-    const ranges = selection.domain.value.ranges
-    const primaryRange = ranges[ranges.length - 2]
-    const secondRange = ranges[ranges.length - 1]
+  // A zero offset is a bare cursor; leave the cursor range as-is.
+  if (dragOffset.value === 0) return
 
-    // Determine which direction we wrapped and update accordingly
-    if (primaryRange.end === seqLen) {
-      // Clockwise wrap: primary is anchor..seqLen, secondary is 0..pos
-      secondRange.end = pos
-    } else if (primaryRange.start === 0) {
-      // Counter-clockwise wrap: primary is 0..anchor, secondary is pos..seqLen
-      secondRange.start = pos
-    }
-
-    // Trigger reactivity
-    selection.domain.value = selection.domain.value
-  } else {
-    // Non-wrapped: use standard selection update
-    selection.updateSelection(pos)
-  }
+  // Rebuild the active selection from the swept arc (real Range instances so
+  // downstream length/status readouts work), restoring any prior ctrl-selected
+  // ranges ahead of it.
+  const segments = offsetToSegments(anchor, dragOffset.value, seqLen).map(
+    (seg) => new Range(seg.start, seg.end, seg.orientation)
+  )
+  selection.domain.value = new SelectionDomain([...dragBaseRanges.value, ...segments])
 }
 
 function handleMouseUp() {
   isDragging.value = false
   lastDragPos.value = null
-  isWrapped.value = false
+  dragOffset.value = 0
+  dragBaseRanges.value = []
   window.removeEventListener('mousemove', handleMouseMove)
   window.removeEventListener('mouseup', handleMouseUp)
 
