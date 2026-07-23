@@ -4,7 +4,9 @@ import {
   angleToPosition,
   polarToCartesian,
   getArcPath,
-  normalizeAngle
+  normalizeAngle,
+  circularDragOffset,
+  offsetToSegments
 } from './circular.js'
 
 describe('circular utilities', () => {
@@ -152,6 +154,93 @@ describe('circular utilities', () => {
     it('handles zero-length arc (returns empty string)', () => {
       const path = getArcPath(100, 100, seqLen, cx, cy, radius, thickness)
       expect(path).toBe('')
+    })
+  })
+
+  // A round-the-horn selection is a circular drag that carries the pointer
+  // past the origin (position 0). The old drag handler inferred the crossing
+  // from a single frame's jump (|Δpos| > seqLen/2), which both false-triggers
+  // on a fast non-crossing drag and misses a slow crossing, leaving the
+  // reported length as the *complement* arc. These helpers integrate the drag
+  // as a cumulative signed offset so the length is always the arc actually
+  // swept, independent of frame rate.
+  describe('circularDragOffset', () => {
+    const seqLen = 1000
+
+    it('accumulates a forward drag as a positive offset', () => {
+      // anchor at 100, pointer walks 100 -> 150 -> 200
+      let offset = 0
+      offset = circularDragOffset(offset, 100, 150, seqLen)
+      offset = circularDragOffset(offset, 150, 200, seqLen)
+      expect(offset).toBe(100)
+    })
+
+    it('accumulates a backward drag as a negative offset', () => {
+      let offset = 0
+      offset = circularDragOffset(offset, 100, 50, seqLen)
+      offset = circularDragOffset(offset, 50, 0, seqLen)
+      expect(offset).toBe(-100)
+    })
+
+    it('treats each frame as the shortest step across the origin', () => {
+      // Forward drag crossing the origin: 950 -> 990 -> 30. The 990 -> 30
+      // step is +40 (the short way), NOT -960.
+      let offset = 0
+      offset = circularDragOffset(offset, 950, 990, seqLen)
+      offset = circularDragOffset(offset, 990, 30, seqLen)
+      expect(offset).toBe(80) // 950->990 (+40), 990->30 (+40)
+    })
+
+    it('does not false-trigger a wrap on a fast forward frame', () => {
+      // A single fast frame of just under half the circle is still forward,
+      // not a wrap: 100 -> 590 is +490, not -510.
+      const offset = circularDragOffset(0, 100, 590, seqLen)
+      expect(offset).toBe(490)
+    })
+  })
+
+  describe('offsetToSegments', () => {
+    const seqLen = 1000
+
+    it('forward, no wrap: single plus-strand segment', () => {
+      const segs = offsetToSegments(100, 150, seqLen)
+      expect(segs).toEqual([{ start: 100, end: 250, orientation: 1 }])
+    })
+
+    it('backward, no wrap: single minus-strand segment', () => {
+      const segs = offsetToSegments(300, -150, seqLen)
+      expect(segs).toEqual([{ start: 150, end: 300, orientation: -1 }])
+    })
+
+    it('forward across the origin: high segment first, then low', () => {
+      // anchor 900, +200 -> covers 900..1000 and 0..100
+      const segs = offsetToSegments(900, 200, seqLen)
+      expect(segs).toEqual([
+        { start: 900, end: 1000, orientation: 1 },
+        { start: 0, end: 100, orientation: 1 }
+      ])
+    })
+
+    it('backward across the origin: low segment first, then high', () => {
+      // anchor 100, -200 -> covers 0..100 and 900..1000
+      const segs = offsetToSegments(100, -200, seqLen)
+      expect(segs).toEqual([
+        { start: 0, end: 100, orientation: -1 },
+        { start: 900, end: 1000, orientation: -1 }
+      ])
+    })
+
+    it('total length equals the magnitude of the offset (the swept arc)', () => {
+      const segs = offsetToSegments(900, 200, seqLen)
+      const total = segs.reduce((sum, s) => sum + (s.end - s.start), 0)
+      expect(total).toBe(200)
+    })
+
+    it('total length of a round-the-horn selection is never the complement', () => {
+      // The bug: a 200 bp round-the-horn selection reported 800 bp (complement).
+      const segs = offsetToSegments(900, 200, seqLen)
+      const total = segs.reduce((sum, s) => sum + (s.end - s.start), 0)
+      expect(total).not.toBe(seqLen - 200)
     })
   })
 })

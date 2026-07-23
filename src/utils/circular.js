@@ -312,6 +312,81 @@ export function getAngularSpan(startPos, endPos, sequenceLength) {
 }
 
 /**
+ * Integrate one frame of a circular drag into a cumulative signed offset.
+ *
+ * Pointer positions on a circle wrap to `[0, sequenceLength)`, so the raw
+ * position alone cannot tell a forward drag past the origin from a backward
+ * one. Instead we accumulate the *shortest step* between the previous and
+ * current position each frame: a step is normalized to
+ * `(-sequenceLength/2, sequenceLength/2]`, so crossing the origin is just a
+ * small step of the correct sign and never a near-full-circle jump. The
+ * running sum is the signed arc swept from the anchor (positive = clockwise/
+ * plus strand, negative = counter-clockwise/minus strand), and its magnitude
+ * is the true selection length — no origin-crossing heuristic required.
+ *
+ * @param {number} prevOffset - Cumulative offset so far
+ * @param {number} prevPos - Previous pointer position (0..sequenceLength)
+ * @param {number} pos - Current pointer position (0..sequenceLength)
+ * @param {number} sequenceLength - Total sequence length
+ * @returns {number} New cumulative signed offset
+ */
+export function circularDragOffset(prevOffset, prevPos, pos, sequenceLength) {
+  let step = pos - prevPos
+  const half = sequenceLength / 2
+  if (step > half) {
+    step -= sequenceLength
+  } else if (step < -half) {
+    step += sequenceLength
+  }
+  return prevOffset + step
+}
+
+/**
+ * Convert an anchor and a cumulative signed drag offset into ordered segment
+ * descriptors, splitting into two segments when the selection crosses the
+ * origin (a round-the-horn selection).
+ *
+ * Segment order follows biological reading order for cut/paste:
+ * - Forward (offset >= 0): high segment (X..seqLen) first, then low (0..Y).
+ * - Backward (offset < 0): low segment (0..Y) first, then high (X..seqLen).
+ *
+ * The magnitude of the offset is clamped to the sequence length (a selection
+ * cannot exceed the whole plasmid). Each descriptor is a plain object
+ * `{start, end, orientation}`; callers turn these into `Range` instances.
+ *
+ * @param {number} anchor - Drag anchor position (mousedown)
+ * @param {number} offset - Cumulative signed offset from circularDragOffset
+ * @param {number} sequenceLength - Total sequence length
+ * @returns {Array<{start: number, end: number, orientation: number}>}
+ */
+export function offsetToSegments(anchor, offset, sequenceLength) {
+  const orientation = offset >= 0 ? 1 : -1
+  const magnitude = Math.min(Math.abs(offset), sequenceLength)
+
+  if (orientation === 1) {
+    const end = anchor + magnitude
+    if (end <= sequenceLength) {
+      return [{ start: anchor, end, orientation }]
+    }
+    // Wrapped forward across the origin: high segment first, then low.
+    return [
+      { start: anchor, end: sequenceLength, orientation },
+      { start: 0, end: end - sequenceLength, orientation }
+    ]
+  }
+
+  const start = anchor - magnitude
+  if (start >= 0) {
+    return [{ start, end: anchor, orientation }]
+  }
+  // Wrapped backward across the origin: low segment first, then high.
+  return [
+    { start: 0, end: anchor, orientation },
+    { start: sequenceLength + start, end: sequenceLength, orientation }
+  ]
+}
+
+/**
  * Convert mouse coordinates to sequence position on the circle.
  *
  * @param {number} mouseX - Mouse x coordinate
