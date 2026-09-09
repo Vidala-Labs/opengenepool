@@ -181,7 +181,7 @@ defineExpose({
 
     <g
       v-for="(element, idx) in annotationElements"
-      :key="`ann-${element.annotation.id || idx}`"
+      :key="`ann-${element.annotation.id || idx}-${element.range.start}-${element.range.end}`"
       class="annotation"
       data-layer="circular-annotation"
       :data-annotation-id="element.annotation?.id"
