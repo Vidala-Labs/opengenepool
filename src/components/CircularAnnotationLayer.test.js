@@ -140,6 +140,31 @@ describe('CircularAnnotationLayer', () => {
       expect(wrapper.findAll('.annotation')).toHaveLength(1)
     })
 
+    it('keeps one arc per range of a multi-segment annotation across a type toggle', async () => {
+      // Regression: per-range <g> keyed by bare annotation id collided across
+      // ranges. Vue's keyed diff only maps keys for the unsynced middle of the
+      // list, so with both ranges bracketed by elements of a toggled type, each
+      // re-patch orphaned one stale node in the DOM.
+      const { hiddenTypes } = await import('./AnnotationLayer.vue')
+      const annotations = [
+        new Annotation({ id: 'src-a', type: 'source', span: ezSpan(100, 200) }),
+        new Annotation({ id: 'split', type: 'CDS', span: new Span([new Range(300, 400), new Range(500, 600)]) }),
+        new Annotation({ id: 'src-b', type: 'source', span: ezSpan(700, 800) })
+      ]
+      const wrapper = mountWithProviders({ annotations }, { sequenceLength: 1000 })
+      const splitArcs = () => wrapper.findAll('.annotation[data-annotation-id="split"]')
+      expect(splitArcs()).toHaveLength(2)
+
+      for (let i = 0; i < 3; i++) {
+        hiddenTypes.value = new Set(['source'])
+        await wrapper.vm.$nextTick()
+        hiddenTypes.value = new Set()
+        await wrapper.vm.$nextTick()
+      }
+
+      expect(splitArcs()).toHaveLength(2)
+    })
+
     it('reveals hidden annotations when showHiddenAnnotations is on', async () => {
       const { showHiddenAnnotations } = await import('./AnnotationLayer.vue')
       const annotations = [
