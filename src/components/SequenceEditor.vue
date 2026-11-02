@@ -1204,11 +1204,7 @@ function handleExtendSubmit(bases) {
       range.start = 0  // Current range now starts at 0
 
       // Add wrapped range at end of sequence
-      domain.ranges.push({
-        start: seqLen - overflow,
-        end: seqLen,
-        orientation: range.orientation
-      })
+      domain.ranges.push(new Range(seqLen - overflow, seqLen, range.orientation))
     } else {
       range.start = Math.max(0, newStart)
     }
@@ -1222,11 +1218,7 @@ function handleExtendSubmit(bases) {
       range.end = seqLen  // Current range now ends at seqLen
 
       // Add wrapped range at start of sequence
-      domain.ranges.push({
-        start: 0,
-        end: overflow,
-        orientation: range.orientation
-      })
+      domain.ranges.push(new Range(0, overflow, range.orientation))
     } else {
       range.end = Math.min(seqLen, newEnd)
     }

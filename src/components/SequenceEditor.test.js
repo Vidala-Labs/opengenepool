@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { markRaw } from 'vue'
 import SequenceEditor from './SequenceEditor.vue'
+import ExtendModal from './ExtendModal.vue'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range, Orientation } from '../utils/dna.js'
@@ -189,6 +190,23 @@ describe('SequenceEditor', () => {
   })
 
   describe('selection', () => {
+    it('keeps a circularly extended selection segment as a Range', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { sequence: createDoc('A'.repeat(2686), [], true) }
+      })
+      await wrapper.vm.$nextTick()
+
+      wrapper.vm.setSelection([new Range(2499, 2600, Orientation.PLUS)])
+      wrapper.findComponent(ExtendModal).vm.$emit('submit', 100)
+      await wrapper.vm.$nextTick()
+
+      const ranges = wrapper.vm.selection.domain.value.ranges
+      expect(ranges).toHaveLength(2)
+      expect(ranges.every(range => range instanceof Range)).toBe(true)
+      expect(ranges.map(range => range.length)).toEqual([187, 14])
+      expect(ranges.map(range => [range.start, range.end])).toEqual([[2499, 2686], [0, 14]])
+    })
+
     it('getSelection returns null initially', () => {
       const wrapper = mount(SequenceEditor)
       expect(wrapper.vm.getSelection()).toBe(null)
