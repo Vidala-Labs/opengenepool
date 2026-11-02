@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, computed, nextTick } from 'vue'
 import AnnotationLayer, { __resetModuleState, allAnnotationTypes } from './AnnotationLayer.vue'
@@ -658,6 +658,25 @@ describe('coordination with TranslationLayer', () => {
   })
 
   describe('configItems', () => {
+    it('removes type filters that are no longer present in the annotation list', async () => {
+      const wrapper = mountWithProviders({
+        annotations: [
+          new Annotation({ id: 'g1', type: 'gene', span: ezSpan(0, 20) }),
+          new Annotation({ id: 'p1', type: 'promoter', span: ezSpan(30, 50) })
+        ]
+      })
+      await nextTick()
+      expect(allAnnotationTypes.value.has('promoter')).toBe(true)
+
+      await wrapper.setProps({
+        annotations: [new Annotation({ id: 'g1', type: 'gene', span: ezSpan(0, 20) })]
+      })
+      await nextTick()
+
+      expect(allAnnotationTypes.value.has('promoter')).toBe(false)
+      wrapper.unmount()
+    })
+
     it('allAnnotationTypes updates reactively when second instance mounts', async () => {
       // This test verifies the Set reactivity fix:
       // When mutating a Set with .add(), Vue doesn't detect the change.
@@ -678,8 +697,6 @@ describe('coordination with TranslationLayer', () => {
 
       // allAnnotationTypes should have CDS
       expect(allAnnotationTypes.value.has('CDS')).toBe(true)
-      const sizeAfterFirst = allAnnotationTypes.value.size
-
       // Mount second instance with 'promoter' type (different type)
       const wrapper2 = mount(AnnotationLayer, {
         props: {

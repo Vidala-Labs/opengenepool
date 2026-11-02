@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 
 const props = defineProps({
   sequences: {
@@ -21,10 +21,6 @@ const contextMenuY = ref(0)
 const contextMenuSequenceId = ref(null)
 
 const fileInput = ref(null)
-
-const selectedSequence = computed(() =>
-  props.sequences.find(s => s.id === props.selectedId)
-)
 
 function selectSequence(id) {
   emit('select', id)

@@ -1,9 +1,19 @@
 <script setup>
 import { computed, inject, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useCircularAnnotations } from '../composables/useCircularAnnotations.js'
-import { showAnnotations, hiddenTypes, showHiddenAnnotations, allAnnotationTypes, moduleConfigItems } from './AnnotationLayer.vue'
+import {
+  showAnnotations,
+  hiddenTypes,
+  showHiddenAnnotations,
+  moduleConfigItems,
+  setAnnotationTypesForSource,
+  removeAnnotationTypeSource
+} from './AnnotationLayer.vue'
 import { isAnnotationHidden } from '../utils/annotation.js'
 import { annotationMenuItems } from './menus/annotationMenuContributor.js'
+
+const mountedCircularLayers = []
+const circularLayersRevision = ref(0)
 
 const props = defineProps({
   /** Array of Annotation objects to render */
@@ -37,36 +47,29 @@ onMounted(() => contextMenu?.register(annotationContributor))
 onUnmounted(() => contextMenu?.unregister(annotationContributor))
 
 // Track instance for first-instance config items (like AnnotationLayer)
-let isFirstInstance = false
 let instanceId = null
 
 onMounted(() => {
-  // Register this instance and track if it's first
   instanceId = Symbol('circular-annotation-layer')
-  if (!window.__circularAnnotationLayerFirst) {
-    window.__circularAnnotationLayerFirst = instanceId
-    isFirstInstance = true
-  }
-
-  // Register annotation types from our props
-  registerAnnotationTypes()
+  mountedCircularLayers.push(instanceId)
+  circularLayersRevision.value++
 })
 
 onUnmounted(() => {
-  // Clear first instance tracking if we were first
-  if (window.__circularAnnotationLayerFirst === instanceId) {
-    window.__circularAnnotationLayerFirst = null
-  }
+  const index = mountedCircularLayers.indexOf(instanceId)
+  if (index !== -1) mountedCircularLayers.splice(index, 1)
+  circularLayersRevision.value++
+  removeAnnotationTypeSource(annotationTypeSource)
 })
 
-// Register annotation types in the shared allAnnotationTypes set
-function registerAnnotationTypes() {
-  const types = new Set(props.annotations.map(a => a.type || 'misc_feature'))
-  types.forEach(t => allAnnotationTypes.value.add(t))
-}
-
-// Watch for annotation changes and register new types
-watch(() => props.annotations, registerAnnotationTypes, { deep: true })
+// Keep the shared type filter in sync with current annotations without deeply
+// traversing spans and metadata.
+const annotationTypeSource = Symbol('circular-annotation-layer-types')
+watch(
+  () => props.annotations.map(annotation => annotation.type || 'misc_feature'),
+  types => setAnnotationTypesForSource(annotationTypeSource, types),
+  { immediate: true }
+)
 
 // Filter annotations based on hiddenTypes and per-annotation ogp:hidden
 // (visibility state shared with AnnotationLayer)
@@ -86,10 +89,14 @@ const circularAnnotations = useCircularAnnotations(
   { annotationColors }
 )
 
-// Sync filtered annotations to composable
-// Using a computed that updates the composable when filtered annotations change
+// Sync filtered annotations when their inputs change. Keep this side effect out
+// of the rendering computed below so unrelated render dependencies (such as
+// annotation colors) don't repeatedly reset the composable's annotation state.
+watch(filteredAnnotations, annotations => {
+  circularAnnotations.setAnnotations(annotations)
+}, { immediate: true })
+
 const annotationElements = computed(() => {
-  circularAnnotations.setAnnotations(filteredAnnotations.value)
   return circularAnnotations.getElements.value
 })
 
@@ -155,7 +162,8 @@ function handleClickForElement(dataset, event) {
 // Config items for Toolbar (shared with AnnotationLayer)
 // Only provide if we're the first instance to avoid duplicates
 const configItems = computed(() => {
-  if (!isFirstInstance) return []
+  circularLayersRevision.value
+  if (mountedCircularLayers[0] !== instanceId) return []
   return moduleConfigItems.value
 })
 

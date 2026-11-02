@@ -1,6 +1,5 @@
 <script setup>
 import { inject, computed, ref, onMounted, onUnmounted } from 'vue'
-import { Range } from '../utils/dna.js'
 import { sequenceMenuItems } from './menus/sequenceMenuContributor.js'
 
 const props = defineProps({
@@ -73,7 +72,14 @@ const sequenceContributor = {
   )
 }
 onMounted(() => contextMenu?.register(sequenceContributor))
-onUnmounted(() => contextMenu?.unregister(sequenceContributor))
+onUnmounted(() => {
+  contextMenu?.unregister(sequenceContributor)
+  window.removeEventListener('mousemove', handleMouseMove)
+  window.removeEventListener('mouseup', handleMouseUp)
+  if (isDragging.value) selection.endSelection()
+  isDragging.value = false
+  dragStart.value = null
+})
 // Inject alignment line positioning function and lines (provided by AlignmentEditor)
 const getAlignmentLineY = inject('getAlignmentLineY', null)
 const injectedAlignmentLines = inject('alignmentLines', null)
@@ -353,7 +359,7 @@ function handleContextMenu(event, lineIndex) {
  * @param {MouseEvent} event - The click event
  * @returns {boolean} True if the click was handled
  */
-function handleClickForElement(dataset, event) {
+function handleClickForElement(dataset, _event) {
   if (dataset.layer !== 'sequence') return false
 
   // In alignment mode, only handle if the element's mode matches this layer's mode

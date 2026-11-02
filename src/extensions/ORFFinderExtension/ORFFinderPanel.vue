@@ -1,7 +1,7 @@
 <script setup>
 import { ref, inject, computed, watch } from 'vue'
 import { orfFinderVisible } from './state.js'
-import { CODON_TABLE, START_CODONS } from '../../utils/translation.js'
+import { START_CODONS } from '../../utils/translation.js'
 import { reverseComplement, Span, Range, Orientation } from '../../utils/dna.js'
 
 const extensionAPI = inject('extensionAPI')
@@ -96,14 +96,12 @@ function findORFsInFrame(sequence, frame, strand, isCircular) {
     if (START_CODONS.has(codon)) {
       const orfStart = i % seqLen
       let j = i + 3
-      let foundStop = false
 
       // Continue until stop codon
       while (j + 3 <= scanLen) {
         const nextCodon = extendedSeq.slice(j, j + 3).toUpperCase()
 
         if (STOP_CODONS.has(nextCodon)) {
-          foundStop = true
           const orfEnd = (j + 3) % seqLen || seqLen // handle wraparound
           const aaLength = (j - i) / 3
 

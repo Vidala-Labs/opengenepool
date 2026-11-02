@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref, nextTick, watch } from 'vue'
+import { nextTick } from 'vue'
 import SearchPanel from './SearchPanel.vue'
 import { searchVisible } from './state.js'
 import { Span, Range } from '../../utils/dna.js'

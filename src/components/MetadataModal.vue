@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { TrashIcon, PencilIcon, PlusIcon, ArrowUpIcon, ArrowDownIcon, CheckIcon } from '@heroicons/vue/20/solid'
+import { ref, computed, watch, toRaw } from 'vue'
+import { TrashIcon, PencilIcon, PlusIcon, ArrowUpIcon, ArrowDownIcon } from '@heroicons/vue/20/solid'
 
 const props = defineProps({
   open: {
@@ -47,10 +47,16 @@ const effectiveBackend = computed(() => props.readonly ? null : props.backend)
 
 // Initialize localMetadata from props
 watch(() => props.metadata, (newMetadata) => {
-  if (newMetadata && !editMode.value) {
-    localMetadata.value = JSON.parse(JSON.stringify(newMetadata))
+  if (!editMode.value) {
+    localMetadata.value = cloneMetadata(newMetadata)
   }
 }, { immediate: true, deep: true })
+
+// Metadata is application data, not necessarily JSON-only. structuredClone
+// preserves values such as undefined, Date, Map, and cyclic references.
+function cloneMetadata(value) {
+  return value == null ? value : structuredClone(toRaw(value))
+}
 
 // Optional fields visible in edit form (exist in editMetadata)
 const visibleOptionalFields = computed(() => {
@@ -114,13 +120,15 @@ function saveEditingReference() {
 
 function close() {
   editMode.value = false
+  editMetadata.value = null
   editingReferenceIndex.value = null
+  localMetadata.value = cloneMetadata(props.metadata)
   emit('close')
 }
 
 function enterEditMode() {
   // Copy localMetadata into edit state
-  editMetadata.value = JSON.parse(JSON.stringify(localMetadata.value || {}))
+  editMetadata.value = cloneMetadata(localMetadata.value || {})
 
   // Ensure required fields exist
   editMetadata.value.molecule_type = editMetadata.value.molecule_type || ''
@@ -135,6 +143,7 @@ function cancelEdit() {
   editMetadata.value = null
   editMode.value = false
   editingReferenceIndex.value = null
+  localMetadata.value = cloneMetadata(props.metadata)
 }
 
 function save() {
@@ -146,7 +155,7 @@ function save() {
   }
 
   // Update localMetadata with the changes
-  localMetadata.value = JSON.parse(JSON.stringify(editMetadata.value))
+  localMetadata.value = cloneMetadata(editMetadata.value)
 
   // Send full metadata to backend
   const editId = crypto.randomUUID()

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Span, Range, Orientation } from '../utils/dna.js'
 import { createIndexedDbBackend } from './indexedDbBackend.js'
 
@@ -251,6 +251,28 @@ describe('indexedDbBackend operation serialization (lost-update races)', () => {
     await settle()
 
     expect(store.record().content).toBe('AAGGGG')
+  })
+
+  it('keeps persisted annotation coordinates in sync with sequence edits', async () => {
+    const store = makeFakeStore({
+      id: 'seq1',
+      content: 'ABCDEFGH',
+      title: '',
+      annotations: [{ id: 'gene', span: '4..6' }],
+      metadata: {}
+    })
+    const backend = createIndexedDbBackend('seq1', { store })
+
+    await backend.insert({ position: 2, text: 'X' })
+    const afterInsert = await backend.load()
+    expect(afterInsert.annotations[0].span.ranges[0].start).toBe(5)
+    expect(afterInsert.annotations[0].span.ranges[0].end).toBe(7)
+
+    await backend.delete({ start: 1, end: 2 })
+
+    const loaded = await backend.load()
+    expect(loaded.annotations[0].span.ranges[0].start).toBe(4)
+    expect(loaded.annotations[0].span.ranges[0].end).toBe(6)
   })
 })
 

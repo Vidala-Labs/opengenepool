@@ -1,9 +1,10 @@
 <script setup>
-import { computed, inject, ref, provide } from 'vue'
+import { computed, inject, ref, provide, onUnmounted } from 'vue'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
 import { SelectionDomain } from '../composables/useSelection.js'
 import { Range } from '../utils/dna.js'
 import { circularDragOffset, offsetToSegments } from '../utils/circular.js'
+import { collectLayerConfigItems } from '../utils/editor.js'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
 import CircularSelectionLayer from './CircularSelectionLayer.vue'
 
@@ -36,9 +37,7 @@ const emit = defineEmits([
 
 // Inject from parent SequenceEditor
 const editorState = inject('editorState')
-const eventBus = inject('eventBus', null)
 const selection = inject('selection')
-const annotationColors = inject('annotationColors', null)
 
 // Create circular graphics
 const circularGraphics = useCircularGraphics(editorState)
@@ -85,6 +84,20 @@ const lastDragPos = ref(null)
 const dragOffset = ref(0)
 // Ranges from earlier ctrl-selections, preserved while the active range drags.
 const dragBaseRanges = ref([])
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', handleMouseMove)
+  window.removeEventListener('mouseup', handleMouseUp)
+  window.removeEventListener('mousemove', handleZoomDrag)
+  window.removeEventListener('mouseup', handleZoomEnd)
+  window.removeEventListener('mousemove', handleOriginDragMove)
+  window.removeEventListener('mouseup', handleOriginDragEnd)
+
+  if (isDragging.value) selection.endSelection()
+  isDragging.value = false
+  isZooming.value = false
+  isDraggingOrigin.value = false
+})
 
 function handleMouseDown(event) {
   const coords = getCoordsFromEvent(event)
@@ -200,6 +213,8 @@ function getCoordsFromEvent(event) {
   if (!svgRef.value) return null
 
   const rect = svgRef.value.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+
   const vbWidth = circularGraphics.viewBoxWidth.value
   const vbHeight = circularGraphics.viewBoxHeight.value
 
@@ -346,7 +361,7 @@ function handleOriginDragEnd() {
 }
 
 // Config items from annotation layer (for Toolbar)
-const configItems = computed(() => annotationLayerRef.value?.configItems ?? [])
+const configItems = computed(() => collectLayerConfigItems(annotationLayerRef.value))
 
 // Expose for parent
 defineExpose({

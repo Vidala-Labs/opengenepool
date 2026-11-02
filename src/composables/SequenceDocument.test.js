@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SequenceDocument } from './SequenceDocument.js'
 import { Span, Range, Orientation } from '../utils/dna.js'
 import { setUuidGenerator } from '../utils/uuid.js'
@@ -123,6 +123,17 @@ describe('SequenceDocument', () => {
       expect(doc.sequence).toBe('AT')
     })
 
+    it('deletes the union of nested overlapping ranges exactly once', () => {
+      const doc = new SequenceDocument({ sequence: 'ABCDEFGH' })
+      const deleted = doc.delete([
+        { start: 2, end: 6 },
+        { start: 4, end: 5 }
+      ])
+
+      expect(doc.sequence).toBe('ABGH')
+      expect(deleted).toBe('CDEF')
+    })
+
     it('returns empty string for empty ranges', () => {
       const doc = new SequenceDocument({ sequence: 'ATCG' })
       const deleted = doc.delete([])
@@ -172,6 +183,39 @@ describe('SequenceDocument', () => {
       const doc = new SequenceDocument({ sequence: 'ATCGATCG' })
       doc.replace(2, 5, '')
       expect(doc.sequence).toBe('ATTCG')
+    })
+
+    it('handles rejected async backend notifications without leaving them unhandled', () => {
+      const rejectedOperation = () => ({
+        then() {},
+        catch: vi.fn()
+      })
+      const backend = {
+        delete: vi.fn(rejectedOperation),
+        insert: vi.fn(rejectedOperation)
+      }
+      const doc = new SequenceDocument({ sequence: 'ATCG', backend })
+
+      doc.replace(1, 3, 'GG')
+
+      expect(backend.delete.mock.results[0].value.catch).toHaveBeenCalledOnce()
+      expect(backend.insert.mock.results[0].value.catch).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('plain annotation range normalization', () => {
+    it('converts ranges inside a plain span object to Range instances', () => {
+      const doc = new SequenceDocument({
+        sequence: 'ATCG',
+        annotations: [{
+          id: 'plain-span',
+          span: { ranges: [{ start: 1, end: 3, orientation: Orientation.MINUS }] }
+        }]
+      })
+
+      expect(doc.annotations[0].span).toBeInstanceOf(Span)
+      expect(doc.annotations[0].span.ranges[0]).toBeInstanceOf(Range)
+      expect(doc.toJSON().annotations[0].span).toBe('(1..3)')
     })
   })
 

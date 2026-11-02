@@ -1,8 +1,6 @@
-import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import AlignmentEditor from './AlignmentEditor.vue'
-import ConfirmDialog from './ConfirmDialog.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
 

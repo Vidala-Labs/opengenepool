@@ -1,5 +1,4 @@
-import { ref, computed, watch } from 'vue'
-import { Orientation } from '../utils/dna.js'
+import { ref, computed } from 'vue'
 
 /**
  * A fragment represents a portion of a range on a single line.
@@ -324,9 +323,36 @@ export function useGraphics(editorState) {
   // Extra space at top for tooltips (merge button, segment indices) on first line
   const tooltipMargin = 20
 
+  // Cache cumulative line positions. Rendering asks for every line's Y value,
+  // so calculating each one by summing all preceding lines independently made
+  // a full render quadratic in the number of lines.
+  const lineYPositions = computed(() => {
+    const lineCount = Math.max(0, editorState.lineCount.value)
+    const s = settings.value
+    const topMargin = s.linetopmargin || 0
+    const extraHeights = lineExtraHeight.value
+    const positions = new Array(lineCount + 1)
+    let y = s.vmargin + tooltipMargin
+
+    for (let line = 0; line <= lineCount; line++) {
+      y += topMargin + (extraHeights.get(line) || 0)
+      positions[line] = y
+      if (line < lineCount) {
+        y += lineHeight.value + s.linepadding
+      }
+    }
+
+    return positions
+  })
+
   // Get the y position of a line (top of the line content area)
   // This accounts for extra height needed by previous lines' annotations
   function getLineY(lineIndex) {
+    const cached = lineYPositions.value[lineIndex]
+    if (cached !== undefined) return cached
+
+    // Preserve behavior for callers that request a line outside the current
+    // document (normally only the visible document lines use the cached path).
     const s = settings.value
     const topMargin = s.linetopmargin || 0
     let y = s.vmargin + tooltipMargin

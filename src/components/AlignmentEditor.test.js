@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { ref, nextTick } from 'vue'
 import AlignmentEditor from './AlignmentEditor.vue'
 import { STORAGE_KEY } from '../composables/usePersistedZoom.js'
 import { SequenceDocument } from '../composables/SequenceDocument.js'
@@ -86,6 +85,40 @@ describe('AlignmentEditor Component', () => {
     const lines = wrapper.vm.alignmentLines
     expect(lines.length).toBeGreaterThan(0)
     expect(lines[0].matchText).toBe('|||||||||')
+  })
+
+  it('builds per-line annotation heights without rescanning each annotation per line', async () => {
+    const sequence = 'ATCG'.repeat(250)
+    const wrapper = mount(AlignmentEditor, {
+      props: {
+        target: createDoc(sequence, [{
+          id: 'long-gene',
+          type: 'gene',
+          span: new Span([new Range(100, 900, Orientation.PLUS)])
+        }]),
+        query: createDoc(sequence)
+      }
+    })
+
+    await settle(wrapper)
+    const annotation = wrapper.vm.alignedTargetAnnotations[0]
+    let rangesReads = 0
+    const span = annotation.span
+    annotation.span = new Proxy(span, {
+      get(target, property, receiver) {
+        if (property === 'ranges') rangesReads++
+        return Reflect.get(target, property, receiver)
+      }
+    })
+
+    // A zoom change invalidates the height calculation while leaving the
+    // projected annotation list unchanged.
+    wrapper.vm.editorState.zoomLevel.value = 50
+    await wrapper.vm.$nextTick()
+    void wrapper.vm.$.setupState.lineAnnotationHeights
+
+    expect(rangesReads).toBeLessThan(wrapper.vm.alignmentLines.length)
+    wrapper.unmount()
   })
 
   it('runs alignment asynchronously (result is null synchronously, set after settle)', async () => {
@@ -931,7 +964,6 @@ describe('Annotation alignment mapping', () => {
 
     // A forward sequence with a CDS; insert a base so the alignment has a gap.
     const fwd = 'ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATCAGTTACGGATCCGTACGTTAGC'
-    const targetSeq = reverseComplement(fwd) // query (fwd) will align as RC
     // target also has a 1bp deletion relative to fwd so the alignment gaps.
     const targetGapped = reverseComplement(fwd.slice(0, 30) + fwd.slice(31))
 
@@ -1805,8 +1837,6 @@ describe('Delete with different sequences (alignment has gaps)', () => {
     expect(wrapper.vm.selection.source.value).toBe('target')
 
     // Log the selection
-    const domain = wrapper.vm.selection.domain.value
-
     // Delete via confirmDelete (like context menu would)
     wrapper.vm.confirmDelete()
     await settle(wrapper)
@@ -2728,7 +2758,7 @@ describe('Context menu parity with SequenceEditor', () => {
 
       // Mock extension with contextMenuItems
       const mockExtension = {
-        contextMenuItems: (context, api) => {
+        contextMenuItems: (context, _api) => {
           if (context.type === 'selection') {
             return [{ label: 'Mock Extension Action', action: () => {} }]
           }
@@ -2762,13 +2792,6 @@ describe('Context menu parity with SequenceEditor', () => {
 })
 
 describe('TranslationLayer in alignment mode', () => {
-  // Helper to extract transform Y value from a transform string like "translate(0, 30)"
-  function extractTransformY(transformStr) {
-    if (!transformStr) return null
-    const match = transformStr.match(/translate\([^,]+,\s*([^)]+)\)/)
-    return match ? parseFloat(match[1]) : null
-  }
-
   it('renders target translations above target sequence', async () => {
     // Create sequences with a CDS annotation
     const sequence = 'ATGATGATGATGATGATGATGATGATG' // 27bp = 9 codons
@@ -2884,15 +2907,12 @@ describe('TranslationLayer in alignment mode', () => {
 
     const TOP_PADDING = 30
     const lineHeight = wrapper.vm.graphics.lineHeight.value
-    const translationHeight = 18 // Default height prop
-
     // Match line is at TOP_PADDING + lineHeight (within each block)
     const matchLineY = TOP_PADDING + lineHeight
 
     // Query translation renders at yOffset with stackDirection='down',
     // so chevrons span from yOffset to yOffset + translationHeight
     const queryTranslationTop = queryTranslation.props('yOffset')
-    const queryTranslationBottom = queryTranslationTop + translationHeight
 
     // The top of the query translation should be BELOW the match line
     expect(queryTranslationTop).toBeGreaterThan(matchLineY)
@@ -3227,8 +3247,6 @@ describe('AlignmentEditor Translation Spacing', () => {
     await settle(wrapper)
 
     // Find the AnnotationLayer components - they should exist for target and query
-    const annotationLayers = wrapper.findAllComponents({ name: 'AnnotationLayer' })
-
     // At least the query annotation layer should be present (may be 0-2 depending on visibility)
     // The key is that the show-translation binding uses effectiveShowTranslation
     // We verify this by checking the component's source code was updated

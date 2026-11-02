@@ -8,11 +8,11 @@ import { useClipboard } from '../composables/useClipboard.js'
 import { useSelection, SelectionDomain } from '../composables/useSelection.js'
 import { useContextMenu } from '../composables/useContextMenu.js'
 import { useAlignmentRunner } from '../composables/useAlignmentRunner.js'
-import { SequenceDocument } from '../composables/SequenceDocument.js'
 import { SequenceDocumentRC } from '../composables/SequenceDocumentRC.js'
-import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
-import { CODON_TABLE, AA_THREE_LETTER } from '../utils/translation.js'
-import { ANNOTATION_COLORS, OGP_HIDDEN_ATTR } from '../utils/annotation.js'
+import { Span, Range, Orientation, iterateSequence, reverseComplement } from '../utils/dna.js'
+import { CODON_TABLE } from '../utils/translation.js'
+import { rangeToGenBank, getAvailableZooms, measureEditorFont, resizeEditorGraphics, collectLayerConfigItems } from '../utils/editor.js'
+import { OGP_HIDDEN_ATTR } from '../utils/annotation.js'
 import { loadWasm, buildAlignedToOriginalMap, buildReverseCoordinateMap, mapAnnotationThroughAlignment, extractGaps } from '../utils/alignment.js'
 import SelectionLayer from './SelectionLayer.vue'
 import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
@@ -114,20 +114,6 @@ const queryDoc = computed(() =>
 
 // Is the sequence circular? (from target document)
 const isCircular = computed(() => targetDoc.value?.circular ?? false)
-
-// Default Tm calculator - uses built-in SantaLucia 1998 method
-function defaultTmCalculator(sequence) {
-  if (!sequence || sequence.length < 2 || sequence.length > 80) return null
-  const tm = calculateTm(sequence)
-  if (tm === null) return null
-  return `Tm: ${tm}°C`
-}
-
-// Valid DNA bases for input (IUPAC codes)
-const DNA_BASES = new Set([
-  'A', 'T', 'C', 'G', 'N', 'R', 'Y', 'S', 'W', 'K', 'M', 'B', 'D', 'H', 'V',
-  'a', 't', 'c', 'g', 'n', 'r', 'y', 's', 'w', 'k', 'm', 'b', 'd', 'h', 'v'
-])
 
 // Delete confirmation dialog state
 const deleteConfirmVisible = ref(false)
@@ -352,18 +338,6 @@ const queryReverseMap = computed(() => {
   return map
 })
 
-// Inverted maps: aligned position -> original position (for converting selection to annotation)
-function invertCoordinateMap(map) {
-  const inverted = {}
-  for (const [origPos, alignedPos] of Object.entries(map)) {
-    inverted[alignedPos] = Number(origPos)
-  }
-  return inverted
-}
-
-const targetAlignedToOriginal = computed(() => invertCoordinateMap(targetReverseMap.value))
-const queryAlignedToOriginal = computed(() => invertCoordinateMap(queryReverseMap.value))
-
 // Active reverse coordinate map based on selection source
 // This is used by SelectionLayer to convert original positions to aligned positions for rendering
 const activeReverseCoordinateMap = computed(() => {
@@ -466,15 +440,6 @@ const visibleAlignedTargetAnnotations = computed(() => {
 const visibleAlignedQueryAnnotations = computed(() => {
   if (!showAnnotations.value) return []
   return alignedQueryAnnotations.value.filter(ann => !hiddenTypes.value.has(ann.type || 'misc_feature'))
-})
-
-// CDS annotations for translation (filtered by visibility)
-const visibleAlignedTargetCdsAnnotations = computed(() => {
-  return visibleAlignedTargetAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
-})
-
-const visibleAlignedQueryCdsAnnotations = computed(() => {
-  return visibleAlignedQueryAnnotations.value.filter(ann => ann.type?.toUpperCase() === 'CDS')
 })
 
 // ============================================
@@ -690,8 +655,6 @@ function computeAminoAcidChanges(cds, targetStart, targetEnd, targetBases, query
   // Build the full CDS sequence and track position mapping
   // For simplicity, we handle contiguous CDS ranges on the plus strand
   const cdsRanges = [...cds.span.ranges].sort((a, b) => a.start - b.start)
-  const cdsStart = cdsRanges[0].start
-
   // Build a map from target position to CDS-relative position
   const positionToCdsOffset = new Map()
   let cdsOffset = 0
@@ -883,7 +846,6 @@ function findContiguousFeatureRegion(alignedPos, featureType) {
   if (!alignmentResult.value) return { start: alignedPos, end: alignedPos + 1 }
 
   const queryAligned = alignmentResult.value.queryAligned
-  const targetAligned = alignmentResult.value.targetAligned
   const len = queryAligned.length
 
   // Helper to check if position matches the feature type
@@ -981,17 +943,6 @@ function getSelectedAlignmentSequenceText() {
   return text
 }
 
-// Helper to convert a range to GenBank notation (1-based)
-function rangeToGenBank(range) {
-  const start = range.start + 1
-  const end = range.end
-  const baseStr = `${start}..${end}`
-  if (range.orientation === Orientation.MINUS) {
-    return `complement(${baseStr})`
-  }
-  return baseStr
-}
-
 // Computed property for selection status text displayed in lower right corner
 // Only shows selection info - alignment stats should be displayed via #info slot
 const selectionStatusText = computed(() => {
@@ -1068,38 +1019,18 @@ const ANNOTATION_HEIGHT = 18  // Height of a single annotation bar
 const TRANSLATION_HEIGHT = 18  // Height reserved for translation display
 
 /**
- * Compute stacked annotation height for a set of annotations on a given line.
+ * Compute stacked annotation height for ranges already grouped onto one line.
  * Simulates the collision detection/stacking algorithm.
  */
-function computeStackedHeight(annotations, line, zoom, showTrans) {
-  const lineAnnotations = []
-
-  for (const ann of annotations) {
-    if (!ann.span?.ranges) continue
-
-    const isCDS = ann.type?.toUpperCase() === 'CDS'
-    const height = isCDS && showTrans
-      ? ANNOTATION_HEIGHT + TRANSLATION_HEIGHT
-      : ANNOTATION_HEIGHT
-
-    for (const range of ann.span.ranges) {
-      const startLine = Math.floor(range.start / zoom)
-      const endLine = Math.floor((range.end - 1) / zoom)
-
-      if (line >= startLine && line <= endLine) {
-        lineAnnotations.push({ start: range.start, end: range.end, height })
-      }
-    }
-  }
-
+function computeStackedHeight(lineAnnotations) {
   if (lineAnnotations.length === 0) return 0
 
   // Sort by width (widest first) to simulate stacking order
-  lineAnnotations.sort((a, b) => (b.end - b.start) - (a.end - a.start))
+  const sortedAnnotations = [...lineAnnotations].sort((a, b) => (b.end - b.start) - (a.end - a.start))
 
   // Simple overlap detection: count rows needed
   const rows = []
-  for (const ann of lineAnnotations) {
+  for (const ann of sortedAnnotations) {
     let placed = false
     for (let i = 0; i < rows.length; i++) {
       const canFit = rows[i].every(r => r.end <= ann.start || r.start >= ann.end)
@@ -1130,13 +1061,41 @@ const lineAnnotationHeights = computed(() => {
   if (!zoom) return { target: new Map(), query: new Map() }
 
   const numLines = alignmentLines.value.length
-  const targetHeights = new Map()
-  const queryHeights = new Map()
+  const targetByLine = Array.from({ length: numLines }, () => [])
+  const queryByLine = Array.from({ length: numLines }, () => [])
   const showTrans = effectiveShowTranslation.value
 
+  // Read each annotation's ranges once and group their line fragments. The old
+  // per-line scan revisited every annotation (and its ranges) for every line,
+  // even when most annotations were nowhere near that line.
+  function groupAnnotationsByLine(annotations, linesByAnnotation) {
+    for (const ann of annotations) {
+      const ranges = ann.span?.ranges
+      if (!ranges) continue
+
+      const isCDS = ann.type?.toUpperCase() === 'CDS'
+      const height = isCDS && showTrans
+        ? ANNOTATION_HEIGHT + TRANSLATION_HEIGHT
+        : ANNOTATION_HEIGHT
+
+      for (const range of ranges) {
+        const startLine = Math.max(0, Math.floor(range.start / zoom))
+        const endLine = Math.min(numLines - 1, Math.floor((range.end - 1) / zoom))
+        for (let line = startLine; line <= endLine; line++) {
+          linesByAnnotation[line].push({ start: range.start, end: range.end, height })
+        }
+      }
+    }
+  }
+
+  groupAnnotationsByLine(visibleAlignedTargetAnnotations.value, targetByLine)
+  groupAnnotationsByLine(visibleAlignedQueryAnnotations.value, queryByLine)
+
+  const targetHeights = new Map()
+  const queryHeights = new Map()
   for (let line = 0; line < numLines; line++) {
-    targetHeights.set(line, computeStackedHeight(visibleAlignedTargetAnnotations.value, line, zoom, showTrans))
-    queryHeights.set(line, computeStackedHeight(visibleAlignedQueryAnnotations.value, line, zoom, showTrans))
+    targetHeights.set(line, computeStackedHeight(targetByLine[line]))
+    queryHeights.set(line, computeStackedHeight(queryByLine[line]))
   }
 
   return { target: targetHeights, query: queryHeights }
@@ -1394,26 +1353,15 @@ const queryTranslationLayerRef = ref(null)
 const alignmentTicksLayerRef = ref(null)
 
 // Collect config items from layer refs (for dynamic config panel)
-const collectedConfigItems = computed(() => [
-  ...(targetAnnotationLayerRef.value?.configItems ?? []),
-  ...(targetTranslationLayerRef.value?.configItems ?? [])
-])
+const collectedConfigItems = computed(() => collectLayerConfigItems(
+  targetAnnotationLayerRef.value,
+  targetTranslationLayerRef.value
+))
 
 // Zoom levels for selector
-const zoomLevels = [50, 75, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
-const zoomStrings = ['50bp', '75bp', '100bp', '200bp', '500bp', '1kbp', '2kbp', '5kbp', '10kbp', '20kbp', '50kbp', '100kbp']
-
 // Available zoom options based on sequence length
 const availableZooms = computed(() => {
-  const len = editorState.sequenceLength.value
-  if (len === 0) return zoomLevels.map((z, i) => ({ value: z, label: zoomStrings[i] }))
-
-  const options = []
-  for (let i = 0; i < zoomLevels.length && zoomLevels[i] < len; i++) {
-    options.push({ value: zoomLevels[i], label: zoomStrings[i] })
-  }
-  options.push({ value: len, label: 'full' })
-  return options
+  return getAvailableZooms(editorState.sequenceLength.value)
 })
 
 // SVG dimensions for alignment mode
@@ -1440,19 +1388,12 @@ function handleZoomChange(event) {
 
 // Measure font metrics on mount
 function measureFont() {
-  if (!measureRef.value) return
-
-  const bbox = measureRef.value.getBBox()
-  if (bbox.width > 0) {
-    graphics.setFontMetrics(bbox.width / 50, bbox.height)
-  }
+  measureEditorFont(measureRef.value, graphics)
 }
 
 // Handle container resize
 function handleResize() {
-  if (!containerRef.value) return
-  const rect = containerRef.value.getBoundingClientRect()
-  graphics.setContainerSize(rect.width, rect.height)
+  resizeEditorGraphics(containerRef.value, graphics)
 }
 
 // Context menu state
@@ -1619,13 +1560,6 @@ function handleAnnotationUpdate(data) {
   editingAnnotation.value = null
 }
 
-function handleEditAnnotation(data) {
-  const { annotation } = data
-  // Determine which document this annotation belongs to
-  const mode = annotation.attributes?._alignmentMode || 'target'
-  openAnnotationModalForEdit(annotation, mode)
-}
-
 /**
  * Compute the mapped span for copying an annotation to the other document.
  * Returns null if the annotation is entirely within a gap region.
@@ -1759,7 +1693,7 @@ function handleSelectionContextMenu(data) {
   showContextMenu(data.event, { source: 'selection', rangeIndex: data.rangeIndex, range: data.range })
 }
 
-function handleSelectionMouseDown(event) {
+function handleSelectionMouseDown(_event) {
   // Handled by SelectionLayer
 }
 
@@ -1776,7 +1710,7 @@ function handleTicksLayerContextMenu({ event, lineIndex }) {
 }
 
 // Translation layer event handlers
-function handleTranslationHover(data) {
+function handleTranslationHover(_data) {
   // TODO: Add tooltip support for translation hover
   // For now, just ignore hover events
 }

@@ -584,6 +584,22 @@ describe('SequenceEditor annotations', () => {
       await wrapper.vm.$nextTick()
     }
 
+    it('shows insertion guidance with 1-based GenBank coordinates', async () => {
+      const wrapper = mount(SequenceEditor, {
+        props: {
+          sequence: createDoc('A'.repeat(20), [
+            { id: 'ann1', caption: 'Gene', type: 'gene', span: ezSpan(0, 10) }
+          ])
+        }
+      })
+      await wrapper.vm.$nextTick()
+
+      await setupInsertAtPosition(wrapper, 0)
+
+      const insertModal = wrapper.findComponent({ name: 'InsertModal' })
+      expect(insertModal.props('touchingAnnotations')[0].label).toBe('Gene (gene) → 1..10')
+    })
+
     it('emits annotations-update when inserting text inside an annotation', async () => {
       const annotations = [
         { id: 'ann1', caption: 'Test', type: 'gene', span: ezSpan(10, 50) }

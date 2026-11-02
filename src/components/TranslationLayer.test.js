@@ -94,6 +94,30 @@ describe('TranslationLayer', () => {
   })
 
   describe('visibility', () => {
+    it('does not offer translation controls when annotations contain no CDS', async () => {
+      const wrapper = mountWithProviders({
+        annotations: [new Annotation({ id: 'gene1', type: 'gene', span: ezSpan(0, 30) })]
+      })
+      await nextTick()
+
+      expect(wrapper.vm.configItems.some(item => item.label === 'Translation')).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('removes translation controls when the last CDS annotation is removed', async () => {
+      const wrapper = mountWithProviders({
+        annotations: [new Annotation({ id: 'cds1', type: 'CDS', span: ezSpan(0, 30) })]
+      })
+      await nextTick()
+      expect(wrapper.vm.configItems.some(item => item.label === 'Translation')).toBe(true)
+
+      await wrapper.setProps({ annotations: [] })
+      await nextTick()
+
+      expect(wrapper.vm.configItems.some(item => item.label === 'Translation')).toBe(false)
+      wrapper.unmount()
+    })
+
     it('hides when showTranslation is toggled off via configItems onChange', async () => {
       const annotation = new Annotation({
         id: 'cds1',

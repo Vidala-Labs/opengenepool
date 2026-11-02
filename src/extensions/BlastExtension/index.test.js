@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { BlastExtension } from './index.js'
-import { Span } from '../../utils/dna.js'
 import { Annotation } from '../../utils/annotation.js'
 import { ezSpan } from '../../../test/span-helpers.js'
 

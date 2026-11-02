@@ -6,7 +6,7 @@
  * as the LiveView backend, enabling offline-first editing.
  */
 
-import { Span } from '../utils/dna.js'
+import { Span, Range } from '../utils/dna.js'
 
 /**
  * Normalize a span from storage back to a Span object.
@@ -15,8 +15,77 @@ import { Span } from '../utils/dna.js'
 function normalizeSpan(span) {
   if (span instanceof Span) return span
   if (typeof span === 'string') return Span.parse(span)
-  if (span?.ranges) return new Span(span.ranges)
+  if (span?.ranges) {
+    return new Span(span.ranges.map(range => range instanceof Range
+      ? range
+      : new Range(
+          range.start,
+          range.end,
+          range.orientation ?? 1,
+          range.startIndefinite ?? false,
+          range.endIndefinite ?? false
+        )))
+  }
   return new Span()
+}
+
+function adjustAnnotationsForInsert(annotations, position, length) {
+  return annotations.map(annotation => {
+    const span = normalizeSpan(annotation.span)
+    let changed = false
+    const ranges = span.ranges.map(range => {
+      let start = range.start
+      let end = range.end
+      if (range.start >= position) {
+        start += length
+        end += length
+      } else if (range.end > position) {
+        end += length
+      }
+      if (start !== range.start || end !== range.end) {
+        changed = true
+        return new Range(start, end, range.orientation, range.startIndefinite, range.endIndefinite)
+      }
+      return range
+    })
+    return changed ? { ...annotation, span: new Span(ranges).toJSON() } : annotation
+  })
+}
+
+function adjustAnnotationsForDelete(annotations, start, end) {
+  const deletionLength = end - start
+  return annotations.map(annotation => {
+    const span = normalizeSpan(annotation.span)
+    let changed = false
+    const ranges = span.ranges.map(range => {
+      let nextStart = range.start
+      let nextEnd = range.end
+
+      if (range.end <= start) {
+        // Range is before the deleted region.
+      } else if (range.start >= end) {
+        nextStart -= deletionLength
+        nextEnd -= deletionLength
+      } else if (range.start <= start && range.end >= end) {
+        nextEnd -= deletionLength
+      } else if (range.start >= start && range.end <= end) {
+        nextStart = start
+        nextEnd = start
+      } else if (range.start < start && range.end > start && range.end < end) {
+        nextEnd = start
+      } else if (range.start > start && range.start < end && range.end > end) {
+        nextStart = start
+        nextEnd -= deletionLength
+      }
+
+      if (nextStart !== range.start || nextEnd !== range.end) {
+        changed = true
+        return new Range(nextStart, nextEnd, range.orientation, range.startIndefinite, range.endIndefinite)
+      }
+      return range
+    })
+    return changed ? { ...annotation, span: new Span(ranges).toJSON() } : annotation
+  })
 }
 
 /**
@@ -164,6 +233,11 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
       // Apply the operation based on type
       switch (operationType) {
         case 'insert':
+          sequence.annotations = adjustAnnotationsForInsert(
+            sequence.annotations,
+            data.position,
+            data.text.length
+          )
           sequence.content =
             sequence.content.slice(0, data.position) +
             data.text +
@@ -171,6 +245,11 @@ export function createIndexedDbBackend(sequenceId, options = {}) {
           break
 
         case 'delete':
+          sequence.annotations = adjustAnnotationsForDelete(
+            sequence.annotations,
+            data.start,
+            data.end
+          )
           sequence.content =
             sequence.content.slice(0, data.start) +
             sequence.content.slice(data.end)

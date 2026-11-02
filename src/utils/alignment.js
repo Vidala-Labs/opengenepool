@@ -18,7 +18,7 @@ import { Annotation } from './annotation.js'
 export { scoreMatch } from './alignment-js.js'
 
 // Import the JS fallback implementation
-import { align as alignJS, scoreMatch } from './alignment-js.js'
+import { align as alignJS } from './alignment-js.js'
 
 // WASM module state
 let wasmModule = null
@@ -357,12 +357,11 @@ function readAlignmentResultHeader(ptr, queryOutPtr, targetOutPtr) {
  * and value is the position in the aligned string.
  *
  * @param {string} alignedSequence - Sequence with gaps ('-')
- * @param {number} originalStart - Start position in original sequence
+ * @param {number} [_originalStart] - Retained for compatibility; map indices are relative
  * @returns {number[]} Map from original position to aligned position
  */
-export function buildCoordinateMap(alignedSequence, originalStart) {
+export function buildCoordinateMap(alignedSequence, _originalStart) {
   const map = []
-  let alignedPos = 0
 
   for (let i = 0; i < alignedSequence.length; i++) {
     if (alignedSequence[i] !== '-') {

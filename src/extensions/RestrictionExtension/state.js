@@ -1,6 +1,7 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { ENZYMES } from './enzymes.js'
 import { findAllCutSites, countCutSites } from './restriction-utils.js'
+import { getStorageItem, setStorageItem } from '../../utils/safeStorage.js'
 
 // localStorage key prefix
 const STORAGE_KEY_PREFIX = 'opengenepool:restriction:'
@@ -81,39 +82,32 @@ export function selectOneCutters() {
 function saveSelection() {
   if (!currentConstructTitle.value) return
 
-  try {
-    const key = STORAGE_KEY_PREFIX + currentConstructTitle.value
-    const enzymes = Array.from(selectedEnzymeNames.value)
-    localStorage.setItem(key, JSON.stringify(enzymes))
-  } catch (e) {
-    // localStorage may not be available
-  }
+  const key = STORAGE_KEY_PREFIX + currentConstructTitle.value
+  const enzymes = Array.from(selectedEnzymeNames.value)
+  setStorageItem(key, JSON.stringify(enzymes))
 }
 
 // Load selection from localStorage, or default to one-cutters
 function loadSelection() {
   if (!currentConstructTitle.value) return
 
-  try {
-    const key = STORAGE_KEY_PREFIX + currentConstructTitle.value
-    const stored = localStorage.getItem(key)
+  const key = STORAGE_KEY_PREFIX + currentConstructTitle.value
+  const stored = getStorageItem(key)
 
+  try {
     if (stored) {
       const enzymes = JSON.parse(stored)
       selectedEnzymeNames.value = new Set(enzymes)
     } else {
-      // Default to one-cutters for new constructs
       selectOneCutters()
     }
-  } catch (e) {
-    // localStorage may not be available, default to one-cutters
+  } catch {
     selectOneCutters()
   }
 }
 
 // Update the current sequence and construct title
 export function setSequence(sequence, title = '') {
-  const sequenceChanged = currentSequence.value !== sequence
   const titleChanged = currentConstructTitle.value !== title
 
   currentSequence.value = sequence || ''

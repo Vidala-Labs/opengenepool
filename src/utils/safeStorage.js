@@ -8,7 +8,8 @@
  * stay safe in every environment.
  */
 
-function storage() {
+function storage(providedStorage = null) {
+  if (providedStorage) return providedStorage
   try {
     return typeof localStorage !== 'undefined' ? localStorage : null
   } catch {
@@ -18,18 +19,18 @@ function storage() {
 }
 
 /** @returns {string|null} the stored value, or null if missing/unavailable. */
-export function getStorageItem(key) {
+export function getStorageItem(key, providedStorage = null) {
   try {
-    return storage()?.getItem(key) ?? null
+    return storage(providedStorage)?.getItem(key) ?? null
   } catch {
     return null
   }
 }
 
 /** Store a value; no-op (returns false) if storage is unavailable or throws. */
-export function setStorageItem(key, value) {
+export function setStorageItem(key, value, providedStorage = null) {
   try {
-    const s = storage()
+    const s = storage(providedStorage)
     if (!s) return false
     s.setItem(key, value)
     return true
@@ -39,9 +40,9 @@ export function setStorageItem(key, value) {
 }
 
 /** Remove a key; no-op if storage is unavailable or throws. */
-export function removeStorageItem(key) {
+export function removeStorageItem(key, providedStorage = null) {
   try {
-    storage()?.removeItem(key)
+    storage(providedStorage)?.removeItem(key)
   } catch {
     // ignore
   }

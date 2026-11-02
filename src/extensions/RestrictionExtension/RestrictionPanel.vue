@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, inject, onMounted, watch, computed } from 'vue'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
 import { ENZYMES_SORTED } from './enzymes.js'
 import {

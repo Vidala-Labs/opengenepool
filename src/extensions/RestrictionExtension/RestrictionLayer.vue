@@ -5,7 +5,6 @@ import { restrictionSitesVisible, cutSites, setSequence } from './state.js'
 // Inject from parent SequenceEditor
 const editorState = inject('editorState')
 const graphics = inject('graphics')
-const extensionAPI = inject('extensionAPI')
 
 // Height for a single restriction label row (T-bar + label + padding)
 const LABEL_ROW_HEIGHT = 15

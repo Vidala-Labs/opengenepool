@@ -1997,6 +1997,16 @@ describe('SequenceEditor', () => {
       expect(wrapper.vm.selectionStatusText).toBeNull()
     })
 
+    it('shows a valid cursor label when the sequence is empty', () => {
+      const wrapper = mount(SequenceEditor, {
+        props: { sequence: emptyDoc() }
+      })
+
+      wrapper.vm.setCursor(0)
+
+      expect(wrapper.vm.selectionStatusText).toBe('cursor in empty sequence')
+    })
+
     it('exposes public API without alignment-related methods', () => {
       // SequenceEditor exposes the standard API for single sequence editing.
       // Alignment-related methods are in AlignmentEditor instead.

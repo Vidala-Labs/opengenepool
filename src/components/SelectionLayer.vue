@@ -61,7 +61,15 @@ const selectionContributor = {
   getItems: (context) => selectionMenuItems(context, selectionMenuActions || {})
 }
 onMounted(() => contextMenu?.register(selectionContributor))
-onUnmounted(() => contextMenu?.unregister(selectionContributor))
+onUnmounted(() => {
+  contextMenu?.unregister(selectionContributor)
+  window.removeEventListener('mousemove', handlePendingDragMove)
+  window.removeEventListener('mouseup', handlePendingDragEnd)
+  window.removeEventListener('mousemove', handleDragMove)
+  window.removeEventListener('mouseup', handleDragEnd)
+  pendingDrag.value = null
+  draggedHandle.value = null
+})
 
 // Alignment mode: inject the positioning function and lines
 const injectedGetAlignmentLineY = inject('getAlignmentLineY', null)
@@ -404,9 +412,6 @@ function handleMerge(bubble) {
   // Remove the end range
   ranges.splice(bubble.endRangeIndex, 1)
 
-  // Trigger reactivity
-  selection.domain.value = selection.domain.value
-
   emit('merge', { ranges: selection.domain.value.ranges })
 }
 
@@ -698,8 +703,6 @@ function handleDragMove(event) {
     }
   }
 
-  // Trigger reactivity
-  selection.domain.value = selection.domain.value
 }
 
 function handleDragEnd() {

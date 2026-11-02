@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref, computed } from 'vue'
 import CircularSelectionLayer from './CircularSelectionLayer.vue'
 import { useEditorState } from '../composables/useEditorState.js'
 import { useGraphics } from '../composables/useGraphics.js'

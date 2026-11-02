@@ -24,7 +24,7 @@ function loadHiddenTypes() {
   try {
     const stored = getStorageItem(HIDDEN_TYPES_STORAGE_KEY)
     if (stored) return new Set(JSON.parse(stored))
-  } catch (e) {}
+  } catch {}
   return new Set()
 }
 
@@ -40,6 +40,21 @@ watch(hiddenTypes, (newSet) => {
 
 const allAnnotationTypes = ref(new Set())
 let instanceCount = 0
+const annotationTypesBySource = new Map()
+
+function setAnnotationTypesForSource(source, types) {
+  annotationTypesBySource.set(source, new Set(types))
+  allAnnotationTypes.value = new Set(
+    Array.from(annotationTypesBySource.values()).flatMap(sourceTypes => [...sourceTypes])
+  )
+}
+
+function removeAnnotationTypeSource(source) {
+  if (!annotationTypesBySource.delete(source)) return
+  allAnnotationTypes.value = new Set(
+    Array.from(annotationTypesBySource.values()).flatMap(sourceTypes => [...sourceTypes])
+  )
+}
 
 const MODULE_DEFAULT_COLORS = {
   gene: '#4CAF50', CDS: '#2196F3', promoter: '#FF9800', terminator: '#F44336',
@@ -83,7 +98,15 @@ const moduleConfigItems = computed(() => {
 })
 
 // Export for TranslationLayer coordination and CircularAnnotationLayer sharing
-export { showAnnotations, hiddenTypes, showHiddenAnnotations, allAnnotationTypes, moduleConfigItems }
+export {
+  showAnnotations,
+  hiddenTypes,
+  showHiddenAnnotations,
+  allAnnotationTypes,
+  moduleConfigItems,
+  setAnnotationTypesForSource,
+  removeAnnotationTypeSource
+}
 
 // Reset function for testing - resets module-level state
 export function __resetModuleState() {
@@ -91,6 +114,7 @@ export function __resetModuleState() {
   hiddenTypes.value = new Set()
   showHiddenAnnotations.value = false
   allAnnotationTypes.value = new Set()
+  annotationTypesBySource.clear()
   instanceCount = 0
   annotationColorsRef = null
   translationShowRef = null
@@ -99,16 +123,16 @@ export function __resetModuleState() {
 </script>
 
 <script setup>
-import { computed, inject, watch, onMounted, onUnmounted } from 'vue'
+import { computed as setupComputed, inject, watch as setupWatch, onMounted, onUnmounted } from 'vue'
 import { Orientation } from '../utils/dna.js'
-import { useAnnotations, generateArrowPath } from '../composables/useAnnotations.js'
+import { useAnnotations } from '../composables/useAnnotations.js'
 import { annotationMenuItems } from './menus/annotationMenuContributor.js'
 
 // Height reserved for translation display (must match useAnnotations)
 const TRANSLATION_HEIGHT = 18
 
 // Display visibility - derived from shared state
-const visible = computed(() => showAnnotations.value)
+const visible = setupComputed(() => showAnnotations.value)
 
 let isFirstInstance = false
 onMounted(() => {
@@ -117,7 +141,6 @@ onMounted(() => {
 })
 onUnmounted(() => {
   instanceCount--
-  if (instanceCount === 0) allAnnotationTypes.value = new Set()
 })
 
 const props = defineProps({
@@ -227,15 +250,18 @@ function getTypeColor(type) {
   return colors[type] || colors._default
 }
 
-// Track this instance's annotation types
-const instanceTypes = computed(() => new Set(props.annotations.map(a => a.type || 'misc_feature')))
-
-watch(instanceTypes, (newTypes) => {
-  for (const type of newTypes) allAnnotationTypes.value.add(type)
-}, { immediate: true })
+// Keep the shared filter list equal to the union of types currently present in
+// all mounted linear and circular annotation layers.
+const annotationTypeSource = Symbol('annotation-layer-types')
+setupWatch(
+  () => props.annotations.map(annotation => annotation.type || 'misc_feature'),
+  types => setAnnotationTypesForSource(annotationTypeSource, types),
+  { immediate: true }
+)
+onUnmounted(() => removeAnnotationTypeSource(annotationTypeSource))
 
 // Filter annotations based on hiddenTypes and per-annotation ogp:hidden
-const visibleAnnotations = computed(() => {
+const visibleAnnotations = setupComputed(() => {
   if (!showAnnotations.value) return []
   return props.annotations.filter(a =>
     !hiddenTypes.value.has(a.type || 'misc_feature') &&
@@ -245,11 +271,11 @@ const visibleAnnotations = computed(() => {
 
 // Use annotations composable for layout calculations
 // Pass showTranslation using coordinated visibility from TranslationLayer
-const showTranslationRef = computed(() => isTranslationEffectivelyVisible())
-const stackDirectionRef = computed(() => props.stackDirection)
+const showTranslationRef = setupComputed(() => isTranslationEffectivelyVisible())
+const stackDirectionRef = setupComputed(() => props.stackDirection)
 // In alignment mode, skip line height management to avoid infinite reactive loops
 // when multiple AnnotationLayers exist (one for target, one for query)
-const skipLineHeightRef = computed(() => props.mode !== null)
+const skipLineHeightRef = setupComputed(() => props.mode !== null)
 const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
   showTranslation: showTranslationRef,
   stackDirection: stackDirectionRef,
@@ -257,7 +283,7 @@ const annotationsComposable = useAnnotations(editorState, graphics, eventBus, {
 })
 
 // Watch for visible annotation changes (filtered by hiddenTypes)
-watch(visibleAnnotations, (newAnnotations) => {
+setupWatch(visibleAnnotations, (newAnnotations) => {
   annotationsComposable.setAnnotations(newAnnotations)
 }, { immediate: true })
 
@@ -298,17 +324,17 @@ function captionFits(element) {
 }
 
 // Use the composable's laid-out elements (with collision detection applied)
-const elementsByLine = computed(() => {
+const elementsByLine = setupComputed(() => {
   return annotationsComposable.getElementsByLine.value
 })
 
 // Lines that have annotations
-const lines = computed(() => {
+const lines = setupComputed(() => {
   return Array.from(elementsByLine.value.keys()).sort((a, b) => a - b)
 })
 
 // For backward compatibility - expose fragments
-const fragments = computed(() => {
+const fragments = setupComputed(() => {
   const allFragments = []
   for (const elements of elementsByLine.value.values()) {
     for (const elem of elements) {
@@ -318,7 +344,7 @@ const fragments = computed(() => {
   return allFragments
 })
 
-const fragmentsByLine = computed(() => {
+const fragmentsByLine = setupComputed(() => {
   const byLine = new Map()
   for (const [line, elements] of elementsByLine.value) {
     byLine.set(line, elements.map(e => e.fragment))
@@ -435,7 +461,7 @@ function getPrimerBindLineX(element) {
 }
 
 // Is this an alignment mode layer?
-const isAlignmentLayer = computed(() => props.mode !== null)
+const isAlignmentLayer = setupComputed(() => props.mode !== null)
 
 // Get y position for a line
 function getLineY(lineIndex) {
@@ -447,48 +473,6 @@ function getLineY(lineIndex) {
     return lineIndex * props.blockHeight + props.yOffset
   }
   return graphics.getLineY(lineIndex)
-}
-
-// Generate full arrow-shaped path for fragment (like original)
-function getFullArrowPath(fragment) {
-  const x = getFragmentX(fragment)
-  const width = getFragmentWidth(fragment)
-  const h = props.height
-
-  // Determine if this fragment should show directional arrow
-  let orientation = Orientation.NONE
-  if (fragment.orientation === Orientation.PLUS && fragment.isEnd) {
-    orientation = Orientation.PLUS
-  } else if (fragment.orientation === Orientation.MINUS && fragment.isStart) {
-    orientation = Orientation.MINUS
-  }
-
-  return generateArrowPath({
-    left: x,
-    right: x + width,
-    height: h,
-    blockWidth,
-    arrowEdge,
-    orientation
-  })
-}
-
-// Generate arrow path for directional annotations (legacy small arrow overlay)
-function getArrowPath(fragment) {
-  const x = getFragmentX(fragment)
-  const width = getFragmentWidth(fragment)
-  const h = props.height
-  const arrowSize = Math.min(8, h / 2)
-
-  if (fragment.orientation === Orientation.PLUS && fragment.isEnd) {
-    // Arrow pointing right at end
-    const endX = x + width
-    return `M ${endX - arrowSize} 0 L ${endX} ${h / 2} L ${endX - arrowSize} ${h} L ${endX - arrowSize} 0`
-  } else if (fragment.orientation === Orientation.MINUS && fragment.isStart) {
-    // Arrow pointing left at start
-    return `M ${x + arrowSize} 0 L ${x} ${h / 2} L ${x + arrowSize} ${h} L ${x + arrowSize} 0`
-  }
-  return null
 }
 
 // Event handlers
@@ -517,7 +501,7 @@ function handleMouseLeave(event, fragment) {
 }
 
 // Computed: Map annotation ID to deltaY for translation positioning
-const annotationDeltaYByLine = computed(() => {
+const annotationDeltaYByLine = setupComputed(() => {
   const result = new Map()
   for (const [lineIndex, elements] of elementsByLine.value) {
     const lineMap = new Map()
@@ -534,7 +518,7 @@ const annotationDeltaYByLine = computed(() => {
 })
 
 // Computed: Generate gradient definitions for fragments with indefinite locations
-const indefiniteGradients = computed(() => {
+const indefiniteGradients = setupComputed(() => {
   const gradients = []
   for (const elements of elementsByLine.value.values()) {
     for (const elem of elements) {
@@ -612,7 +596,7 @@ function requestEditAnnotation(annotation) {
 }
 
 // Config items for Toolbar
-const configItems = computed(() => {
+const configItems = setupComputed(() => {
   if (!isFirstInstance) return []
   return moduleConfigItems.value
 })

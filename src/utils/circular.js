@@ -224,9 +224,6 @@ export function getArrowArcPath(startPos, endPos, sequenceLength, cx, cy, radius
     ].join(' ')
   }
 
-  // Large arc flag: 1 if span > 180 degrees
-  const largeArcFlag = arcSpan > Math.PI ? 1 : 0
-
   // No arrow - simple arc
   if (orientation === 0) {
     return getArcPath(startPos, endPos, sequenceLength, cx, cy, radius, thickness, false, angleOffset)

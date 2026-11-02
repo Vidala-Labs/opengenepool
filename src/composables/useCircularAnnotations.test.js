@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useCircularAnnotations } from './useCircularAnnotations.js'
 import { useCircularGraphics } from './useCircularGraphics.js'
 import { Annotation } from '../utils/annotation.js'
-import { Span, Range, Orientation } from '../utils/dna.js'
+import { Span, Range } from '../utils/dna.js'
 import { ezSpan } from '../../test/span-helpers.js'
 
 // Helper to create mock editor state

@@ -1,6 +1,5 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { Orientation } from '../utils/dna.js'
-import { Annotation } from '../utils/annotation.js'
 import { rangesOverlap } from '../utils/layout.js'
 
 /**
@@ -224,7 +223,7 @@ export function useAnnotations(editorState, graphics, eventBus, options = {}) {
     }
 
     // Apply sequence-based collision detection to each line
-    for (const [line, elements] of byLine) {
+    for (const elements of byLine.values()) {
       // Sort by global annotation priority:
       // 1. CDS before non-CDS (CDS placed first, gets lower rows)
       // 2. Within same type, widest first

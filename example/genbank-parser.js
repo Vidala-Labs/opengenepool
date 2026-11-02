@@ -151,7 +151,7 @@ export function parseGenBank(text) {
     // Parse features
     if (section === 'features') {
       // New feature (starts at column 5, not with /)
-      const featureMatch = line.match(/^     (\w+)\s+(.+)$/)
+      const featureMatch = line.match(/^ {5}(\w+)\s+(.+)$/)
       if (featureMatch) {
         if (currentFeature) {
           result.annotations.push(currentFeature)

@@ -1,4 +1,4 @@
-import { Span, Range, Orientation } from './dna.js'
+import { Span, Orientation } from './dna.js'
 
 /**
  * Annotation represents a feature on a DNA sequence.
@@ -64,9 +64,7 @@ export class Annotation {
    * Check if this annotation overlaps a range
    */
   overlaps(start, end) {
-    const bounds = this.bounds
-    if (!bounds) return false
-    return bounds.start < end && bounds.end > start
+    return this.span.ranges.some(range => range.start < end && range.end > start)
   }
 
   /**

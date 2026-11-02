@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+import { ref } from 'vue'
 import { Range, Span, Orientation } from '../utils/dna.js'
 import { GraphicsSpan } from './useGraphics.js'
 
@@ -313,8 +313,6 @@ export function useSelection(editorState, graphics, eventBus) {
     const x2 = m.lmargin + lastFrag.end * m.charWidth
 
     const lineHeight = graphics.lineHeight.value
-    const linePadding = editorState.settings.value.linepadding
-
     // Simple case: single line
     if (fragments.length === 1) {
       const y1 = graphics.getLineY(firstFrag.line)
