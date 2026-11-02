@@ -45,7 +45,9 @@ export function createEventBus() {
    */
   function off(event, handler) {
     if (listeners.has(event)) {
-      listeners.get(event).delete(handler)
+      const handlers = listeners.get(event)
+      handlers.delete(handler)
+      if (handlers.size === 0) listeners.delete(event)
     }
   }
 
@@ -55,10 +57,16 @@ export function createEventBus() {
    * @param {Object} data - Event data
    */
   function emit(event, data = {}) {
+    const errors = []
+
     // Call direct listeners
     if (listeners.has(event)) {
-      for (const handler of listeners.get(event)) {
-        handler(data)
+      for (const handler of [...listeners.get(event)]) {
+        try {
+          handler(data)
+        } catch (error) {
+          errors.push(error)
+        }
       }
     }
 
@@ -66,9 +74,16 @@ export function createEventBus() {
     const handlerName = `_${event}`
     for (const [, pluginHandlers] of plugins) {
       if (typeof pluginHandlers[handlerName] === 'function') {
-        pluginHandlers[handlerName](data)
+        try {
+          pluginHandlers[handlerName](data)
+        } catch (error) {
+          errors.push(error)
+        }
       }
     }
+
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, `Multiple handlers failed for "${event}"`)
   }
 
   /**
@@ -107,27 +122,4 @@ export function createEventBus() {
     unregisterPlugin,
     broadcast
   }
-}
-
-/**
- * Singleton event bus instance for the editor.
- */
-let editorBus = null
-
-/**
- * Get or create the editor event bus singleton.
- * @returns {EventBus}
- */
-export function getEditorBus() {
-  if (!editorBus) {
-    editorBus = createEventBus()
-  }
-  return editorBus
-}
-
-/**
- * Reset the editor bus (useful for testing).
- */
-export function resetEditorBus() {
-  editorBus = null
 }

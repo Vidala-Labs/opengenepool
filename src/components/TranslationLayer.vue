@@ -9,7 +9,15 @@ const showTranslation = ref(true)
 _setTranslationShowRef(showTranslation)
 
 let instanceCount = 0
-const hasCdsAnnotations = ref(false)
+const cdsAnnotationSources = ref(new Set())
+const hasCdsAnnotations = computed(() => cdsAnnotationSources.value.size > 0)
+
+function setCdsAnnotationSource(source, hasCds) {
+  const sources = new Set(cdsAnnotationSources.value)
+  if (hasCds) sources.add(source)
+  else sources.delete(source)
+  cdsAnnotationSources.value = sources
+}
 
 // Is CDS type visible in AnnotationLayer?
 const cdsTypeVisible = computed(() => {
@@ -29,15 +37,15 @@ export { showTranslation }
 export function __resetModuleState() {
   showTranslation.value = true
   instanceCount = 0
-  hasCdsAnnotations.value = false
+  cdsAnnotationSources.value = new Set()
   _setTranslationShowRef(showTranslation)
 }
 </script>
 
 <script setup>
-import { computed, inject, watch, onMounted, onUnmounted } from 'vue'
+import { computed as setupComputed, inject, watch as setupWatch, onMounted, onUnmounted } from 'vue'
 import { AA_THREE_LETTER, iterateCodons, iterateCodonFragments } from '../utils/translation.js'
-import { Span, Orientation, iterateSequence } from '../utils/dna.js'
+import { Orientation, iterateSequence } from '../utils/dna.js'
 
 const props = defineProps({
   /** Array of CDS Annotation objects to translate */
@@ -96,27 +104,28 @@ onMounted(() => {
 })
 onUnmounted(() => {
   instanceCount--
-  if (instanceCount === 0) hasCdsAnnotations.value = false
+  setCdsAnnotationSource(cdsAnnotationSource, false)
 })
 
-const instanceHasCds = computed(() => props.annotations.length > 0)
-watch(instanceHasCds, (hasCds) => {
-  if (hasCds) hasCdsAnnotations.value = true
+const cdsAnnotationSource = Symbol('translation-layer-cds')
+const instanceHasCds = setupComputed(() => props.annotations.some(annotation => annotation.type?.toUpperCase() === 'CDS'))
+setupWatch(instanceHasCds, (hasCds) => {
+  setCdsAnnotationSource(cdsAnnotationSource, hasCds)
 }, { immediate: true })
 
 // Check if in alignment mode
-const isAlignmentMode = computed(() => props.mode !== null)
+const isAlignmentMode = setupComputed(() => props.mode !== null)
 
 // Computed vertical offset for chevrons based on stack direction
-const chevronYOffset = computed(() => props.stackDirection === 'down' ? 0 : -props.height)
-const textYOffset = computed(() => props.stackDirection === 'down' ? props.height / 2 + 1 : -props.height / 2 + 1)
-const stopSignYOffset = computed(() => props.stackDirection === 'down' ? props.height / 2 : -props.height / 2)
+const chevronYOffset = setupComputed(() => props.stackDirection === 'down' ? 0 : -props.height)
+const textYOffset = setupComputed(() => props.stackDirection === 'down' ? props.height / 2 + 1 : -props.height / 2 + 1)
+const stopSignYOffset = setupComputed(() => props.stackDirection === 'down' ? props.height / 2 : -props.height / 2)
 
 // Minimum codon width (3 bases) needed to display amino acid letter (~8px for 12px font)
 const MIN_CODON_WIDTH = 8
 
 // Display visibility - show when translation on, CDS visible, and zoom allows
-const visible = computed(() => {
+const visible = setupComputed(() => {
   if (!showTranslation.value) return false
   if (!cdsTypeVisible.value) return false
   const codonWidth = 3 * graphics.metrics.value.charWidth
@@ -148,7 +157,7 @@ function getAminoAcidColor(aminoAcid) {
 }
 
 // Chevron extension (quarter letter width)
-const chevronExtension = computed(() => graphics.metrics.value.charWidth / 4)
+const chevronExtension = setupComputed(() => graphics.metrics.value.charWidth / 4)
 
 // Generate chevron path for a component box
 // orientation: 1 = plus strand (chevron points right), -1 = minus strand (chevron points left)
@@ -234,16 +243,13 @@ function walkCDS(annotation, sequence, zoom) {
 
   // Track which codon each component belongs to for aaIndex
   let currentCodonIdx = 0
-  let componentsInCurrentCodon = 0
 
   return rawComponents.map((comp, idx) => {
     // Count components per codon to track amino acid index
     // Components from the same codon have the same aminoAcid
     if (idx > 0 && rawComponents[idx - 1].aminoAcid !== comp.aminoAcid) {
       currentCodonIdx++
-      componentsInCurrentCodon = 0
     }
-    componentsInCurrentCodon++
 
     // For display, show the actual amino acid position (1-based)
     // For minus strand, the amino acids are already in coding order (N to C terminus)
@@ -272,7 +278,7 @@ function walkCDS(annotation, sequence, zoom) {
 }
 
 // Process all CDS annotations into components, grouped by line
-const elementsByLine = computed(() => {
+const elementsByLine = setupComputed(() => {
   const result = new Map()
   const zoom = editorState.zoomLevel.value
   // Use prop sequence in alignment mode, otherwise use editor state
@@ -324,7 +330,7 @@ function getLetterX(comp) {
 }
 
 // Lines that have translation elements
-const lines = computed(() => {
+const lines = setupComputed(() => {
   return Array.from(elementsByLine.value.keys()).sort((a, b) => a - b)
 })
 
@@ -431,7 +437,7 @@ function handleContextMenu(event, element) {
 }
 
 // Config items for Toolbar
-const configItems = computed(() => {
+const configItems = setupComputed(() => {
   if (!isFirstInstance) return []
   return moduleConfigItems.value
 })

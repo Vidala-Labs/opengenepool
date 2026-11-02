@@ -3,7 +3,6 @@ import {
   positionToAngle as posToAngle,
   angleToPosition as angleToPos,
   mouseToPosition as mouseToPos,
-  getRowRadius as calcRowRadius,
   polarToCartesian
 } from '../utils/circular.js'
 

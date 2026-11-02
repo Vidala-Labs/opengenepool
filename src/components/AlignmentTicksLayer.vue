@@ -1,14 +1,6 @@
 <script setup>
 import { inject, computed, ref } from 'vue'
 
-const props = defineProps({
-  /** Callback to get alignment-specific menu items (for gap/mutation annotation) */
-  getAlignmentMenuItems: {
-    type: Function,
-    default: null
-  }
-})
-
 const emit = defineEmits(['contextmenu'])
 
 // Inject from parent SequenceEditor

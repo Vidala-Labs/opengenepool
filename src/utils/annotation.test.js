@@ -150,6 +150,17 @@ describe('Annotation', () => {
       expect(ann.overlaps(50, 60)).toBe(false)
     })
 
+    it('does not report overlap in the gap between joined ranges', () => {
+      const ann = new Annotation({
+        id: 'joined',
+        span: new Span([new Range(10, 20), new Range(30, 40)])
+      })
+
+      expect(ann.overlaps(22, 25)).toBe(false)
+      expect(ann.overlaps(15, 16)).toBe(true)
+      expect(ann.overlaps(35, 36)).toBe(true)
+    })
+
     it('returns false for empty annotation', () => {
       const ann = new Annotation({ id: 'ann1' })
       expect(ann.overlaps(0, 100)).toBe(false)

@@ -1,4 +1,4 @@
-import { ezSpan, Span, Range, Orientation } from '../../test/span-helpers.js'
+import { ezSpan, Range } from '../../test/span-helpers.js'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SequenceEditor from './SequenceEditor.vue'

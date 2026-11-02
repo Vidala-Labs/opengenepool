@@ -63,7 +63,6 @@ export function scoreMatch(base1, base2, matchScore = 2, ambiguousScore = 1, mis
 export function align(query, target, options = {}) {
   const normalizedQuery = normalizeSequence(query)
   const normalizedTarget = normalizeSequence(target)
-
   const m = normalizedQuery.masks.length
   const n = normalizedTarget.masks.length
 
@@ -88,9 +87,6 @@ export function align(query, target, options = {}) {
 }
 
 function alignLinear(normalizedQuery, normalizedTarget, options) {
-  const m = normalizedQuery.masks.length
-  const n = normalizedTarget.masks.length
-
   const { maxScore, maxI, maxJ } = findMaxScoreLinearSpace(
     normalizedQuery.masks,
     normalizedTarget.masks,

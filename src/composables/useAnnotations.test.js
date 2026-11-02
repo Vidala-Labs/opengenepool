@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { useAnnotations, generateArrowPath, AnnotationElement } from './useAnnotations.js'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics } from './useGraphics.js'
@@ -8,10 +8,6 @@ import { Orientation, Span, Range } from '../utils/dna.js'
 import { ezSpan } from '../../test/span-helpers.js'
 
 describe('generateArrowPath', () => {
-  const blockWidth = 8
-  const height = 16
-  const arrowEdge = 2  // rounded edge offset
-
   describe('plus strand (arrow pointing right)', () => {
     it('generates arrow path for right-pointing arrow', () => {
       const path = generateArrowPath({

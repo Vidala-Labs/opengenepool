@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { nextTick, reactive, ref } from 'vue'
 import CircularAnnotationLayer from './CircularAnnotationLayer.vue'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range } from '../utils/dna.js'
 import { ezSpan } from '../../test/span-helpers.js'
 import { useCircularGraphics } from '../composables/useCircularGraphics.js'
-import { showAnnotations, __resetModuleState as resetAnnotationLayerState } from './AnnotationLayer.vue'
+import { showAnnotations, allAnnotationTypes, __resetModuleState as resetAnnotationLayerState } from './AnnotationLayer.vue'
 
 // Helper to create mock providers
 function createMockProviders(options = {}) {
@@ -55,6 +55,70 @@ describe('CircularAnnotationLayer', () => {
   // Reset module-level state before each test
   beforeEach(() => {
     resetAnnotationLayerState()
+  })
+
+  it('removes circular annotation types that are no longer present', async () => {
+    const wrapper = mountWithProviders({
+      annotations: [
+        new Annotation({ id: 'g1', type: 'gene', span: ezSpan(10, 20) }),
+        new Annotation({ id: 'p1', type: 'promoter', span: ezSpan(30, 50) })
+      ]
+    })
+    await nextTick()
+    expect(allAnnotationTypes.value.has('promoter')).toBe(true)
+
+    await wrapper.setProps({
+      annotations: [new Annotation({ id: 'g1', type: 'gene', span: ezSpan(10, 20) })]
+    })
+    await nextTick()
+
+    expect(allAnnotationTypes.value.has('promoter')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not resync annotations as a side effect of recomputing rendered elements', async () => {
+    const annotations = [new Annotation({ id: 'ann1', type: 'gene', span: ezSpan(100, 500) })]
+    const wrapper = mountWithProviders({ annotations })
+    const setup = wrapper.vm.$.setupState
+    const setAnnotations = vi.spyOn(setup.circularAnnotations, 'setAnnotations')
+    setAnnotations.mockClear()
+
+    // Color changes invalidate rendered elements but do not change which
+    // annotations the composable should contain.
+    setup.annotationColors = { gene: '#ff0000', _default: '#000000' }
+    await nextTick()
+    void setup.annotationElements
+
+    expect(setAnnotations).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not rescan annotation types when unrelated nested metadata changes', async () => {
+    const annotation = reactive(new Annotation({
+      id: 'ann1',
+      type: 'gene',
+      span: ezSpan(100, 500),
+      attributes: { notes: { text: 'initial' } }
+    }))
+    let typeReads = 0
+    Object.defineProperty(annotation, 'type', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        typeReads++
+        return 'gene'
+      }
+    })
+    const wrapper = mountWithProviders({ annotations: [annotation] })
+    typeReads = 0
+
+    annotation.attributes.notes.text = 'updated'
+    await nextTick()
+
+    // The rendered layer may read the type once while refreshing, but a type
+    // registration pass would read it again for every annotation.
+    expect(typeReads).toBeLessThan(2)
+    wrapper.unmount()
   })
 
   describe('rendering', () => {

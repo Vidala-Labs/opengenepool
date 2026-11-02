@@ -1,4 +1,4 @@
-import { shallowRef, ref, computed } from 'vue'
+import { shallowRef, ref } from 'vue'
 import { Annotation } from '../utils/annotation.js'
 import { Span, Range } from '../utils/dna.js'
 import { generateId, generateIdSync } from '../utils/uuid.js'
@@ -111,7 +111,17 @@ export class SequenceDocument {
    */
   _requireSpan(span) {
     if (span instanceof Span) return span
-    if (span?.ranges) return new Span(span.ranges)
+    if (span?.ranges) {
+      return new Span(span.ranges.map(range => range instanceof Range
+        ? range
+        : new Range(
+            range.start,
+            range.end,
+            range.orientation ?? 1,
+            range.startIndefinite ?? false,
+            range.endIndefinite ?? false
+          )))
+    }
     if (span == null) return new Span()
     // Accept the fenced-string form that toJSON() emits, so toJSON/fromJSON
     // round-trips and any caller can pass the serialized span back in.
@@ -246,14 +256,32 @@ export class SequenceDocument {
     if (this._readonly) return ''
     if (!ranges || ranges.length === 0) return ''
 
-    // Sort by start position descending (delete from end first)
-    const sortedRanges = [...ranges].sort((a, b) => b.start - a.start)
+    // Clamp and merge overlapping ranges before applying edits. Applying raw
+    // overlapping ranges in descending order can delete bases twice after the
+    // first edit shifts the coordinates of the second.
+    const normalizedRanges = ranges
+      .map(range => ({
+        start: Math.max(0, Math.min(range.start, this._sequence.value.length)),
+        end: Math.max(0, Math.min(range.end, this._sequence.value.length))
+      }))
+      .filter(range => range.start < range.end)
+      .sort((a, b) => a.start - b.start || a.end - b.end)
+    const mergedRanges = []
+    for (const range of normalizedRanges) {
+      const previous = mergedRanges[mergedRanges.length - 1]
+      if (previous && range.start <= previous.end) {
+        previous.end = Math.max(previous.end, range.end)
+      } else {
+        mergedRanges.push({ ...range })
+      }
+    }
+    const sortedRanges = mergedRanges.reverse()
     let deleted = ''
     let seq = this._sequence.value
 
     for (const range of sortedRanges) {
-      const start = Math.max(0, range.start)
-      const end = Math.min(seq.length, range.end)
+      const start = range.start
+      const end = range.end
       if (start < end) {
         deleted = seq.slice(start, end) + deleted  // Prepend to maintain order
         seq = seq.slice(0, start) + seq.slice(end)
@@ -296,8 +324,8 @@ export class SequenceDocument {
 
     // 3. Notify backend (delete + insert)
     if (this._backend) {
-      this._backend.delete?.({ editId: generateIdSync(), start, end })
-      this._backend.insert?.({ editId: generateIdSync(), position: start, text })
+      this._notifyBackend('delete', { editId: generateIdSync(), start, end })
+      this._notifyBackend('insert', { editId: generateIdSync(), position: start, text })
     }
 
     return deleted

@@ -175,7 +175,7 @@ async function persistCurrentDoc() {
 
 // Edit handling: sequence edits are applied to the live SequenceDocument by the
 // editor; persist the resulting state so it survives reload and export.
-function handleEdit(data) {
+function handleEdit(_data) {
   persistCurrentDoc()
 }
 
@@ -211,7 +211,7 @@ async function saveAs() {
   }
 }
 
-function handleSelect(data) {
+function handleSelect(_data) {
   // Selection changed
 }
 

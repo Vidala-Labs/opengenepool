@@ -4,14 +4,6 @@ import { Orientation } from '../utils/dna.js'
 import { getArcPath, polarToCartesian } from '../utils/circular.js'
 import { selectionMenuItems } from './menus/selectionMenuContributor.js'
 
-const props = defineProps({
-  /** Selection thickness (visual width of the arc) */
-  thickness: {
-    type: Number,
-    default: 20
-  }
-})
-
 const emit = defineEmits(['select', 'contextmenu', 'merge', 'handle-contextmenu'])
 
 // Inject from parent
@@ -27,7 +19,13 @@ const selectionContributor = {
   getItems: (context) => selectionMenuItems(context, selectionMenuActions || {})
 }
 onMounted(() => contextMenu?.register(selectionContributor))
-onUnmounted(() => contextMenu?.unregister(selectionContributor))
+onUnmounted(() => {
+  contextMenu?.unregister(selectionContributor)
+  window.removeEventListener('mousemove', handleDragMove)
+  window.removeEventListener('mouseup', handleDragEnd)
+  draggedHandle.value = null
+  lastDragPos.value = null
+})
 
 // Tab handle dimensions (smaller version)
 const tabWidth = 8
@@ -132,7 +130,6 @@ const mergeBubbles = computed(() => {
 
   const cx = circularGraphics.centerX.value
   const cy = circularGraphics.centerY.value
-  const backboneRadius = circularGraphics.backboneRadius.value
   const rowCount = circularGraphics.annotationRowCount.value || 0
   const outerRadius = circularGraphics.getRowRadius(Math.max(0, rowCount - 1)) + circularGraphics.annotationHeight.value / 2 + 8
 
@@ -197,9 +194,6 @@ function handleMerge(bubble) {
 
   // Remove the end range
   ranges.splice(bubble.endRangeIndex, 1)
-
-  // Trigger reactivity
-  selection.domain.value = selection.domain.value
 
   emit('merge', { ranges: selection.domain.value.ranges })
 }
@@ -498,8 +492,6 @@ function handleDragMove(event) {
     }
   }
 
-  // Trigger reactivity
-  selection.domain.value = selection.domain.value
 }
 
 function handleDragEnd() {

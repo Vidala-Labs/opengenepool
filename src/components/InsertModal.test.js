@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { describe, it, expect } from 'vitest'
+import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import InsertModal from './InsertModal.vue'
 

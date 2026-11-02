@@ -12,7 +12,8 @@ import { Annotation, ANNOTATION_COLORS, isOgpAttr, OGP_HIDDEN_ATTR } from '../ut
 import { Span, Range, Orientation, iterateSequence, reverseComplement, calculateTm } from '../utils/dna.js'
 import { iterateCodons } from '../utils/translation.js'
 import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/safeStorage.js'
-import AnnotationLayer, { showAnnotations, hiddenTypes } from './AnnotationLayer.vue'
+import { rangeToGenBank, getAvailableZooms, measureEditorFont, resizeEditorGraphics, collectLayerConfigItems } from '../utils/editor.js'
+import AnnotationLayer, { showAnnotations } from './AnnotationLayer.vue'
 import TranslationLayer, { showTranslation } from './TranslationLayer.vue'
 import SelectionLayer from './SelectionLayer.vue'
 import CircularView from './CircularView.vue'
@@ -187,9 +188,11 @@ const touchingAnnotations = computed(() => {
       const isMinus = range.orientation === Orientation.MINUS
       const arrow = isMinus ? '←' : '→'
       // Format range in GenBank style: complement(...) for minus strand
+      const start = range.start + 1
+      const end = range.end
       const rangeStr = isMinus
-        ? `complement(${range.start}..${range.end})`
-        : `${range.start}..${range.end}`
+        ? `complement(${start}..${end})`
+        : `${start}..${end}`
 
       if (range.end === pos) {
         // This range ends at the insertion point - insert goes RIGHT (after)
@@ -225,7 +228,6 @@ const editingAnnotation = ref(null)  // null = create mode, annotation object = 
 const extendModalVisible = ref(false)
 const extendModalDirection = ref('positive')
 const extendModalRangeIndex = ref(0)
-const extendModalHandleType = ref('end')  // 'start' or 'end'
 
 // Delete confirmation dialog state
 const deleteConfirmVisible = ref(false)
@@ -334,23 +336,6 @@ const selection = useSelection(editorState, graphics, eventBus)
 // This allows us to adjust annotation positions locally before server confirmation
 const localAnnotations = computed(() => targetDoc.value?.annotations ?? [])
 
-// Helper to convert a range to GenBank notation (1-based)
-function rangeToGenBank(range) {
-  // Convert from 0-based fenced to 1-based GenBank
-  // In fenced: 0..10 means bases at positions 0-9 (end exclusive)
-  // In GenBank: 1..10 means bases 1-10 inclusive
-  const start = range.start + 1
-  const end = range.end  // fenced end is exclusive, so this is the last base
-
-  const baseStr = `${start}..${end}`
-
-  // MINUS strand → complement(), NONE treated as PLUS
-  if (range.orientation === Orientation.MINUS) {
-    return `complement(${baseStr})`
-  }
-  return baseStr
-}
-
 // Computed property for selection status text displayed in the indicator
 const selectionStatusText = computed(() => {
   if (!selection.isSelected.value || !selection.domain.value) {
@@ -374,6 +359,10 @@ const selectionStatusText = computed(() => {
     // Single cursor - show "cursor between X and Y"
     const pos = ranges[0].start
     const seq = editorState.sequence.value
+
+    if (seq.length === 0) {
+      return 'cursor in empty sequence'
+    }
 
     if (pos === 0) {
       // Cursor at start
@@ -628,26 +617,15 @@ const sequenceLayerRef = ref(null)
 // In circular mode, collect from CircularView; in linear mode, from linear layers
 const collectedConfigItems = computed(() => {
   if (viewMode.value === 'circular') {
-    return [
-      ...(circularViewRef.value?.configItems ?? []),
-      ...(translationLayerRef.value?.configItems ?? [])
-    ]
+    return collectLayerConfigItems(circularViewRef.value, translationLayerRef.value)
   }
-  return [
-    ...(annotationLayerRef.value?.configItems ?? []),
-    ...(translationLayerRef.value?.configItems ?? [])
-  ]
+  return collectLayerConfigItems(annotationLayerRef.value, translationLayerRef.value)
 })
 
 // Save colors to localStorage whenever they change
 watch(annotationColors, (newColors) => {
   setStorageItem(COLORS_KEY, JSON.stringify(newColors))
 }, { deep: true })
-
-// Get color for an annotation type, falling back to default
-function getTypeColor(type) {
-  return annotationColors.value[type] || annotationColors.value._default
-}
 
 // Convert plain annotation objects to Annotation class instances
 // Note: Filtering by hidden types is now handled by AnnotationLayer internally
@@ -816,14 +794,6 @@ async function handleAnnotationCreate(data) {
   annotationModalOpen.value = false
 }
 
-// Computed: whether we have a non-zero selection for annotation creation
-// All ranges must be non-zero length
-const hasNonZeroSelection = computed(() => {
-  const domain = selection.domain.value
-  if (!domain || domain.ranges.length === 0) return false
-  return domain.ranges.every(r => r.start !== r.end)
-})
-
 // Provide state to child components
 provide('editorState', editorState)
 provide('graphics', graphics)
@@ -977,21 +947,9 @@ const measureRef = ref(null)
 const selectionLayerRef = ref(null)
 
 // Zoom levels for selector
-const zoomLevels = [50, 75, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
-const zoomStrings = ['50bp', '75bp', '100bp', '200bp', '500bp', '1kbp', '2kbp', '5kbp', '10kbp', '20kbp', '50kbp', '100kbp']
-
 // Available zoom options based on sequence length
 const availableZooms = computed(() => {
-  const len = editorState.sequenceLength.value
-  if (len === 0) return zoomLevels.map((z, i) => ({ value: z, label: zoomStrings[i] }))
-
-  const options = []
-  for (let i = 0; i < zoomLevels.length && zoomLevels[i] < len; i++) {
-    options.push({ value: zoomLevels[i], label: zoomStrings[i] })
-  }
-  // Add "full" option
-  options.push({ value: len, label: 'full' })
-  return options
+  return getAvailableZooms(editorState.sequenceLength.value)
 })
 
 // SVG dimensions
@@ -1000,35 +958,14 @@ const svgHeight = computed(() => {
 })
 
 // Cursor position helpers
-const cursorLine = computed(() => {
-  return editorState.positionToLine(editorState.cursor.value)
-})
-
-const cursorX = computed(() => {
-  const posInLine = editorState.positionInLine(editorState.cursor.value)
-  return graphics.metrics.value.lmargin + posInLine * graphics.metrics.value.charWidth
-})
-
-const cursorY = computed(() => {
-  return graphics.getLineY(cursorLine.value)
-})
-
 // Measure font metrics on mount
 function measureFont() {
-  if (!measureRef.value) return
-
-  const bbox = measureRef.value.getBBox()
-  if (bbox.width > 0) {
-    // Measure width of 50 characters to get average (matches OGP teststring)
-    graphics.setFontMetrics(bbox.width / 50, bbox.height)
-  }
+  measureEditorFont(measureRef.value, graphics)
 }
 
 // Handle container resize
 function handleResize() {
-  if (!containerRef.value) return
-  const rect = containerRef.value.getBoundingClientRect()
-  graphics.setContainerSize(rect.width, rect.height)
+  resizeEditorGraphics(containerRef.value, graphics)
 }
 
 // Context menu state
@@ -1237,16 +1174,14 @@ function handleHandleContextMenu(data) {
   contextMenuVisible.value = true
 }
 
-function openExtendModal(rangeIndex, handleType, direction) {
+function openExtendModal(rangeIndex, _handleType, direction) {
   extendModalRangeIndex.value = rangeIndex
-  extendModalHandleType.value = handleType
   extendModalDirection.value = direction
   extendModalVisible.value = true
 }
 
 function handleExtendSubmit(bases) {
   const rangeIndex = extendModalRangeIndex.value
-  const handleType = extendModalHandleType.value
   const direction = extendModalDirection.value
   const domain = selection.domain.value
 
@@ -1297,8 +1232,6 @@ function handleExtendSubmit(bases) {
     }
   }
 
-  // Trigger reactivity
-  selection.domain.value = selection.domain.value
 
   extendModalVisible.value = false
 }
@@ -1565,13 +1498,6 @@ function handleZoomChange(event) {
 }
 
 // Clear native browser text selection (SVG text selection is hard to disable via CSS)
-function clearNativeSelection() {
-  const selection = window.getSelection()
-  if (selection) {
-    selection.removeAllRanges()
-  }
-}
-
 // Copy/Cut handlers
 function getSelectedSequenceText() {
   const domain = selection.domain.value

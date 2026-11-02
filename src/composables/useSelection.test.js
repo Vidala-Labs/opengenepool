@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { useSelection, SelectionDomain } from './useSelection.js'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics } from './useGraphics.js'

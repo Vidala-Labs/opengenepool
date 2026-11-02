@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import { ref, effectScope, nextTick } from 'vue'
+import { ref, effectScope } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { useAlignmentRunner, canUseWorker } from './useAlignmentRunner.js'
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { useEditorState } from './useEditorState.js'
 import { useGraphics, GraphicsSpan, Shell, layoutLine, sortByWidth } from './useGraphics.js'
 import { Range, Orientation } from '../utils/dna.js'
@@ -175,6 +175,20 @@ describe('useGraphics', () => {
       expect(graphics.getLineY(0)).toBe(34)
       expect(graphics.getLineY(1)).toBe(74)
       expect(graphics.getLineY(2)).toBe(114)
+    })
+
+    it('avoids rescanning all earlier line heights for every rendered line', () => {
+      const { editorState, graphics } = createGraphics()
+      const lineCount = 100
+      editorState.setSequence('A'.repeat(lineCount * 50))
+      editorState.setZoom(50)
+      const get = vi.spyOn(graphics.lineExtraHeight.value, 'get')
+
+      for (let line = 0; line < lineCount; line++) {
+        graphics.getLineY(line)
+      }
+
+      expect(get.mock.calls.length).toBeLessThan(lineCount * 3)
     })
   })
 
