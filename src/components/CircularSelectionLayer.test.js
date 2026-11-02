@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CircularSelectionLayer from './CircularSelectionLayer.vue'
 import { useEditorState } from '../composables/useEditorState.js'
@@ -63,6 +63,89 @@ describe('CircularSelectionLayer', () => {
 
       const cursors = wrapper.findAll('.selection.cursor')
       expect(cursors).toHaveLength(1)
+    })
+  })
+
+  describe('wrapped selection dragging', () => {
+    it.each([
+      {
+        label: 'forward range 2500..2600 dragged across the end to 100',
+        start: 2499,
+        end: 2600,
+        orientation: Orientation.PLUS,
+        handle: 'end',
+        draggedTo: 100,
+        expectedRanges: [[2499, 2686], [0, 100]],
+        expectedLengths: [187, 100]
+      },
+      {
+        label: 'forward range 10..110 dragged across the start to 2600',
+        start: 10,
+        end: 110,
+        orientation: Orientation.PLUS,
+        handle: 'start',
+        draggedTo: 2600,
+        expectedRanges: [[2600, 2686], [0, 110]],
+        expectedLengths: [86, 110]
+      },
+      {
+        label: 'reverse range 2500..2600 dragged across the end to 100',
+        start: 2499,
+        end: 2600,
+        orientation: Orientation.MINUS,
+        handle: 'end',
+        draggedTo: 100,
+        expectedRanges: [[0, 100], [2499, 2686]],
+        expectedLengths: [100, 187]
+      },
+      {
+        label: 'reverse range 10..110 dragged across the start to 2600',
+        start: 10,
+        end: 110,
+        orientation: Orientation.MINUS,
+        handle: 'start',
+        draggedTo: 2600,
+        expectedRanges: [[0, 110], [2600, 2686]],
+        expectedLengths: [110, 86]
+      }
+    ])('keeps both wrapped segments as Ranges for $label', async ({
+      start,
+      end,
+      orientation,
+      handle,
+      draggedTo,
+      expectedRanges,
+      expectedLengths
+    }) => {
+      const wrapper = createWrapper({ sequenceLength: 2686 })
+      const selection = wrapper.vm.selection
+      selection.select([new Range(start, end, orientation)])
+      await wrapper.vm.$nextTick()
+
+      const circularSvg = {
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 })
+      }
+      vi.spyOn(document, 'querySelector').mockReturnValue(circularSvg)
+      vi.spyOn(wrapper.vm.circularGraphics, 'mouseToPosition').mockReturnValue(draggedTo)
+
+      const handleElement = wrapper.find(`[data-range-index="0"][data-handle-type="${handle}"]`)
+      await handleElement.trigger('mousedown', {
+        button: 0,
+        preventDefault: () => {},
+        stopPropagation: () => {}
+      })
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 400, clientY: 300 }))
+      await wrapper.vm.$nextTick()
+
+      const ranges = selection.domain.value.ranges
+      expect(ranges).toHaveLength(2)
+      expect(ranges.every(range => range instanceof Range)).toBe(true)
+      expect(ranges.map(range => range.length)).toEqual(expectedLengths)
+      expect(ranges.map(range => [range.start, range.end])).toEqual(expectedRanges)
+
+      window.dispatchEvent(new MouseEvent('mouseup'))
+      vi.restoreAllMocks()
+      wrapper.unmount()
     })
   })
 
@@ -171,11 +254,7 @@ describe('CircularSelectionLayer', () => {
 
       // Create a wrapped selection: 4500..5000 + 0..500
       selection.select([new Range(4500, 5000)])
-      selection.domain.value.ranges.push({
-        start: 0,
-        end: 500,
-        orientation: 1
-      })
+      selection.domain.value.ranges.push(new Range(0, 500, Orientation.PLUS))
 
       await wrapper.vm.$nextTick()
 
@@ -257,11 +336,7 @@ describe('CircularSelectionLayer', () => {
 
       // Create two forward strand ranges: [10..20] (range 0) and [30..50] (range 1)
       selection.select([new Range(10, 20)])
-      selection.domain.value.ranges.push({
-        start: 30,
-        end: 50,
-        orientation: 1  // PLUS
-      })
+      selection.domain.value.ranges.push(new Range(30, 50, Orientation.PLUS))
 
       await wrapper.vm.$nextTick()
       expect(selection.domain.value.ranges.length).toBe(2)
@@ -288,8 +363,8 @@ describe('CircularSelectionLayer', () => {
       wrapper.vm.isWrapped = true
       wrapper.vm.wrapDirection = 'counterclockwise'
 
-      const highRange = { start: pos, end: seqLen, orientation: originalOrientation }
-      const lowRange = { start: 0, end: anchor, orientation: originalOrientation }
+      const highRange = new Range(pos, seqLen, originalOrientation)
+      const lowRange = new Range(0, anchor, originalOrientation)
 
       const primaryRange = ranges[rangeIndex]
       primaryRange.start = highRange.start
@@ -324,11 +399,7 @@ describe('CircularSelectionLayer', () => {
 
       // Create two reverse strand ranges: (10..20) (range 0) and (30..50) (range 1)
       selection.select([new Range(10, 20, Orientation.MINUS)])  // MINUS strand
-      selection.domain.value.ranges.push({
-        start: 30,
-        end: 50,
-        orientation: -1  // MINUS
-      })
+      selection.domain.value.ranges.push(new Range(30, 50, Orientation.MINUS))
 
       await wrapper.vm.$nextTick()
       expect(selection.domain.value.ranges.length).toBe(2)
@@ -353,8 +424,8 @@ describe('CircularSelectionLayer', () => {
       wrapper.vm.wrapDirection = 'counterclockwise'
 
       // For MINUS strand: low range first, high range second
-      const highRange = { start: pos, end: seqLen, orientation: originalOrientation }
-      const lowRange = { start: 0, end: anchor, orientation: originalOrientation }
+      const highRange = new Range(pos, seqLen, originalOrientation)
+      const lowRange = new Range(0, anchor, originalOrientation)
 
       const primaryRange = ranges[rangeIndex]
       // For reverse: low range is primary
@@ -391,16 +462,8 @@ describe('CircularSelectionLayer', () => {
 
       // Create mixed ranges: [10..20] PLUS (range 0), (30..50) MINUS (range 1), [60..80] PLUS (range 2)
       selection.select([new Range(10, 20)])
-      selection.domain.value.ranges.push({
-        start: 30,
-        end: 50,
-        orientation: -1  // MINUS
-      })
-      selection.domain.value.ranges.push({
-        start: 60,
-        end: 80,
-        orientation: 1  // PLUS
-      })
+      selection.domain.value.ranges.push(new Range(30, 50, Orientation.MINUS))
+      selection.domain.value.ranges.push(new Range(60, 80, Orientation.PLUS))
 
       await wrapper.vm.$nextTick()
       expect(selection.domain.value.ranges.length).toBe(3)
@@ -424,8 +487,8 @@ describe('CircularSelectionLayer', () => {
       wrapper.vm.isWrapped = true
       wrapper.vm.wrapDirection = 'counterclockwise'
 
-      const highRange = { start: pos, end: seqLen, orientation: originalOrientation }
-      const lowRange = { start: 0, end: anchor, orientation: originalOrientation }
+      const highRange = new Range(pos, seqLen, originalOrientation)
+      const lowRange = new Range(0, anchor, originalOrientation)
 
       const primaryRange = ranges[rangeIndex]
       primaryRange.start = highRange.start
@@ -466,16 +529,8 @@ describe('CircularSelectionLayer', () => {
       // Create three ranges: [100..200], [10..20], [300..400]
       // We'll wrap the middle one (range 1: [10..20])
       selection.select([new Range(100, 200)])
-      selection.domain.value.ranges.push({
-        start: 10,
-        end: 20,
-        orientation: 1
-      })
-      selection.domain.value.ranges.push({
-        start: 300,
-        end: 400,
-        orientation: 1
-      })
+      selection.domain.value.ranges.push(new Range(10, 20, Orientation.PLUS))
+      selection.domain.value.ranges.push(new Range(300, 400, Orientation.PLUS))
 
       await wrapper.vm.$nextTick()
       expect(selection.domain.value.ranges.length).toBe(3)
@@ -502,8 +557,8 @@ describe('CircularSelectionLayer', () => {
       wrapper.vm.isWrapped = true
       wrapper.vm.wrapDirection = 'counterclockwise'
 
-      const highRange = { start: pos, end: seqLen, orientation: originalOrientation }
-      const lowRange = { start: 0, end: anchor, orientation: originalOrientation }
+      const highRange = new Range(pos, seqLen, originalOrientation)
+      const lowRange = new Range(0, anchor, originalOrientation)
 
       const primaryRange = ranges[rangeIndex]
       primaryRange.start = highRange.start
@@ -540,11 +595,7 @@ describe('CircularSelectionLayer', () => {
       // Create two ranges: [30..50], [10..20]
       // Wrapping the last range should work (this is the case that works by accident)
       selection.select([new Range(30, 50)])
-      selection.domain.value.ranges.push({
-        start: 10,
-        end: 20,
-        orientation: 1
-      })
+      selection.domain.value.ranges.push(new Range(10, 20, Orientation.PLUS))
 
       await wrapper.vm.$nextTick()
       expect(selection.domain.value.ranges.length).toBe(2)
@@ -571,8 +622,8 @@ describe('CircularSelectionLayer', () => {
       wrapper.vm.isWrapped = true
       wrapper.vm.wrapDirection = 'counterclockwise'
 
-      const highRange = { start: pos, end: seqLen, orientation: originalOrientation }
-      const lowRange = { start: 0, end: anchor, orientation: originalOrientation }
+      const highRange = new Range(pos, seqLen, originalOrientation)
+      const lowRange = new Range(0, anchor, originalOrientation)
 
       const primaryRange = ranges[rangeIndex]
       primaryRange.start = highRange.start

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, inject, ref, onMounted, onUnmounted } from 'vue'
-import { Orientation } from '../utils/dna.js'
+import { Orientation, Range } from '../utils/dna.js'
 import { getArcPath, polarToCartesian } from '../utils/circular.js'
 import { selectionMenuItems } from './menus/selectionMenuContributor.js'
 
@@ -356,8 +356,8 @@ function handleDragMove(event) {
           const ranges = selection.domain.value.ranges
           const primaryRange = ranges[rangeIndex]
 
-          const highRange = { start: anchor, end: seqLen, orientation: originalOrientation }
-          const lowRange = { start: 0, end: pos, orientation: originalOrientation }
+          const highRange = new Range(anchor, seqLen, originalOrientation)
+          const lowRange = new Range(0, pos, originalOrientation)
 
           // For cut/paste ordering:
           // - FORWARD reads high→origin→low, so high range should be first
@@ -385,8 +385,8 @@ function handleDragMove(event) {
           const ranges = selection.domain.value.ranges
           const primaryRange = ranges[rangeIndex]
 
-          const lowRange = { start: 0, end: anchor, orientation: originalOrientation }
-          const highRange = { start: pos, end: seqLen, orientation: originalOrientation }
+          const lowRange = new Range(0, anchor, originalOrientation)
+          const highRange = new Range(pos, seqLen, originalOrientation)
 
           // For cut/paste ordering:
           // - FORWARD reads high→origin→low, so high range should be first
